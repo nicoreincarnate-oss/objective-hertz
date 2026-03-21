@@ -27,6 +27,7 @@ SCHEDULES = [
     Schedule("process_invoices", 7200, "Process invoices every 2 hours"),
     Schedule("daily_reflection", 86400, "Daily learning reflection at end of day"),
     Schedule("weekly_strategy", 604800, "Weekly strategy review"),
+    Schedule("revenue_expansion_review", 86400, "Review ROI-positive expansion ideas daily"),
     Schedule("health_check", 300, "Health check every 5 minutes"),
     Schedule("budget_check", 3600, "Budget enforcement hourly"),
     Schedule("morning_briefing", 86400, "Morning briefing to Nico at 7 AM"),

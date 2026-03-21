@@ -106,7 +106,9 @@ class PricingConfig:
     """Starting prices — AI adjusts based on market research."""
     website_5page: int = _env_int("PRICE_WEBSITE_5PAGE", 299)
     landing_page: int = _env_int("PRICE_LANDING_PAGE", 149)
-    hosting_monthly: int = _env_int("PRICE_HOSTING_MONTHLY", 29)
+    hosting_monthly: int = _env_int("PRICE_HOSTING_MONTHLY", 52)
+    receptionist_monthly: int = _env_int("PRICE_RECEPTIONIST_MONTHLY", 398)
+    receptionist_vendor_cost: int = _env_int("COST_RECEPTIONIST_VENDOR", 79)
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ from titan.pipeline.build_site import build_sites
 from titan.pipeline.deploy_site import deploy_sites
 from titan.pipeline.invoice import process_invoices
 from titan.memory import daily_reflection, weekly_strategy_review
+from titan.expansion import review_revenue_expansion
 from titan.training import run_lora_training
 from perseus.agent_registry import heartbeat
 
@@ -68,6 +69,7 @@ TASK_HANDLERS = {
     "sync_analytics": sync_campaign_analytics,
     "daily_reflection": daily_reflection,
     "weekly_strategy": weekly_strategy_review,
+    "revenue_expansion_review": review_revenue_expansion,
     "lora_training": run_lora_training,
     "health_check": _handle_health_check,
     "budget_check": _handle_budget_check,

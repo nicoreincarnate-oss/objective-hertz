@@ -37,13 +37,31 @@ Perseus decides everything except:
 3. Enterprise deals ($50K+)
 4. First 10 sales (Nico approves, then full autonomy)
 
+## Revenue-Driven Expansion
+
+Perseus only expands itself when expansion is tied to money.
+
+- Detect a real bottleneck hurting revenue, margin, or throughput
+- Propose the smallest capability that could fix it
+- Gate it on projected ROI and monthly experiment budget
+- Shadow-test it on a slice of traffic first
+- Keep it only if the shadow beats the baseline
+
+In this build, the first live rollout surface is lead discovery skills. New skill opportunities are tracked in `revenue_expansion_opportunities`, and discovery skills can be shadowed/adopted automatically when they outperform the baseline.
+
+For bigger expansions:
+- `tool` and `agent` opportunities do not self-edit the repo directly from Titan
+- they must go through ClawdBot using installed OpenClaw/Codex/Claude-compatible builder skills
+- Titan scores the opportunity, ClawdBot produces the build blueprint
+
 ## Services
 
 | Service | Price | Notes |
 |---------|-------|-------|
 | 5-page website | $299 | AI-built via v0.dev API |
 | Landing page | $149 | Single-page variant |
-| Hosting | $29/mo | Managed via Netlify/Vercel |
+| Hosting | $52/mo | Managed via Netlify/Vercel |
+| AI receptionist | $398/mo | Optional recurring upsell |
 
 ## Budget: $800/month
 

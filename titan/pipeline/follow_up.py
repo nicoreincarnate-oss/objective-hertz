@@ -198,7 +198,7 @@ Industry: {lead.get('research_summary', 'unknown')[:200]}
 
 Answer YES or NO with one sentence reasoning."""
 
-    result = await llm.generate(prompt, model="fast", max_tokens=50, temperature=0.3)
+    result = await llm.generate(prompt, model="local-small", max_tokens=50, temperature=0.3)
     return "yes" in result.lower()
 
 

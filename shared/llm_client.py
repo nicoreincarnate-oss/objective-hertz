@@ -44,9 +44,10 @@ class LLMClient:
     ) -> str:
         """
         Generate text. Model choices:
-        - "auto": Claude Haiku for speed, downgrades to Ollama if budget is tight
-        - "fast": Claude Haiku (cheap, fast)
+        - "auto": local-first path for high-throughput work
+        - "fast": Ollama primary model (cheap, local, default fast path)
         - "smart": Claude Sonnet (best quality)
+        - "fast-remote": Claude Haiku (cheap remote fallback)
         - "local": Ollama primary model (free)
         - "local-small": Ollama secondary model (free)
 
@@ -59,22 +60,22 @@ class LLMClient:
             model = "fast"
 
         # Budget check — downgrade Claude to Ollama when needed
-        if model in ("fast", "smart"):
+        if model in ("fast-remote", "smart"):
             model = await self._budget_gate(model)
 
-        if model in ("fast", "smart"):
+        if model in ("fast-remote", "smart"):
             try:
                 result = await self._claude_generate(prompt, system, model, max_tokens, temperature)
-                await self._record_claude_spend(prompt, result, system, model)
+                await self._record_claude_spend(prompt, result, system, "fast" if model == "fast-remote" else model)
                 return result
             except Exception as e:
                 logger.warning(f"Claude API failed, falling back to Ollama: {e}")
                 return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
-        elif model in ("local", "local-small"):
+        elif model in ("fast", "local", "local-small"):
             return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
         else:
             try:
-                result = await self._claude_generate(prompt, system, "fast", max_tokens, temperature)
+                result = await self._claude_generate(prompt, system, "fast-remote", max_tokens, temperature)
                 await self._record_claude_spend(prompt, result, system, "fast")
                 return result
             except Exception as e:
@@ -99,7 +100,7 @@ class LLMClient:
                 logger.warning("Budget exceeded — forcing Ollama for all LLM calls")
                 return "local"
 
-            if percent_used >= config.budget.alert_threshold and requested_model == "fast":
+            if percent_used >= config.budget.alert_threshold and requested_model == "fast-remote":
                 # Over alert threshold — downgrade cheap calls to Ollama, keep "smart" on Claude
                 logger.info(f"Budget at {percent_used*100:.0f}% — downgrading fast calls to Ollama")
                 return "local"
@@ -141,7 +142,7 @@ class LLMClient:
         if not config.claude.api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")
 
-        model_id = config.claude.fast_model if model == "fast" else config.claude.primary_model
+        model_id = config.claude.fast_model if model == "fast-remote" else config.claude.primary_model
         messages = [{"role": "user", "content": prompt}]
 
         body = {
@@ -197,7 +198,7 @@ class LLMClient:
         """Quick classification using fast model."""
         cats = ", ".join(categories)
         prompt = f"Classify this text into exactly one category: [{cats}]\n\nText: {text}\n\nCategory:"
-        result = await self.generate(prompt, model="fast", max_tokens=50, temperature=0.0)
+        result = await self.generate(prompt, model="local-small", max_tokens=50, temperature=0.0)
         # Extract the category from the response
         result = result.strip().strip('"').strip("'")
         for cat in categories:

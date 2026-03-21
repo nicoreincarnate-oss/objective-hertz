@@ -48,6 +48,29 @@ def _format_event(event: dict) -> str:
         "memory_write_failed": lambda p: (
             f"Memory write degraded: {p.get('error', 'unknown')[:160]}"
         ),
+        "revenue_expansion_opportunity": lambda p: (
+            f"Expansion idea: {p.get('title', 'untitled')} "
+            f"({p.get('capability_type', '?')} {p.get('capability_name', '')}) "
+            f"ROI {p.get('expected_roi', 0)}"
+        ),
+        "revenue_expansion_shadow_started": lambda p: (
+            f"Shadow started for {p.get('skill', '?')} at {p.get('shadow_percent', 0)}%"
+        ),
+        "revenue_expansion_shadow_applied": lambda p: (
+            f"Shadow traffic routed to {p.get('skill', '?')} for opportunity #{p.get('opportunity_id', '?')}"
+        ),
+        "revenue_expansion_adopted": lambda p: (
+            f"Expansion adopted: {p.get('skill', '?')} (opportunity #{p.get('opportunity_id', '?')})"
+        ),
+        "revenue_expansion_rejected": lambda p: (
+            f"Expansion rejected: {p.get('skill', '?')} (opportunity #{p.get('opportunity_id', '?')})"
+        ),
+        "revenue_expansion_needs_builder": lambda p: (
+            f"Expansion needs ClawdBot builder path: {p.get('title', 'untitled')} — {p.get('reason', '')[:120]}"
+        ),
+        "revenue_expansion_blueprint_ready": lambda p: (
+            f"Expansion blueprint ready via {p.get('builder_skill', '?')} for opportunity #{p.get('opportunity_id', '?')}"
+        ),
         "emails_sent": lambda p: f"Sent {p.get('count', 0)} emails ({p.get('daily_total', 0)} today)",
         "lead_interested": lambda p: f"HOT LEAD interested! Client #{p.get('client_id', '?')}",
         "review_needed": lambda p: f"Review needed: {p.get('count', 1)} {p.get('type', 'items')}",

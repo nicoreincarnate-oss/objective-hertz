@@ -77,6 +77,7 @@ async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learn
     """Compose email using an installed skill."""
     lead_id = lead["id"]
     lang = lead.get("language", "en")
+    model = _compose_model_for_lead(lead)
 
     result = await execute_skill(
         skill_name,
@@ -95,7 +96,7 @@ What works: {learned_tips[:300]}
 
 Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}""",
         context={"lead_id": str(lead_id)},
-        model="fast",
+        model=model,
     )
 
     try:
@@ -122,6 +123,7 @@ async def _compose_one(lead: dict, soul_copy: str, learned_tips: str):
     lead_id = lead["id"]
     lang = lead.get("language", "en")
     lang_instruction = f"Write in {'Spanish' if lang == 'es' else 'English'}."
+    model = _compose_model_for_lead(lead)
 
     prompt = f"""You are Titan's email copywriter. Write a cold outreach email.
 
@@ -155,7 +157,7 @@ Return JSON:
     "personalization_note": "why this email is unique to them"
 }}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.8)
+    result = await llm.generate(prompt, model=model, temperature=0.8)
 
     try:
         start = result.find("{")
@@ -174,3 +176,9 @@ Return JSON:
 
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email for lead {lead_id}: {lead['business_name']}")
+
+
+def _compose_model_for_lead(lead: dict) -> str:
+    """Reserve smart composition for the leads most likely to pay."""
+    lead_score = float(lead.get("lead_score", 0) or 0)
+    return "smart" if lead_score >= 80 else "fast"

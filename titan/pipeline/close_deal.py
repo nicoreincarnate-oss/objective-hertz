@@ -196,7 +196,8 @@ Language: {'Spanish' if lead.get('language') == 'es' else 'English'}
 PRICING:
 - Professional 5-page website: $299
 - Includes: custom design, mobile responsive, SEO optimized, contact forms
-- Hosting available: $29/month
+- Hosting available: $52/month
+- Optional AI receptionist add-on: $398/month
 - Timeline: delivered within 5-7 business days
 
 Write a warm, professional proposal email. Under 200 words.

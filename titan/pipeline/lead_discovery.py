@@ -6,9 +6,10 @@ AI picks the best sources and learns what works.
 
 import json
 import logging
+import random
 from typing import Optional
 
-from shared.db import fetch_all, fetch_one, execute, emit_event
+from shared.db import fetch_all, fetch_one, execute, emit_event, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from shared.comms import request_task_result
@@ -44,6 +45,7 @@ async def discover_leads(batch_size: int = 20) -> list[int]:
     """
     strategy = await _get_discovery_strategy()
     source_plan = await _choose_discovery_sources(strategy, batch_size)
+    source_plan = await _apply_discovery_overrides(source_plan)
     new_lead_ids: list[int] = []
 
     for source_name in source_plan["source_order"]:
@@ -51,11 +53,22 @@ async def discover_leads(batch_size: int = 20) -> list[int]:
         if remaining <= 0:
             break
 
+        shadow_opportunity_id = (
+            source_plan.get("shadow_opportunity_id")
+            if source_name == source_plan.get("shadow_skill")
+            else None
+        )
+
         if source_name == "custom_firecrawl":
             discovered = await _discover_custom(remaining, strategy)
         else:
             logger.info(f"Using AI-selected discovery skill '{source_name}'")
-            discovered = await _discover_with_skill(source_name, remaining, strategy)
+            discovered = await _discover_with_skill(
+                source_name,
+                remaining,
+                strategy,
+                shadow_opportunity_id=shadow_opportunity_id,
+            )
 
         for lead_id in discovered:
             if lead_id not in new_lead_ids:
@@ -67,7 +80,13 @@ async def discover_leads(batch_size: int = 20) -> list[int]:
     return new_lead_ids
 
 
-async def _discover_with_skill(skill_name: str, batch_size: int, strategy: dict) -> list[int]:
+async def _discover_with_skill(
+    skill_name: str,
+    batch_size: int,
+    strategy: dict,
+    *,
+    shadow_opportunity_id: int | None = None,
+) -> list[int]:
     """Use an installed skill for lead discovery."""
     task_prompt = f"""Find {batch_size} businesses that don't have a website.
 Search queries: {json.dumps(strategy['search_queries'])}
@@ -106,6 +125,8 @@ For each business found, return JSON array:
         end = result.rfind("]") + 1
         businesses = json.loads(result[start:end]) if start >= 0 else []
         for biz in businesses[:batch_size]:
+            if shadow_opportunity_id:
+                biz["source_campaign"] = f"expansion:{shadow_opportunity_id}"
             lead_id = await _store_lead(biz)
             if lead_id:
                 new_lead_ids.append(lead_id)
@@ -126,6 +147,45 @@ For each business found, return JSON array:
             details={"skill": skill_name},
         )
     return new_lead_ids
+
+
+async def _apply_discovery_overrides(source_plan: dict) -> dict:
+    """Apply revenue expansion overrides after AI chooses the default source order."""
+    preferred_skill = str(await get_config("preferred_discovery_skill", "") or "").strip()
+    shadow_skill = str(await get_config("active_shadow_discovery_skill", "") or "").strip()
+    shadow_percent = int(await get_config("expansion_shadow_percent", 10) or 10)
+    shadow_opportunity_id = int(await get_config("active_shadow_opportunity_id", 0) or 0)
+
+    source_order = list(source_plan.get("source_order", []))
+
+    if preferred_skill and find_skill(preferred_skill):
+        source_order = [skill for skill in source_order if skill != preferred_skill]
+        source_order.insert(0, preferred_skill)
+
+    plan = {
+        **source_plan,
+        "source_order": source_order[:3],
+    }
+
+    if shadow_skill and shadow_opportunity_id and shadow_percent > 0 and find_skill(shadow_skill):
+        roll = random.randint(1, 100)
+        if roll <= shadow_percent:
+            source_order = [skill for skill in plan["source_order"] if skill != shadow_skill]
+            source_order.insert(0, shadow_skill)
+            plan["source_order"] = source_order[:3]
+            plan["shadow_skill"] = shadow_skill
+            plan["shadow_opportunity_id"] = shadow_opportunity_id
+            await emit_event(
+                "revenue_expansion_shadow_applied",
+                {
+                    "opportunity_id": shadow_opportunity_id,
+                    "skill": shadow_skill,
+                    "roll": roll,
+                    "shadow_percent": shadow_percent,
+                },
+            )
+
+    return plan
 
 
 async def _discover_custom(batch_size: int, strategy: dict) -> list[int]:
@@ -343,6 +403,7 @@ async def _store_lead(business: dict) -> Optional[int]:
     email = business.get("email", "").strip()
     name = business.get("business_name", business.get("name", "")).strip()
     source = business.get("source", "firecrawl")
+    source_campaign = business.get("source_campaign", "")
 
     if not name and not email:
         return None  # Need at least a name or email
@@ -362,8 +423,8 @@ async def _store_lead(business: dict) -> Optional[int]:
 
     row = await fetch_one(
         """INSERT INTO clients (business_name, contact_name, email, phone, industry,
-                               website_url, status, country, city, source)
-           VALUES (%s, %s, %s, %s, %s, %s, 'discovered', %s, %s, %s)
+                               website_url, status, country, city, source, source_campaign)
+           VALUES (%s, %s, %s, %s, %s, %s, 'discovered', %s, %s, %s, %s)
            RETURNING id""",
         (
             name,
@@ -375,6 +436,7 @@ async def _store_lead(business: dict) -> Optional[int]:
             business.get("country", ""),
             business.get("city", ""),
             source,
+            source_campaign,
         ),
     )
     return row["id"] if row else None
