@@ -1,0 +1,94 @@
+:root {
+    --primary: #01696F;
+    --primary-dark: #0C4E54;
+    --bg: #F7F6F2;
+    --text: #28251D;
+    --text-muted: #7A7974;
+    --surface: #F9F8F5;
+    --border: #D4D1CA;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+}
+
+.hero {
+    background: var(--primary-dark);
+    color: white;
+    padding: 1rem 2rem 4rem;
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+}
+
+nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0;
+}
+
+nav .logo { font-size: 1.5rem; font-weight: 700; }
+nav ul { list-style: none; display: flex; gap: 2rem; }
+nav a { color: white; text-decoration: none; }
+
+.hero-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 700px;
+}
+
+.hero-content h1 { font-size: 3rem; line-height: 1.1; margin-bottom: 1rem; }
+.hero-content p { font-size: 1.25rem; opacity: 0.9; margin-bottom: 2rem; }
+
+.cta-button {
+    display: inline-block;
+    background: white;
+    color: var(--primary-dark);
+    padding: 0.75rem 2rem;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 600;
+    width: fit-content;
+}
+
+section { padding: 4rem 2rem; max-width: 1000px; margin: 0 auto; }
+section h2 { font-size: 2rem; margin-bottom: 1.5rem; color: var(--primary-dark); }
+
+.services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.service-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    border-radius: 8px;
+}
+
+.service-card h3 { color: var(--primary); margin-bottom: 0.5rem; }
+
+.contact { background: var(--surface); }
+.contact p { margin-bottom: 0.5rem; }
+.contact a { color: var(--primary); }
+
+footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+@media (max-width: 768px) {
+    .hero-content h1 { font-size: 2rem; }
+    nav ul { display: none; }
+}

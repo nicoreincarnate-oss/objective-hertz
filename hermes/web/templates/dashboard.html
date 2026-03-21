@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perseus Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <meta http-equiv="refresh" content="30">
+</head>
+<body>
+    <header>
+        <h1>PERSEUS</h1>
+        <span class="badge {{ 'review' if review_mode else 'autonomous' }}">
+            {{ 'REVIEW MODE' if review_mode else 'AUTONOMOUS' }}
+        </span>
+    </header>
+
+    <div class="grid">
+        <!-- Revenue -->
+        <div class="card revenue">
+            <h2>Revenue</h2>
+            <div class="big-number">${{ "%.2f"|format(total_revenue) }}</div>
+            <p>Pending: ${{ "%.2f"|format(pending_revenue) }}</p>
+            <p>Sales completed: {{ sales_completed }}</p>
+        </div>
+
+        <!-- Email Stats -->
+        <div class="card">
+            <h2>Emails</h2>
+            <div class="big-number">{{ emails_today }}</div>
+            <p>Sent today</p>
+            <p>This week: {{ emails_week }}</p>
+        </div>
+
+        <!-- Pipeline -->
+        <div class="card">
+            <h2>Pipeline</h2>
+            <div class="big-number">{{ total_leads }}</div>
+            <p>Total leads</p>
+            <p>Interested: {{ interested }} | Closed: {{ closed }}</p>
+        </div>
+
+        <!-- Review Queue -->
+        <div class="card {{ 'alert' if pending_review > 0 else '' }}">
+            <h2>Review Queue</h2>
+            <div class="big-number">{{ pending_review }}</div>
+            <p>Items awaiting approval</p>
+        </div>
+    </div>
+
+    <!-- Pipeline Breakdown -->
+    <div class="card wide">
+        <h2>Pipeline Breakdown</h2>
+        <div class="pipeline-bar">
+            {% for status, count in pipeline.items() %}
+            <div class="stage" title="{{ status }}: {{ count }}">
+                <span class="label">{{ status }}</span>
+                <span class="count">{{ count }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Recent Events -->
+    <div class="card wide">
+        <h2>Recent Events</h2>
+        <table>
+            <thead>
+                <tr><th>Time</th><th>Event</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+                {% for event in events[:15] %}
+                <tr>
+                    <td>{{ event.created_at.strftime('%H:%M') if event.created_at else '' }}</td>
+                    <td><code>{{ event.event_type }}</code></td>
+                    <td>{{ event.payload | string | truncate(80) }}</td>
+                </tr>
+                {% endfor %}
+                {% if not events %}
+                <tr><td colspan="3">No events yet. Titan is warming up.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        Perseus &mdash; Autonomous AI Revenue System | Auto-refreshes every 30s
+    </footer>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} — {{tagline}}</title>
+    <meta name="description" content="{{meta_description}}">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="hero">
+        <nav>
+            <div class="logo">{{business_name}}</div>
+            <ul>
+                <li><a href="#about">About</a></li>
+                <li><a href="#services">Services</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </nav>
+        <div class="hero-content">
+            <h1>{{headline}}</h1>
+            <p>{{subheadline}}</p>
+            <a href="#contact" class="cta-button">{{cta_text}}</a>
+        </div>
+    </header>
+
+    <section id="about" class="about">
+        <h2>About {{business_name}}</h2>
+        <p>{{about_text}}</p>
+    </section>
+
+    <section id="services" class="services">
+        <h2>Our Services</h2>
+        <div class="services-grid">
+            {{#services}}
+            <div class="service-card">
+                <h3>{{name}}</h3>
+                <p>{{description}}</p>
+            </div>
+            {{/services}}
+        </div>
+    </section>
+
+    <section id="contact" class="contact">
+        <h2>Contact Us</h2>
+        <p>{{address}}</p>
+        <p>Phone: <a href="tel:{{phone}}">{{phone}}</a></p>
+        <p>Email: <a href="mailto:{{email}}">{{email}}</a></p>
+    </section>
+
+    <footer>
+        <p>&copy; {{year}} {{business_name}}. All rights reserved.</p>
+    </footer>
+
+    <script src="base.js"></script>
+</body>
+</html>

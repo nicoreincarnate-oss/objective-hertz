@@ -1,0 +1,18 @@
+# Perseus core dependencies
+python-dotenv>=1.0.0
+httpx>=0.27.0
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.2.0
+
+# Hermes (Telegram bot)
+python-telegram-bot>=21.0
+
+# Web dashboard
+fastapi>=0.115.0
+uvicorn>=0.32.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+
+# Note: these are NOT needed if using Claude Max (which provides API access)
+# Install only if using direct API calls:
+# anthropic>=0.40.0

@@ -1,0 +1,102 @@
+networks:
+  perseus-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  n8n_data:
+  mem0_data:
+
+services:
+  postgres:
+    image: postgres:16.2-alpine
+    container_name: perseus-postgres
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-perseus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-perseus_secure_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-perseus}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-perseus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.8.4
+    container_name: perseus-qdrant
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':18BD' /proc/net/tcp /proc/net/tcp6"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  mem0:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile.mem0_compat
+    container_name: perseus-mem0
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "8888:8888"
+    environment:
+      OPENAI_BASE_URL: http://host.docker.internal:11434/v1
+      OPENAI_API_KEY: ollama
+      LLM_MODEL: qwen2.5:14b-instruct-q4_K_M
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: perseus
+      MEM0_HISTORY_DB_PATH: /data/history.db
+      MEM0_EMBEDDING_DIMS: 768
+    volumes:
+      - mem0_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # CrewAI removed — replaced by Perseus/Titan/Hermes native daemons
+
+  n8n:
+    image: n8nio/n8n:1.30.1
+    container_name: perseus-n8n
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-perseus}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-perseus_n8n_2026}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678}
+      GENERIC_TIMEZONE: America/Mazatlan
+    volumes:
+      - n8n_data:/home/node/.n8n
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:5678/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # Pinchtab removed — not needed in new architecture

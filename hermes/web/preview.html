@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perseus Dashboard</title>
+    <style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #fff;
+}
+
+.badge {
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.badge.review { background: #f59e0b; color: #000; }
+.badge.autonomous { background: #10b981; color: #000; }
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.card {
+    background: #151515;
+    border: 1px solid #252525;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.card.wide { grid-column: 1 / -1; }
+.card.revenue { border-color: #10b981; }
+.card.alert { border-color: #f59e0b; }
+
+.card h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #888;
+    margin-bottom: 0.75rem;
+}
+
+.big-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+}
+
+.card p { color: #888; font-size: 0.9rem; }
+
+.pipeline-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.stage {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+    min-width: 80px;
+}
+
+.stage .label {
+    display: block;
+    font-size: 0.7rem;
+    color: #888;
+    text-transform: uppercase;
+}
+
+.stage .count {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+
+th, td {
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid #222;
+    font-size: 0.85rem;
+}
+
+th { color: #888; font-weight: 600; }
+td code {
+    background: #1a1a1a;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    color: #10b981;
+}
+
+footer {
+    margin-top: 2rem;
+    text-align: center;
+    color: #555;
+    font-size: 0.8rem;
+}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>PERSEUS</h1>
+        <span class="badge review">REVIEW MODE</span>
+    </header>
+
+    <div class="grid">
+        <div class="card revenue">
+            <h2>Revenue</h2>
+            <div class="big-number">$897.00</div>
+            <p>Pending: $598.00</p>
+            <p>Sales completed: 3</p>
+        </div>
+
+        <div class="card">
+            <h2>Emails</h2>
+            <div class="big-number">247</div>
+            <p>Sent today</p>
+            <p>This week: 1,482</p>
+        </div>
+
+        <div class="card">
+            <h2>Pipeline</h2>
+            <div class="big-number">1,847</div>
+            <p>Total leads</p>
+            <p>Interested: 23 | Closed: 3</p>
+        </div>
+
+        <div class="card alert">
+            <h2>Review Queue</h2>
+            <div class="big-number">5</div>
+            <p>Items awaiting approval</p>
+        </div>
+    </div>
+
+    <div class="card wide">
+        <h2>Pipeline Breakdown</h2>
+        <div class="pipeline-bar">
+            <div class="stage"><span class="label">discovered</span><span class="count">892</span></div>
+            <div class="stage"><span class="label">researched</span><span class="count">534</span></div>
+            <div class="stage"><span class="label">email_sent</span><span class="count">312</span></div>
+            <div class="stage"><span class="label">followed_up</span><span class="count">64</span></div>
+            <div class="stage"><span class="label">replied</span><span class="count">18</span></div>
+            <div class="stage"><span class="label">interested</span><span class="count">23</span></div>
+            <div class="stage"><span class="label">demo_built</span><span class="count">8</span></div>
+            <div class="stage"><span class="label">proposal_sent</span><span class="count">5</span></div>
+            <div class="stage"><span class="label">closed</span><span class="count">3</span></div>
+            <div class="stage"><span class="label">deployed</span><span class="count">2</span></div>
+            <div class="stage"><span class="label">paid</span><span class="count">1</span></div>
+        </div>
+    </div>
+
+    <div class="card wide">
+        <h2>Recent Events</h2>
+        <table>
+            <thead>
+                <tr><th>Time</th><th>Event</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>14:32</td><td><code>payment_received</code></td><td>$299.00 from Austin Dental Group</td></tr>
+                <tr><td>14:15</td><td><code>site_deployed</code></td><td>austin-dental.netlify.app deployed</td></tr>
+                <tr><td>13:48</td><td><code>deal_closed</code></td><td>Sale #3 — Austin Dental Group</td></tr>
+                <tr><td>12:30</td><td><code>lead_interested</code></td><td>Client #847 replied with interest</td></tr>
+                <tr><td>12:15</td><td><code>review_needed</code></td><td>5 email drafts pending approval</td></tr>
+                <tr><td>11:02</td><td><code>emails_sent</code></td><td>Sent 125 emails (247 today)</td></tr>
+                <tr><td>10:30</td><td><code>leads_discovered</code></td><td>Found 42 new leads via apify-lead-generation</td></tr>
+                <tr><td>09:15</td><td><code>emails_sent</code></td><td>Sent 122 emails (122 today)</td></tr>
+                <tr><td>07:00</td><td><code>morning_briefing</code></td><td>Daily briefing sent to Telegram</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer>
+        Perseus &mdash; Autonomous AI Revenue System | Auto-refreshes every 30s
+    </footer>
+</body>
+</html>

@@ -1,0 +1,129 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #fff;
+}
+
+.badge {
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.badge.review { background: #f59e0b; color: #000; }
+.badge.autonomous { background: #10b981; color: #000; }
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.card {
+    background: #151515;
+    border: 1px solid #252525;
+    border-radius: 8px;
+    padding: 1.5rem;
+}
+
+.card.wide { grid-column: 1 / -1; }
+.card.revenue { border-color: #10b981; }
+.card.alert { border-color: #f59e0b; }
+
+.card h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #888;
+    margin-bottom: 0.75rem;
+}
+
+.big-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+}
+
+.card p { color: #888; font-size: 0.9rem; }
+
+.pipeline-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.stage {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+    min-width: 80px;
+}
+
+.stage .label {
+    display: block;
+    font-size: 0.7rem;
+    color: #888;
+    text-transform: uppercase;
+}
+
+.stage .count {
+    display: block;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+
+th, td {
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid #222;
+    font-size: 0.85rem;
+}
+
+th { color: #888; font-weight: 600; }
+td code {
+    background: #1a1a1a;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    color: #10b981;
+}
+
+footer {
+    margin-top: 2rem;
+    text-align: center;
+    color: #555;
+    font-size: 0.8rem;
+}

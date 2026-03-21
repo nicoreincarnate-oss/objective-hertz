@@ -1,0 +1,192 @@
+"""
+Titan Daemon — The revenue engine main loop.
+Runs continuously, processing leads through the full pipeline.
+"""
+
+import asyncio
+import signal
+import logging
+
+from shared.config import config
+from shared.logging_config import setup_logging
+from shared import db
+from shared.agent_base import AgentBase
+
+from titan.pipeline.lead_discovery import discover_leads
+from titan.pipeline.lead_research import research_leads
+from titan.pipeline.email_compose import compose_emails
+from titan.pipeline.email_send import send_emails, sync_campaign_analytics
+from titan.pipeline.follow_up import process_follow_ups
+from titan.pipeline.close_deal import process_interested_leads
+from titan.pipeline.build_site import build_sites
+from titan.pipeline.deploy_site import deploy_sites
+from titan.pipeline.invoice import process_invoices
+from titan.memory import daily_reflection, weekly_strategy_review
+from titan.training import run_lora_training
+from perseus.agent_registry import heartbeat
+
+logger = setup_logging("titan")
+
+
+async def _handle_health_check():
+    """System-wide health check — verify all agents are alive, emit status."""
+    from perseus.agent_registry import check_agent_health
+    agents = await check_agent_health()
+    await db.emit_event("health_report", {"agents": agents})
+    logger.debug(f"Health check: {agents}")
+
+
+async def _handle_budget_check():
+    """Run budget enforcement and emit status."""
+    try:
+        from tools.budget_guard import BudgetGuard
+        guard = BudgetGuard()
+        status = await guard.check_budget()
+        await db.emit_event("budget_report", status)
+        if status.get("exceeded"):
+            logger.warning("Budget exceeded!")
+    except (ImportError, Exception) as e:
+        logger.debug(f"Budget check skipped: {e}")
+
+
+async def _handle_morning_briefing():
+    """Emit morning_briefing event — Hermes picks it up and sends to Nico."""
+    await db.emit_event("morning_briefing", {"trigger": "scheduled"})
+    logger.info("Morning briefing event emitted for Hermes")
+
+
+# Map task_queue task types to pipeline functions (direct references, not lambdas)
+TASK_HANDLERS = {
+    "lead_discovery": discover_leads,
+    "lead_research": research_leads,
+    "email_compose": compose_emails,
+    "email_send": send_emails,
+    "follow_up_check": process_follow_ups,
+    "close_interested": process_interested_leads,
+    "build_sites": build_sites,
+    "process_invoices": process_invoices,
+    "sync_analytics": sync_campaign_analytics,
+    "daily_reflection": daily_reflection,
+    "weekly_strategy": weekly_strategy_review,
+    "lora_training": run_lora_training,
+    "health_check": _handle_health_check,
+    "budget_check": _handle_budget_check,
+    "morning_briefing": _handle_morning_briefing,
+}
+
+
+class TitanDaemon(AgentBase):
+    name = "titan"
+    description = "Autonomous revenue engine — discovers leads, sends emails, closes deals, builds sites."
+
+    def __init__(self):
+        super().__init__()
+        self._running = False
+        self._cycle_interval = 30  # seconds between task queue checks
+
+    async def start(self):
+        """Start Titan's main loop — polls task_queue from Perseus + runs pipeline."""
+        logger.info("Titan starting up...")
+        await db.init_pool()
+        await self.register()
+        self._running = True
+
+        logger.info("Titan is LIVE. Listening for tasks from Perseus.")
+        while self._running:
+            try:
+                # Check if paused
+                paused = await db.get_config("titan_paused", False)
+                if paused:
+                    logger.debug("Titan is paused. Waiting.")
+                    await asyncio.sleep(10)
+                    continue
+
+                # Process tasks from Perseus scheduler
+                await self._process_task_queue()
+
+                # Also run the full pipeline cycle (Titan is self-driven too)
+                await self._run_pipeline_cycle()
+
+                # Heartbeat so Perseus knows we're alive
+                await heartbeat(self.name)
+
+            except Exception as e:
+                logger.error(f"Titan cycle error: {e}", exc_info=True)
+                await self.emit_event("titan_error", {"error": str(e)})
+
+            await asyncio.sleep(self._cycle_interval)
+
+    async def stop(self):
+        """Gracefully stop Titan."""
+        logger.info("Titan shutting down...")
+        self._running = False
+        await self.deregister()
+        await db.close_pool()
+        logger.info("Titan stopped.")
+
+    async def health_check(self) -> dict:
+        return {
+            "agent": self.name,
+            "status": "running" if self._running else "stopped",
+        }
+
+    async def _process_task_queue(self):
+        """Process pending tasks dispatched by Perseus."""
+        tasks = await self.get_pending_tasks()
+        for task in tasks:
+            task_type = task["task_type"]
+            handler = TASK_HANDLERS.get(task_type)
+            if not handler:
+                continue  # Not a Titan task
+
+            claimed = await self.claim_task(task["id"])
+            if not claimed:
+                continue  # Another agent got it
+
+            try:
+                await handler()
+                await self.complete_task(task["id"])
+                logger.debug(f"Task {task['id']} ({task_type}) completed")
+            except Exception as e:
+                await self.fail_task(task["id"], str(e))
+                logger.error(f"Task {task['id']} ({task_type}) failed: {e}")
+
+    async def _run_pipeline_cycle(self):
+        """One full cycle of the pipeline. Each stage processes its leads."""
+        stages = [
+            ("discover", discover_leads),
+            ("research", research_leads),
+            ("compose", compose_emails),
+            ("send", send_emails),
+            ("follow_up", process_follow_ups),
+            ("close", process_interested_leads),
+            ("build", build_sites),
+            ("deploy", deploy_sites),
+            ("invoice", process_invoices),
+        ]
+
+        for stage_name, stage_fn in stages:
+            try:
+                await stage_fn()
+            except Exception as e:
+                logger.error(f"Stage '{stage_name}' failed: {e}")
+                await self.emit_event("pipeline_stage_error", {
+                    "stage": stage_name,
+                    "error": str(e),
+                })
+
+
+async def main():
+    """Entry point for Titan daemon."""
+    titan = TitanDaemon()
+
+    # Handle graceful shutdown
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(titan.stop()))
+
+    await titan.start()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

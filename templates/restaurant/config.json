@@ -1,0 +1,18 @@
+{
+  "name": "restaurant",
+  "display_name": "Restaurant",
+  "description": "Professional website template for restaurant businesses",
+  "sections": ["hero", "about", "services", "testimonials", "contact", "footer"],
+  "customizable": {
+    "colors": true,
+    "logo": true,
+    "images": true,
+    "copy": true
+  },
+  "default_colors": {
+    "primary": "#01696F",
+    "secondary": "#0C4E54",
+    "background": "#F7F6F2",
+    "text": "#28251D"
+  }
+}
