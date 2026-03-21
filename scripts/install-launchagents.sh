@@ -8,7 +8,7 @@ TARGET_DIR="$HOME/Library/LaunchAgents"
 
 echo "Installing Perseus LaunchAgents..."
 
-for plist in com.perseus.master.plist com.perseus.titan.plist com.perseus.hermes.plist; do
+for plist in com.perseus.master.plist com.perseus.titan.plist com.perseus.hermes.plist com.perseus.clawdbot.plist; do
     cp "$PLIST_DIR/$plist" "$TARGET_DIR/$plist"
     echo "  Installed $plist"
 done
@@ -18,10 +18,12 @@ echo "To start now:"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.master.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.titan.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.hermes.plist"
+echo "  launchctl load ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
 echo ""
 echo "To stop:"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.master.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.titan.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.hermes.plist"
+echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
 echo ""
-echo "These will auto-start on login and restart if they crash."
+echo "All 4 daemons will auto-start on login and restart if they crash."

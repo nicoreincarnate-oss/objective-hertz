@@ -4,12 +4,12 @@
 CREATE TABLE IF NOT EXISTS clients (
     id SERIAL PRIMARY KEY,
     business_name VARCHAR(255) NOT NULL,
-    contact_name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    contact_name VARCHAR(255) NOT NULL DEFAULT '',
+    email VARCHAR(255) NOT NULL DEFAULT '',
     phone VARCHAR(50),
     industry VARCHAR(100),
     website_url VARCHAR(500),
-    status VARCHAR(50) DEFAULT 'lead',
+    status VARCHAR(50) DEFAULT 'discovered',
     source_campaign VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -174,6 +174,9 @@ CREATE TABLE IF NOT EXISTS task_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_task_queue_status ON task_queue(status);
 CREATE INDEX IF NOT EXISTS idx_task_queue_type ON task_queue(task_type);
+-- Fast dedupe lookup: is there already a pending/running task of this type?
+CREATE INDEX IF NOT EXISTS idx_task_queue_dedupe ON task_queue(task_type, status)
+    WHERE status IN ('pending', 'running');
 
 -- Events: agents emit events for Hermes/dashboard
 CREATE TABLE IF NOT EXISTS events (

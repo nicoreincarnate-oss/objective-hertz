@@ -41,18 +41,11 @@ async def _send_invoices():
             logger.error(f"Invoice failed for lead {lead['id']}: {e}")
 
 
-async def _create_and_send_invoice(lead: dict) -> int:
-    """Create an invoice and send it."""
+async def _create_and_send_invoice(lead: dict) -> int | None:
+    """Create an invoice and send it. Returns deal ID only if a payment link/reference was produced."""
     amount = config.pricing.website_5page  # Default 5-page price
 
-    # Create deal record
-    deal = await fetch_one(
-        """INSERT INTO deals (client_id, product, amount, currency, status)
-           VALUES (%s, 'website', %s, 'USD', 'pending') RETURNING id""",
-        (lead["id"], amount),
-    )
-
-    # Try to send via payment platform
+    # Send via payment platform first — don't create a deal record until we have a deliverable invoice
     try:
         from tools.payment_router import PaymentRouter
         router = PaymentRouter()
@@ -62,15 +55,37 @@ async def _create_and_send_invoice(lead: dict) -> int:
             amount=amount,
             description=f"Professional 5-page website for {lead['business_name']}",
         )
-        if result.get("reference"):
-            await execute(
-                "UPDATE deals SET wise_reference = %s WHERE id = %s",
-                (result["reference"], deal["id"]),
-            )
-    except (ImportError, Exception) as e:
-        logger.warning(f"Payment router not available: {e}")
+    except ImportError:
+        logger.error("Payment router module not available — cannot create invoices")
+        return None
+    except Exception as e:
+        logger.error(f"Payment router failed for {lead['business_name']}: {e}")
+        return None
 
-    return deal["id"]
+    reference = result.get("reference", "")
+    if not reference:
+        logger.error(f"No payment reference produced for {lead['business_name']} — invoice not created")
+        await emit_event("invoice_failed", {
+            "client_id": lead["id"],
+            "business_name": lead["business_name"],
+            "reason": result.get("error", "no reference returned"),
+        })
+        return None
+
+    # Payment link/reference exists — now create the deal record
+    deal = await fetch_one(
+        """INSERT INTO deals (client_id, product, amount, currency, status, wise_reference)
+           VALUES (%s, 'website', %s, 'USD', 'pending', %s) RETURNING id""",
+        (lead["id"], amount, reference),
+    )
+
+    payment_url = result.get("url", "")
+    if payment_url:
+        logger.info(f"Invoice created for {lead['business_name']}: {payment_url}")
+    else:
+        logger.info(f"Invoice created for {lead['business_name']}: ref={reference}")
+
+    return deal["id"] if deal else None
 
 
 async def _check_payments():

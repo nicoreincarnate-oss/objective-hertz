@@ -74,10 +74,17 @@ async def _build_demo_and_propose(lead: dict):
         })
         logger.info(f"Proposal for {lead['business_name']} queued for Nico's review")
     else:
-        # Send proposal autonomously
-        await _send_proposal(lead, proposal, demo_url)
-        await transition_lead(lead_id, "proposal_sent")
-        logger.info(f"Proposal sent to {lead['business_name']} (autonomous)")
+        # Send proposal autonomously — only transition if actually sent
+        sent = await _send_proposal(lead, proposal, demo_url)
+        if sent:
+            await transition_lead(lead_id, "proposal_sent")
+            logger.info(f"Proposal sent to {lead['business_name']} (autonomous)")
+        else:
+            logger.error(f"Proposal send FAILED for {lead['business_name']} — lead stays at current state")
+            await emit_event("proposal_send_failed", {
+                "client_id": lead_id,
+                "business_name": lead["business_name"],
+            })
 
 
 async def _build_demo_site(lead: dict) -> str:
@@ -213,8 +220,8 @@ Return JSON:
         }
 
 
-async def _send_proposal(lead: dict, proposal: dict, demo_url: str = ""):
-    """Send the proposal email via Instantly campaign."""
+async def _send_proposal(lead: dict, proposal: dict, demo_url: str = "") -> bool:
+    """Send the proposal email via Instantly campaign. Returns True if sent."""
     try:
         from tools.instantly_client import InstantlyClient
         from shared.db import get_config, set_config
@@ -232,24 +239,31 @@ async def _send_proposal(lead: dict, proposal: dict, demo_url: str = ""):
                 await set_config("instantly_proposals_campaign_id", campaign_id)
                 await client.activate_campaign(campaign_id)
 
-        if campaign_id:
-            # Add lead to proposals campaign with proposal content as variables
-            await client.add_lead(
-                campaign_id=campaign_id,
-                email=lead["email"],
-                first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
-                company_name=lead.get("business_name", ""),
-                personalization=proposal.get("body", "")[:500],
-                custom_subject=proposal.get("subject", ""),
-            )
-        await client.close()
-    except (ImportError, Exception) as e:
-        logger.warning(f"Could not send proposal via Instantly: {e}")
+        if not campaign_id:
+            logger.error("No Instantly campaign available for proposals")
+            await client.close()
+            return False
 
-    await execute(
-        "UPDATE clients SET last_contact_at = NOW() WHERE id = %s",
-        (lead["id"],),
-    )
+        # Add lead to proposals campaign with proposal content as variables
+        await client.add_lead(
+            campaign_id=campaign_id,
+            email=lead["email"],
+            first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+            company_name=lead.get("business_name", ""),
+            personalization=proposal.get("body", "")[:500],
+            custom_subject=proposal.get("subject", ""),
+        )
+        await client.close()
+
+        await execute(
+            "UPDATE clients SET last_contact_at = NOW() WHERE id = %s",
+            (lead["id"],),
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Proposal send failed for {lead.get('business_name', '?')}: {e}")
+        return False
 
 
 async def _handle_negotiations():

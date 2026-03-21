@@ -10,7 +10,7 @@ echo "════════════════════════�
 echo "  PERSEUS — Stopping All Systems"
 echo "═══════════════════════════════════════"
 
-for agent in hermes titan perseus; do
+for agent in clawdbot hermes titan perseus; do
     PID_FILE="$PID_DIR/$agent.pid"
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")

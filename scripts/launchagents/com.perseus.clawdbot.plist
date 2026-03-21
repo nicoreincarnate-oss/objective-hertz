@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.perseus.titan</string>
+    <string>com.perseus.clawdbot</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
         <string>-m</string>
-        <string>titan.daemon</string>
+        <string>clawdbot.daemon</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/majovega/Desktop/objective-hertz</string>
@@ -17,9 +17,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/titan-launchd.log</string>
+    <string>/Users/majovega/Desktop/objective-hertz/logs/clawdbot-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/titan-launchd-err.log</string>
+    <string>/Users/majovega/Desktop/objective-hertz/logs/clawdbot-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

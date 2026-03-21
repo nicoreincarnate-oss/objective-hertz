@@ -81,9 +81,20 @@ async def fetch_val(query: str, params: tuple = ()) -> Any:
 
 # ── Convenience helpers for common operations ──
 
-async def insert_task(task_type: str, payload: dict = None, priority: int = 5) -> int:
-    """Insert a task into the task queue. Returns task ID."""
+async def insert_task(task_type: str, payload: dict = None, priority: int = 5) -> int | None:
+    """Insert a task into the task queue if no pending/running task of the same type exists.
+    Returns task ID, or None if a duplicate was skipped."""
     import json
+    # Skip if there's already a pending or running task of this type
+    existing = await fetch_one(
+        """SELECT id FROM task_queue
+           WHERE task_type = %s AND status IN ('pending', 'running')
+           LIMIT 1""",
+        (task_type,),
+    )
+    if existing:
+        return None
+
     row = await fetch_one(
         """INSERT INTO task_queue (task_type, payload, priority)
            VALUES (%s, %s, %s) RETURNING id""",

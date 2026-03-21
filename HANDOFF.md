@@ -1,74 +1,91 @@
-# PERSEUS — Context Handoff (March 20, 2026)
+# PERSEUS v18 — Context Handoff (March 21, 2026)
 
-## What Was Done This Session
+## What This Build Is
 
-Complete restructure of Perseus from 30 CrewAI micro-agents to 3 real autonomous agents. 7 commits on branch `claude/objective-hertz`.
-
-### Commits (in order):
-1. **Complete restructure** — Deleted 956K lines of old CrewAI system. Built new architecture: shared/ (6 files), perseus/ (3 files), titan/ (13 files), hermes/ (8 files). Full 10-stage pipeline.
-2. **Remaining gaps** — Updated all soul files, wired Titan↔Perseus task queue, research findings (Instantly.ai, Stripe Mexico, v0.dev API), updated all docs, created install scripts.
-3. **Skill system** — Built skill_loader.py, refactored pipeline to be skill-first (try installed skills before custom code), installed 4 skill collections (marketing, firecrawl, web-scraper, voltagent).
-4. **Bug fixes** — Fixed all 19 broken transition_lead() calls, lambda task handlers, JSON double-encoding, titan_builder API mismatch, Hermes bot lifecycle.
-5. **Learning system** — Built training.py (LoRA pipeline: collect→export→train→deploy), upgraded memory.py (vector memory via Mem0, structured learnings, feedback loop).
-6. **Wired learning feedback loop** — Training data collection wired into follow_up.py (collect_email_outcome on replies), email_send.py (records every sent email as training example), close_deal.py (marks all emails in closed deal as positive). get_relevant_learnings() (DB + Mem0 vector search) wired into email_compose.py, lead_discovery.py, follow_up.py compose, and close_deal.py proposal generation.
-7. **Full Vast.ai automation** — Replaced stub with complete lifecycle: search cheapest GPU → rent instance → wait for startup → SCP upload data + training script → run Unsloth LoRA fine-tuning → poll for completion → download adapter → destroy instance. Falls back to local MLX training. Budget-capped at $100/run.
+4-daemon autonomous website-sales system running natively on Mac M4 32GB. Claude-first, Ollama fallback. Postgres task queue for coordination, Mem0 for shared vector memory.
 
 ### Architecture:
 ```
-PERSEUS (master scheduler) → inserts tasks into task_queue
-TITAN (revenue daemon) → polls task_queue + runs 10-stage pipeline
-HERMES (Telegram bot + web dashboard) → alerts, commands, approvals
-OPENCLAW (desktop agent) → skills, browser control (install script ready)
+PERSEUS (master scheduler)  → inserts tasks into task_queue every 10 seconds
+TITAN   (revenue engine)    → polls task_queue + runs 10-stage pipeline continuously
+HERMES  (Telegram + alerts) → dispatches events to Nico, serves web dashboard
+CLAWDBOT (skills + browser) → executes skills, scrapes sites, verifies deployments, enriches leads
 ```
 
-### Master Plan: `/Users/majovega/.claude/plans/joyful-exploring-hearth.md`
-- Phases 1-7: DONE (code complete)
-- Phase 8 (email infrastructure): Code done, needs account signups
+All 4 daemons share state through: `task_queue`, `events`, `titan_learnings`, `system_config` (Postgres) and Mem0 vector store. Inter-daemon API in `shared/comms.py`.
+
+### What Was Built:
+
+**Session 1 (March 20):** Complete restructure from 30 CrewAI micro-agents to 3-daemon architecture. 7 commits. Built full 10-stage pipeline, skill system, learning/training pipeline, review mode.
+
+**Session 2 (March 21):** Fixed all broken wiring, added 4th daemon, made repo self-contained.
+
+1. Created `tools/runtime_honesty.py` — unblocked Firecrawl imports
+2. Created `tools/payment_router.py` — unblocked invoice pipeline (Stripe + Wise)
+3. Fixed lead discovery — stores leads without email (enriched in research stage)
+4. Fixed `.env.example` — SMARTLEAD_API_KEY → INSTANTLY_API_KEY
+5. Fixed proposal sending — uses Instantly campaign `add_lead()`, not missing `send_email()`
+6. Fixed proposal pipeline — only transitions to `proposal_sent` if send succeeds
+7. Fixed invoice pipeline — only creates deal record after payment reference confirmed
+8. Fixed analytics schema — correct column names for `outreach_metrics` table
+9. Added Titan handlers for `health_check`, `budget_check`, `morning_briefing`
+10. Wired Hermes morning briefing dispatch
+11. Added `instantly_id` column to `email_sequences`
+12. Created ClawdBot daemon — skills, scraping, site verification, lead enrichment
+13. Created `shared/comms.py` — inter-daemon messaging, shared memory, agent status
+14. Added `requests` to requirements.txt (Firecrawl dependency)
+15. Fixed all ops scripts — stop, Makefile, LaunchAgents all manage 4 daemons
+16. Fixed LaunchAgent plists — point to `/Users/majovega/Desktop/objective-hertz`
+17. Initialized standalone git repo (was stale worktree pointer)
+18. Updated README.md and HANDOFF.md to match actual code
+
+### Key Decisions:
+- v0.dev API for site building (Bolt.new has no public API)
+- Instantly.ai for email ($97/mo, campaign-based, best API)
+- Stripe Mexico (primary) + Wise Business (fallback) for payments
+- $800/month budget ($200 Claude Max + tools)
+- Review mode for first 10 sales, then full autonomy
+- Skills-first pipeline: try installed skills before custom code
+- LoRA training at 500+ labeled examples (Vast.ai GPU or local MLX)
+- ClawdBot handles all skill execution and browser automation
 
 ### What's NOT done (needs Nico):
-1. Sign up for Instantly.ai ($97/mo) or Smartlead
+1. Sign up for Instantly.ai ($97/mo)
 2. Sign up for v0.dev API (free tier)
 3. Set up Stripe Mexico or Wise Business
 4. Buy 4 sending domains
-5. Create Telegram bot (@BotFather)
-6. Get Anthropic API key
-7. Fill .env with real values
-8. Install Hermes Agent: `./scripts/install-hermes.sh`
-9. Install OpenClaw from DMG + run `./scripts/install-openclaw.sh`
-10. Install skills: `./scripts/install-skills.sh`
-11. `make start` on Mac Studio
+5. Create Telegram bot via @BotFather
+6. Get Anthropic API key (or Claude Max subscription)
+7. Fill `.env` with real values
+8. `make start` on Mac M4
 
 ### Key Files:
-- `shared/config.py` — All config from .env
+- `shared/config.py` — All config from .env (frozen dataclasses)
 - `shared/llm_client.py` — Claude API + Ollama (fast/smart/local modes)
-- `shared/db.py` — Postgres async pool + helpers
-- `shared/skill_loader.py` — Finds and executes installed skills
-- `perseus/daemon.py` — Master scheduler (13 schedules)
-- `titan/daemon.py` — Pipeline loop (polls task_queue + runs stages)
+- `shared/db.py` — Postgres async pool (psycopg v3)
+- `shared/comms.py` — Inter-daemon communication layer
+- `shared/skill_loader.py` — Finds and executes skills from 4 directories
+- `perseus/daemon.py` — Master scheduler (15 schedules, 10-second tick)
+- `perseus/scheduler.py` — Schedule definitions
+- `titan/daemon.py` — Pipeline loop (task queue + 9-stage cycle)
 - `titan/pipeline/*.py` — 10 stages (discovery through invoice)
-- `titan/memory.py` — Daily/weekly learning + vector memory (Mem0)
-- `titan/training.py` — LoRA fine-tuning pipeline (collect→train→deploy)
-- `titan/state_machine.py` — Lead status transitions
+- `titan/memory.py` — Daily/weekly learning + Mem0 vector memory
+- `titan/training.py` — LoRA fine-tuning pipeline (collect → export → train → deploy)
+- `titan/state_machine.py` — Lead status transitions (17 states)
 - `titan/review_mode.py` — First 10 sales approval queue
 - `hermes/telegram_bot.py` — 9 Telegram commands
-- `hermes/alerts.py` — Event→Telegram dispatcher
-- `hermes/web/app.py` — FastAPI dashboard
-- `tools/instantly_client.py` — Instantly.ai API client
-- `scripts/init-db.sql` — Full schema (15+ tables)
+- `hermes/alerts.py` — Event → Telegram dispatcher + morning briefing
+- `hermes/web/app.py` — FastAPI dashboard (port 8500)
+- `clawdbot/daemon.py` — Skills executor, scraper, site verifier
+- `tools/instantly_client.py` — Instantly.ai API v2 client
+- `tools/payment_router.py` — Stripe + Wise payment routing
+- `tools/firecrawl_client.py` — Web scraping with runtime honesty
+- `tools/budget_guard.py` — $800/month budget enforcement
+- `scripts/init-db.sql` — Full schema (20+ tables, views, indexes)
 
-### Key Decisions (from 30-question survey):
-- Global market, any industry, AI picks targets
-- Under $325 for 5-page website, cheaper than market
-- v0.dev API for site building (Bolt.new has NO public API)
-- Instantly.ai for email ($97/mo, best API + webhooks)
-- Stripe Mexico + Wise Business for payments
-- $800/month budget ($200 Claude Max + tools)
-- Review mode for first 10 sales, then full autonomy
-- Skills-first: use existing open-source skills before custom code
-- LoRA training when 500+ labeled examples exist (cloud GPU or local MLX)
-
-### Known Issues:
-- deploy_site.py only verifies, doesn't do actual deployment (handled by build_site.py)
-- Some tools/*.py files (smartlead_client, firecrawl_client, etc.) are from old V17 and may need API updates
-- No end-to-end test yet (needs running infrastructure)
-- Vast.ai automation requires SSH key setup on Mac Studio (for SCP uploads to rented instances)
+### Known Limitations:
+- `deploy_site.py` only verifies — actual deployment handled by `build_site.py` via v0.dev
+- No end-to-end test yet (needs running infrastructure + real API keys)
+- Vast.ai automation requires SSH key setup for SCP uploads
+- browser-use integration in ClawdBot is stubbed (falls back to Firecrawl scraping)
+- N8N is provisioned in Docker but not actively used by the Python runtime

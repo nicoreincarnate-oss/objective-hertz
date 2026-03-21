@@ -98,17 +98,21 @@ async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pause Titan."""
+    """Pause Titan and ClawdBot (manual — Perseus won't auto-unpause)."""
     from shared.db import set_config
     await set_config("titan_paused", True)
-    await update.message.reply_text("Titan PAUSED. Use /resume to restart.")
+    await set_config("clawdbot_paused", True)
+    await set_config("titan_manual_pause", True)
+    await update.message.reply_text("Titan + ClawdBot PAUSED (manual). Use /resume to restart.")
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Resume Titan."""
+    """Resume Titan and ClawdBot."""
     from shared.db import set_config
     await set_config("titan_paused", False)
-    await update.message.reply_text("Titan RESUMED.")
+    await set_config("clawdbot_paused", False)
+    await set_config("titan_manual_pause", False)
+    await update.message.reply_text("Titan + ClawdBot RESUMED.")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):

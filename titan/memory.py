@@ -23,9 +23,16 @@ logger = logging.getLogger("perseus.titan.memory")
 
 # ── Vector Memory (Mem0 + Qdrant) ─────────────────────────────────────
 
-async def store_memory(content: str, category: str, client_id: int = None):
+async def store_memory(content: str, category: str, client_id: int = None, metadata: dict = None):
     """Store a memory in Mem0 for vector-searchable retrieval."""
     import httpx
+    mem_metadata = {
+        "category": category,
+        "client_id": client_id,
+        "timestamp": datetime.now().isoformat(),
+    }
+    if metadata:
+        mem_metadata.update(metadata)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(
@@ -33,11 +40,7 @@ async def store_memory(content: str, category: str, client_id: int = None):
                 json={
                     "messages": [{"role": "assistant", "content": content}],
                     "user_id": "titan",
-                    "metadata": {
-                        "category": category,
-                        "client_id": client_id,
-                        "timestamp": datetime.now().isoformat(),
-                    },
+                    "metadata": mem_metadata,
                 },
             )
     except Exception as e:

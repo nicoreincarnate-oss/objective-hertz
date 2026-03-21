@@ -1,4 +1,4 @@
-.PHONY: help start stop status logs health up down restart clean
+.PHONY: help start stop status logs health up down restart clean test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -35,7 +35,7 @@ status: ## System status
 	@echo "======================================"
 	@echo ""
 	@echo "=== Daemons ==="
-	@for agent in perseus titan hermes; do \
+	@for agent in perseus titan hermes clawdbot; do \
 		if [ -f logs/pids/$$agent.pid ] && kill -0 $$(cat logs/pids/$$agent.pid) 2>/dev/null; then \
 			echo "  $$agent: RUNNING (PID: $$(cat logs/pids/$$agent.pid))"; \
 		else \
@@ -53,7 +53,7 @@ status: ## System status
 	@df -h / | tail -1
 
 logs: ## Tail daemon logs
-	@tail -f logs/perseus.log logs/titan.log logs/hermes.log 2>/dev/null || echo "No log files yet"
+	@tail -f logs/perseus.log logs/titan.log logs/hermes.log logs/clawdbot.log 2>/dev/null || echo "No log files yet"
 
 health: ## Quick health check
 	@echo "Postgres:  $$(docker exec perseus-postgres pg_isready 2>/dev/null && echo 'OK' || echo 'DOWN')"
@@ -61,6 +61,9 @@ health: ## Quick health check
 	@echo "Mem0:      $$(curl -sf http://localhost:8888/api/v1/health > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "N8N:       $$(curl -sf http://localhost:5678/healthz > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
+
+test: ## Run tests (no infrastructure needed)
+	python -m pytest tests/ -v
 
 clean: ## Remove all Docker volumes (DESTRUCTIVE)
 	@echo "WARNING: This will delete ALL data (Postgres, Qdrant, Mem0)!"
