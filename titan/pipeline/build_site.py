@@ -6,6 +6,7 @@ Build a full 5-page website for closed deals via v0.dev Platform API.
 import logging
 
 from shared.db import fetch_all, execute, emit_event
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.build_site")
@@ -40,6 +41,7 @@ async def build_sites():
                 logger.error(f"Site build failed for lead {lead['id']}")
         except Exception as e:
             logger.error(f"Build failed for lead {lead['id']}: {e}")
+            await emit_pipeline_error("build_site", e, lead_id=lead["id"])
 
 
 async def _build_full_site(lead: dict) -> str:

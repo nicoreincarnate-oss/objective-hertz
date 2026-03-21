@@ -10,7 +10,9 @@ Base URL: https://api.instantly.ai/api/v2
 Auth: Bearer token via INSTANTLY_API_KEY
 """
 
+import asyncio
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -20,13 +22,20 @@ from shared.config import config
 logger = logging.getLogger("perseus.tools.instantly")
 
 BASE_URL = "https://api.instantly.ai/api/v2"
+DEFAULT_MIN_INTERVAL_SECONDS = 0.2
+DEFAULT_MAX_RETRIES = 3
 
 
 class InstantlyClient:
     """Instantly.ai API v2 client for cold email automation."""
 
+    _rate_limit_lock: asyncio.Lock | None = None
+    _global_last_request_at: float = 0.0
+
     def __init__(self, api_key: str = ""):
         self.api_key = api_key or config.instantly.api_key
+        self._min_interval_seconds = DEFAULT_MIN_INTERVAL_SECONDS
+        self._max_retries = DEFAULT_MAX_RETRIES
         self._http = httpx.AsyncClient(
             timeout=30.0,
             headers={
@@ -35,25 +44,78 @@ class InstantlyClient:
             },
         )
 
+    async def _wait_for_rate_limit_slot(self):
+        """Throttle back-to-back requests across all Instantly clients in this process."""
+        if InstantlyClient._rate_limit_lock is None:
+            InstantlyClient._rate_limit_lock = asyncio.Lock()
+
+        async with InstantlyClient._rate_limit_lock:
+            now = time.monotonic()
+            elapsed = now - InstantlyClient._global_last_request_at
+            remaining = self._min_interval_seconds - elapsed
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+                now = time.monotonic()
+            InstantlyClient._global_last_request_at = now
+
+    @staticmethod
+    def _retry_delay(resp: httpx.Response, attempt: int) -> float:
+        """Honor Retry-After when present, otherwise back off progressively."""
+        retry_after = resp.headers.get("Retry-After", "").strip()
+        if retry_after:
+            try:
+                return max(float(retry_after), 0.0)
+            except ValueError:
+                pass
+        return float(attempt)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict | None = None,
+        data: dict | None = None,
+    ) -> dict:
+        """Central request path with light throttling and 429 retry handling."""
+        request_fn = getattr(self._http, method)
+        url = f"{BASE_URL}{path}"
+
+        for attempt in range(1, self._max_retries + 1):
+            await self._wait_for_rate_limit_slot()
+            resp = await request_fn(url, params=params or None, json=data or None)
+
+            if resp.status_code != 429:
+                resp.raise_for_status()
+                return resp.json()
+
+            if attempt == self._max_retries:
+                resp.raise_for_status()
+
+            delay = self._retry_delay(resp, attempt)
+            logger.warning(
+                "Instantly rate limited %s %s, retrying in %.2fs (attempt %d/%d)",
+                method.upper(),
+                path,
+                delay,
+                attempt,
+                self._max_retries,
+            )
+            await asyncio.sleep(delay)
+
+        raise RuntimeError(f"Instantly request failed after retries: {method.upper()} {path}")
+
     async def _get(self, path: str, params: dict = None) -> dict:
-        resp = await self._http.get(f"{BASE_URL}{path}", params=params or {})
-        resp.raise_for_status()
-        return resp.json()
+        return await self._request("get", path, params=params)
 
     async def _post(self, path: str, data: dict = None) -> dict:
-        resp = await self._http.post(f"{BASE_URL}{path}", json=data or {})
-        resp.raise_for_status()
-        return resp.json()
+        return await self._request("post", path, data=data)
 
     async def _patch(self, path: str, data: dict = None) -> dict:
-        resp = await self._http.patch(f"{BASE_URL}{path}", json=data or {})
-        resp.raise_for_status()
-        return resp.json()
+        return await self._request("patch", path, data=data)
 
     async def _delete(self, path: str) -> dict:
-        resp = await self._http.delete(f"{BASE_URL}{path}")
-        resp.raise_for_status()
-        return resp.json()
+        return await self._request("delete", path)
 
     # ── Campaigns ──────────────────────────────────────────────────
 

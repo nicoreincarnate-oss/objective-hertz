@@ -31,41 +31,53 @@ class HermesDaemon(AgentBase):
         logger.info("Hermes starting up...")
         await db.init_pool()
         await self.register()
+        self._stopped.clear()
         self._running = True
 
-        if not config.telegram.bot_token:
-            logger.warning("TELEGRAM_BOT_TOKEN not set — running alert dispatcher only")
-            await self._alert_loop()
-        else:
-            # Run bot and alert dispatcher concurrently
-            bot = create_bot()
-            await bot.initialize()
-            await bot.start()
-            try:
-                await bot.updater.start_polling()
-                logger.info("Hermes Telegram bot is LIVE.")
+        try:
+            if not config.telegram.bot_token:
+                logger.warning("TELEGRAM_BOT_TOKEN not set — running alert dispatcher only")
+                await self._alert_loop()
+            else:
+                # Run bot and alert dispatcher concurrently
+                bot = create_bot()
+                await bot.initialize()
+                await bot.start()
+                try:
+                    await bot.updater.start_polling()
+                    logger.info("Hermes Telegram bot is LIVE.")
 
-                # Run alert loop alongside the bot
-                while self._running:
-                    await dispatch_alerts()
-                    await asyncio.sleep(self._alert_interval)
-            finally:
-                await bot.updater.stop()
-                await bot.stop()
-                await bot.shutdown()
+                    # Run alert loop alongside the bot
+                    while self._running:
+                        self.begin_work("loop:alerts")
+                        try:
+                            await dispatch_alerts()
+                        finally:
+                            self.finish_work("loop:alerts")
+                        await asyncio.sleep(self._alert_interval)
+                finally:
+                    await bot.updater.stop()
+                    await bot.stop()
+                    await bot.shutdown()
+        finally:
+            await self.finalize_shutdown()
 
     async def _alert_loop(self):
         """Standalone alert loop when Telegram is not configured."""
         while self._running:
-            await dispatch_alerts()
+            self.begin_work("loop:alerts")
+            try:
+                await dispatch_alerts()
+            finally:
+                self.finish_work("loop:alerts")
             await asyncio.sleep(self._alert_interval)
 
     async def stop(self):
         """Gracefully stop Hermes."""
-        logger.info("Hermes shutting down...")
-        self._running = False
-        await self.deregister()
-        await db.close_pool()
+        logger.info("Hermes shutdown requested...")
+        self.request_shutdown()
+        await self.wait_for_work_drain()
+        await self.wait_until_stopped()
         logger.info("Hermes stopped.")
 
     async def health_check(self) -> dict:

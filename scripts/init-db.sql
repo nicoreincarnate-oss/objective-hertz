@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS budget_tracking (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS budget_recurring_costs (
+    category VARCHAR(100) PRIMARY KEY,
+    monthly_amount DECIMAL(10,2) NOT NULL,
+    description TEXT,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS site_health (
     id SERIAL PRIMARY KEY,
     hosting_id INTEGER REFERENCES hosting_subscriptions(id) ON DELETE CASCADE,
@@ -112,6 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_outreach_date ON outreach_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_outreach_domain ON outreach_metrics(domain);
 CREATE INDEX IF NOT EXISTS idx_budget_month ON budget_tracking(month);
 CREATE INDEX IF NOT EXISTS idx_budget_category ON budget_tracking(category);
+CREATE INDEX IF NOT EXISTS idx_budget_recurring_active ON budget_recurring_costs(active);
 CREATE INDEX IF NOT EXISTS idx_site_health_hosting ON site_health(hosting_id);
 CREATE INDEX IF NOT EXISTS idx_site_health_checked ON site_health(checked_at);
 CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_log(entity_type, entity_id);
@@ -129,6 +138,10 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_clients_updated
     BEFORE UPDATE ON clients
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+INSERT INTO budget_recurring_costs (category, monthly_amount, description, active) VALUES
+    ('instantly_subscription', 97.00, 'Instantly.ai monthly subscription', TRUE)
+ON CONFLICT (category) DO NOTHING;
 
 -- ── PERSEUS NEW ARCHITECTURE TABLES ──────────────────────────────────
 
@@ -208,6 +221,7 @@ CREATE INDEX IF NOT EXISTS idx_review_status ON review_queue(status);
 CREATE TABLE IF NOT EXISTS system_config (
     key VARCHAR(100) PRIMARY KEY,
     value JSONB NOT NULL,
+    is_customized BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -253,6 +267,55 @@ CREATE TABLE IF NOT EXISTS email_sequences (
 CREATE INDEX IF NOT EXISTS idx_email_seq_client ON email_sequences(client_id);
 CREATE INDEX IF NOT EXISTS idx_email_seq_status ON email_sequences(status);
 
+-- Outbound email log: immutable record of every email dispatched
+-- soul/soul_copy.md line 41: "Log every send — no exceptions"
+CREATE TABLE IF NOT EXISTS outbound_email_log (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER REFERENCES clients(id),
+    email_sequence_id INTEGER REFERENCES email_sequences(id),
+    recipient_email VARCHAR(255) NOT NULL,
+    subject VARCHAR(500),
+    body TEXT,
+    campaign_id VARCHAR(255),
+    send_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (send_status IN ('pending', 'sent', 'failed')),
+    sent_at TIMESTAMP,
+    delivery_error TEXT,
+    compliance_checks JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_outbound_log_client ON outbound_email_log(client_id);
+CREATE INDEX IF NOT EXISTS idx_outbound_log_created ON outbound_email_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_outbound_log_status ON outbound_email_log(send_status);
+CREATE OR REPLACE FUNCTION prevent_outbound_email_log_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Outbound email log does not allow deletes';
+    END IF;
+
+    IF OLD.client_id IS NOT DISTINCT FROM NEW.client_id
+       AND OLD.email_sequence_id IS NOT DISTINCT FROM NEW.email_sequence_id
+       AND OLD.recipient_email IS NOT DISTINCT FROM NEW.recipient_email
+       AND OLD.subject IS NOT DISTINCT FROM NEW.subject
+       AND OLD.body IS NOT DISTINCT FROM NEW.body
+       AND OLD.campaign_id IS NOT DISTINCT FROM NEW.campaign_id
+       AND OLD.compliance_checks IS NOT DISTINCT FROM NEW.compliance_checks
+       AND OLD.created_at IS NOT DISTINCT FROM NEW.created_at
+       AND OLD.send_status = 'pending'
+       AND NEW.send_status IN ('sent', 'failed') THEN
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Outbound email log is immutable except pending send finalization';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_outbound_email_log_immutable ON outbound_email_log;
+CREATE TRIGGER trg_outbound_email_log_immutable
+BEFORE UPDATE OR DELETE ON outbound_email_log
+FOR EACH ROW
+EXECUTE FUNCTION prevent_outbound_email_log_mutation();
+
 -- Training data: every interaction becomes a potential training example
 CREATE TABLE IF NOT EXISTS training_data (
     id SERIAL PRIMARY KEY,
@@ -268,13 +331,19 @@ CREATE INDEX IF NOT EXISTS idx_training_type ON training_data(example_type);
 CREATE INDEX IF NOT EXISTS idx_training_outcome ON training_data(outcome);
 
 -- Insert default system config
-INSERT INTO system_config (key, value) VALUES
-    ('review_mode', 'true'),
-    ('sales_completed', '0'),
-    ('sales_before_autonomy', '10'),
-    ('email_daily_target', '1000'),
-    ('warm_up_phase', 'true')
-ON CONFLICT (key) DO NOTHING;
+INSERT INTO system_config (key, value, is_customized) VALUES
+    ('review_mode', 'true', FALSE),
+    ('sales_completed', '0', FALSE),
+    ('sales_before_autonomy', '10', FALSE),
+    ('email_daily_target', '1000', FALSE),
+    ('warm_up_phase', 'true', FALSE),
+    ('company_address', '"[SET YOUR PHYSICAL ADDRESS]"', FALSE),
+    ('unsubscribe_base_url', '"https://your-domain.com"', FALSE)
+ON CONFLICT (key) DO UPDATE
+SET value = EXCLUDED.value,
+    is_customized = FALSE,
+    updated_at = NOW()
+WHERE system_config.is_customized = FALSE;
 
 -- Views
 CREATE OR REPLACE VIEW v_active_mrr AS
@@ -292,9 +361,28 @@ SELECT
     SUM(amount) AS total_spent,
     800.00 - SUM(amount) AS remaining,
     ROUND(SUM(amount) / 800.00 * 100, 1) AS percent_used
-FROM budget_tracking
+FROM (
+    SELECT month, amount FROM budget_tracking
+    UNION ALL
+    SELECT DATE_TRUNC('month', CURRENT_DATE)::date AS month, monthly_amount AS amount
+    FROM budget_recurring_costs
+    WHERE active = TRUE
+) budget_sources
 GROUP BY month
 ORDER BY month DESC;
+
+CREATE OR REPLACE VIEW v_effective_budget_tracking AS
+SELECT month, category, amount, description, created_at
+FROM budget_tracking
+UNION ALL
+SELECT
+    DATE_TRUNC('month', CURRENT_DATE)::date AS month,
+    category,
+    monthly_amount AS amount,
+    description,
+    created_at
+FROM budget_recurring_costs
+WHERE active = TRUE;
 
 CREATE OR REPLACE VIEW v_domain_health AS
 SELECT

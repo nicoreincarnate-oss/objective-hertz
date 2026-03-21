@@ -87,7 +87,7 @@ class LLMClient:
             from shared.db import fetch_val
             month = date.today().replace(day=1)
             total = await fetch_val(
-                "SELECT COALESCE(SUM(amount), 0) FROM budget_tracking WHERE month = %s",
+                "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
                 (month,),
             ) or 0
 

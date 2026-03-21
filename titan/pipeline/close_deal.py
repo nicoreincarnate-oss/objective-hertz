@@ -7,8 +7,9 @@ Uses Claude Sonnet for high-quality proposals.
 import json
 import logging
 
-from shared.db import fetch_all, fetch_one, execute, emit_event, get_config, set_config
+from shared.db import fetch_all, fetch_one, execute, emit_event, get_config, set_config, increment_config_int
 from shared.llm_client import llm
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 from titan.memory import get_relevant_learnings
 from titan.training import collect_training_example
@@ -31,9 +32,7 @@ async def process_interested_leads():
             await _build_demo_and_propose(lead)
         except Exception as e:
             logger.error(f"Demo/proposal failed for lead {lead['id']}: {e}")
-
-    # Handle ongoing negotiations
-    await _handle_negotiations()
+            await emit_pipeline_error("close_deal", e, lead_id=lead["id"])
 
 
 async def _build_demo_and_propose(lead: dict):
@@ -55,7 +54,13 @@ async def _build_demo_and_propose(lead: dict):
         )
         await transition_lead(lead_id, "demo_built")
     else:
-        logger.warning(f"Could not build demo for lead {lead_id}, proceeding with proposal only")
+        logger.warning(f"Could not build demo for lead {lead_id}, blocking proposal until demo exists")
+        await emit_event("proposal_blocked", {
+            "client_id": lead_id,
+            "business_name": lead["business_name"],
+            "reason": "demo_build_failed",
+        })
+        return
 
     # Generate proposal using Claude Sonnet (high quality)
     proposal = await _generate_proposal(lead, demo_url)
@@ -221,65 +226,85 @@ Return JSON:
 
 
 async def _send_proposal(lead: dict, proposal: dict, demo_url: str = "") -> bool:
-    """Send the proposal email via Instantly campaign. Returns True if sent."""
-    try:
-        from tools.instantly_client import InstantlyClient
-        from shared.db import get_config, set_config
+    """Send the proposal email via Instantly campaign through compliance gate."""
+    from titan.compliance import send_to_instantly
 
-        client = InstantlyClient()
+    campaign_id = await _get_or_create_proposals_campaign()
+    if not campaign_id:
+        logger.error("No Instantly campaign available for proposals")
+        return False
 
-        # Use a dedicated proposals campaign (or create one)
-        campaign_id = await get_config("instantly_proposals_campaign_id", "")
-        if not campaign_id:
-            from datetime import datetime
-            name = f"perseus-proposals-{datetime.now().strftime('%Y%m%d')}"
-            campaign = await client.create_campaign(name)
-            campaign_id = campaign.get("id", "")
-            if campaign_id:
-                await set_config("instantly_proposals_campaign_id", campaign_id)
-                await client.activate_campaign(campaign_id)
+    success = await send_to_instantly(
+        campaign_id=campaign_id,
+        client_id=lead["id"],
+        email=lead["email"],
+        subject=proposal.get("subject", ""),
+        body=proposal.get("body", ""),
+        message_type="proposal",
+        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        company_name=lead.get("business_name", ""),
+    )
 
-        if not campaign_id:
-            logger.error("No Instantly campaign available for proposals")
-            await client.close()
-            return False
-
-        # Add lead to proposals campaign with proposal content as variables
-        await client.add_lead(
-            campaign_id=campaign_id,
-            email=lead["email"],
-            first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
-            company_name=lead.get("business_name", ""),
-            personalization=proposal.get("body", "")[:500],
-            custom_subject=proposal.get("subject", ""),
-        )
-        await client.close()
-
+    if success:
         await execute(
             "UPDATE clients SET last_contact_at = NOW() WHERE id = %s",
             (lead["id"],),
         )
-        return True
 
+    return success
+
+
+async def _get_or_create_proposals_campaign() -> str:
+    """Reuse the dedicated proposals campaign, or create it once and persist the id."""
+    campaign_id = await get_config("instantly_proposals_campaign_id", "")
+    if campaign_id:
+        return campaign_id
+
+    from tools.instantly_client import InstantlyClient
+
+    campaign_name = "perseus-proposals"
+    client = InstantlyClient()
+    created_new = False
+    try:
+        campaigns = await client.list_campaigns()
+        if isinstance(campaigns, dict):
+            campaigns = campaigns.get("data", [])
+        if not isinstance(campaigns, list):
+            campaigns = []
+
+        existing = next(
+            (
+                campaign for campaign in campaigns
+                if str(campaign.get("name", "")).strip() == campaign_name and campaign.get("id")
+            ),
+            None,
+        )
+        if existing:
+            campaign_id = existing["id"]
+        else:
+            campaign = await client.create_campaign(campaign_name)
+            campaign_id = campaign.get("id", "")
+            created_new = bool(campaign_id)
+
+        if not campaign_id:
+            return ""
+
+        await client.activate_campaign(campaign_id)
+        try:
+            await set_config("instantly_proposals_campaign_id", campaign_id)
+        except Exception as e:
+            logger.warning(
+                "Could not persist instantly_proposals_campaign_id=%s after %s: %s",
+                campaign_id,
+                "creation" if created_new else "reuse",
+                e,
+            )
+        return campaign_id
     except Exception as e:
-        logger.error(f"Proposal send failed for {lead.get('business_name', '?')}: {e}")
-        return False
-
-
-async def _handle_negotiations():
-    """Handle ongoing negotiations — AI manages the sales conversation."""
-    leads = await fetch_all(
-        """SELECT id, business_name, email, research_summary, language
-           FROM clients WHERE status IN ('proposal_sent', 'negotiating')
-           AND last_contact_at < NOW() - INTERVAL '2 days'
-           LIMIT 10"""
-    )
-
-    for lead in leads:
-        # Check for replies
-        # (This is handled by follow_up.py reply checker, but we can do targeted checks here)
-        pass
-
+        logger.error(f"Failed to get or create proposals campaign: {e}")
+        return ""
+    finally:
+        await client.close()
 
 async def mark_sale_closed(client_id: int):
     """Called when a sale is confirmed (payment received or verbal yes)."""
@@ -295,18 +320,17 @@ async def mark_sale_closed(client_id: int):
     for email in emails:
         await _collect(email["id"], "positive")
 
-    # Increment sales counter
-    sales = await get_config("sales_completed", 0)
-    await set_config("sales_completed", sales + 1)
+    # Increment sales counter atomically so concurrent closes don't lose updates.
+    sales = await increment_config_int("sales_completed", 1, default=0)
 
     # Check if we should disable review mode
     threshold = await get_config("sales_before_autonomy", 10)
-    if sales + 1 >= threshold:
+    if sales >= threshold:
         await set_config("review_mode", False)
         await emit_event("autonomy_unlocked", {
-            "sales_completed": sales + 1,
+            "sales_completed": sales,
             "message": "Review mode disabled — Titan is now fully autonomous!",
         })
 
-    await emit_event("deal_closed", {"client_id": client_id, "sale_number": sales + 1})
-    logger.info(f"Sale #{sales + 1} closed for client {client_id}!")
+    await emit_event("deal_closed", {"client_id": client_id, "sale_number": sales})
+    logger.info(f"Sale #{sales} closed for client {client_id}!")

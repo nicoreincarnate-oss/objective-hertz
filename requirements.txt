@@ -17,6 +17,8 @@ python-multipart>=0.0.9
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+ruff>=0.11.0
+mypy>=1.11.0
 
 # Note: these are NOT needed if using Claude Max (which provides API access)
 # Install only if using direct API calls:

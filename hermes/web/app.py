@@ -114,6 +114,22 @@ async def api_events():
 @app.get("/api/health")
 async def api_health():
     """System health."""
+    db_ok = True
+    db_error = ""
+    try:
+        await fetch_val("SELECT 1")
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+
     from perseus.agent_registry import check_agent_health
     agents = await check_agent_health()
-    return JSONResponse({"agents": agents, "status": "ok"})
+    agent_values = list((agents or {}).values()) if isinstance(agents, dict) else []
+    agents_ok = bool(agent_values) and all(status == "ok" for status in agent_values)
+    status = "ok" if db_ok and agents_ok else "degraded"
+    return JSONResponse({
+        "status": status,
+        "db_ok": db_ok,
+        "db_error": db_error,
+        "agents": agents,
+    })

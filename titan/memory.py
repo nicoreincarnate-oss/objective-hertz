@@ -12,6 +12,7 @@ Every interaction feeds the training data collector for future fine-tuning.
 
 import json
 import logging
+import time
 from datetime import datetime
 
 from shared.db import fetch_all, fetch_one, execute, fetch_val, emit_event
@@ -19,6 +20,12 @@ from shared.llm_client import llm
 from shared.config import config
 
 logger = logging.getLogger("perseus.titan.memory")
+
+MEM0_ALERT_COOLDOWN_SECONDS = 3600
+_last_mem0_alert_at: dict[str, float] = {
+    "store": 0.0,
+    "search": 0.0,
+}
 
 
 # ── Vector Memory (Mem0 + Qdrant) ─────────────────────────────────────
@@ -44,7 +51,13 @@ async def store_memory(content: str, category: str, client_id: int = None, metad
                 },
             )
     except Exception as e:
-        logger.debug(f"Mem0 store failed (non-critical): {e}")
+        logger.warning(f"Mem0 store failed: {e}")
+        await _emit_mem0_alert(
+            "store",
+            "Mem0 write failed; vector learning storage is degraded.",
+            error=e,
+            context={"category": category, "client_id": client_id},
+        )
 
 
 async def search_memory(query: str, limit: int = 5) -> list[str]:
@@ -62,6 +75,30 @@ async def search_memory(query: str, limit: int = 5) -> list[str]:
     except Exception as e:
         logger.debug(f"Mem0 search failed (non-critical): {e}")
         return []
+
+
+async def _emit_mem0_alert(kind: str, message: str, *, error: Exception, context: dict | None = None) -> None:
+    """Emit a throttled Mem0 degradation alert so learning failures are visible."""
+    now = time.monotonic()
+    last = _last_mem0_alert_at.get(kind, 0.0)
+    if now - last < MEM0_ALERT_COOLDOWN_SECONDS:
+        return
+
+    _last_mem0_alert_at[kind] = now
+    payload = {
+        "kind": kind,
+        "message": message,
+        "error": str(error)[:200],
+        "mem0_host": config.memory.mem0_host,
+    }
+    if context:
+        payload.update(context)
+
+    await emit_event("memory_write_failed", payload)
+    await emit_event("urgent_alert", {
+        "sender": "titan.memory",
+        "message": f"{message} Error: {str(error)[:160]}",
+    })
 
 
 async def get_relevant_learnings(context: str, limit: int = 10) -> str:

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from shared.db import fetch_all, fetch_one, execute, emit_event
 from shared.llm_client import llm
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 from titan.memory import get_relevant_learnings
 from titan.training import collect_email_outcome, collect_training_example
@@ -24,88 +25,127 @@ async def process_follow_ups():
 
 async def _check_replies():
     """Check Instantly.ai for new unread replies and classify them."""
+    replies = []
+    fetch_client = None
     try:
         from tools.instantly_client import InstantlyClient
         from shared.db import get_config
-        client = InstantlyClient()
+        fetch_client = InstantlyClient()
 
         campaign_id = await get_config("instantly_campaign_id", "")
         # Get unread emails from Instantly inbox
-        replies = await client.list_emails(
+        replies = await fetch_client.list_emails(
             campaign_id=campaign_id,
             is_unread=True,
             limit=50,
         )
         if not isinstance(replies, list):
             replies = replies.get("data", []) if isinstance(replies, dict) else []
-
-        # Mark them as read so we don't reprocess
-        for reply in replies:
-            email_id = reply.get("id", "")
-            if email_id:
-                try:
-                    await client.mark_thread_read(email_id)
-                except Exception:
-                    pass
-
-        await client.close()
-    except (ImportError, Exception) as e:
+    except Exception as e:
         logger.warning(f"Could not check replies: {e}")
+        if fetch_client:
+            try:
+                await fetch_client.close()
+            except Exception as close_exc:
+                logger.warning(f"Could not close Instantly replies client cleanly: {close_exc}")
         return
+    finally:
+        if fetch_client:
+            try:
+                await fetch_client.close()
+            except Exception as e:
+                logger.warning(f"Could not close Instantly replies client cleanly: {e}")
 
     for reply in replies:
-        # Instantly returns lead email in the reply object
-        email = reply.get("lead", reply.get("from_email", reply.get("email", "")))
-        lead = await fetch_one("SELECT id, status FROM clients WHERE email = %s", (email,))
-        if not lead:
+        try:
+            processed = await _process_reply(reply)
+        except Exception as e:
+            reply_id = reply.get("id", "")
+            lead_email = reply.get("lead", reply.get("from_email", reply.get("email", "")))
+            logger.error(f"Reply processing failed for {lead_email or reply_id}: {e}")
+            await emit_pipeline_error(
+                "follow_up.reply_process",
+                e,
+                lead_email=lead_email,
+                reply_id=reply_id,
+            )
             continue
 
-        # Classify the reply using AI
-        intent = await _classify_reply(reply.get("body", ""), reply.get("subject", ""))
+        email_id = reply.get("id", "")
+        if processed and email_id:
+            try:
+                await _mark_reply_read(email_id)
+            except Exception as e:
+                logger.warning(f"Processed reply {email_id} but could not mark thread read: {e}")
 
-        # Record training data from the reply outcome
-        outcome_map = {
-            "interested": "positive",
-            "not_interested": "negative",
-            "unsubscribe": "negative",
-            "question": "positive",  # engagement is positive signal
-            "out_of_office": "",      # no signal
-        }
-        outcome = outcome_map.get(intent, "")
 
-        # Find the email sequence that triggered this reply
-        email_seq = await fetch_one(
-            """SELECT id FROM email_sequences
-               WHERE client_id = %s AND status = 'sent'
-               ORDER BY sent_at DESC LIMIT 1""",
-            (lead["id"],),
-        )
-        if email_seq and outcome:
-            await collect_email_outcome(email_seq["id"], outcome)
+async def _mark_reply_read(email_id: str):
+    """Mark a processed reply as read using a fresh Instantly client."""
+    from tools.instantly_client import InstantlyClient
 
-        # Record the reply classification as a training example
-        await collect_training_example(
-            example_type="reply_classify",
-            input_text=f"Subject: {reply.get('subject', '')}\nBody: {reply.get('body', '')}",
-            output_text=intent,
-            outcome=outcome,
-            metadata={"client_id": lead["id"]},
-        )
+    client = InstantlyClient()
+    try:
+        await client.mark_thread_read(email_id)
+    finally:
+        await client.close()
 
-        if intent == "interested":
-            await transition_lead(lead["id"], "interested")
-            await emit_event("lead_interested", {
-                "client_id": lead["id"],
-                "reply_preview": reply.get("body", "")[:200],
-            })
-            logger.info(f"Lead {lead['id']} replied with interest!")
-        elif intent == "not_interested":
-            await transition_lead(lead["id"], "lost")
-        elif intent == "unsubscribe":
-            await transition_lead(lead["id"], "unsubscribed")
-        else:
-            # Question or unclear — needs follow-up
-            await transition_lead(lead["id"], "replied")
+
+async def _process_reply(reply: dict) -> bool:
+    """Process one Instantly reply and return True when it was handled successfully."""
+    # Instantly returns lead email in the reply object
+    email = reply.get("lead", reply.get("from_email", reply.get("email", "")))
+    lead = await fetch_one("SELECT id, status FROM clients WHERE email = %s", (email,))
+    if not lead:
+        return False
+
+    # Classify the reply using AI
+    intent = await _classify_reply(reply.get("body", ""), reply.get("subject", ""))
+
+    # Record training data from the reply outcome
+    outcome_map = {
+        "interested": "positive",
+        "not_interested": "negative",
+        "unsubscribe": "negative",
+        "question": "positive",  # engagement is positive signal
+        "out_of_office": "",      # no signal
+    }
+    outcome = outcome_map.get(intent, "")
+
+    # Find the email sequence that triggered this reply
+    email_seq = await fetch_one(
+        """SELECT id FROM email_sequences
+           WHERE client_id = %s AND status = 'sent'
+           ORDER BY sent_at DESC LIMIT 1""",
+        (lead["id"],),
+    )
+    if email_seq and outcome:
+        await collect_email_outcome(email_seq["id"], outcome)
+
+    # Record the reply classification as a training example
+    await collect_training_example(
+        example_type="reply_classify",
+        input_text=f"Subject: {reply.get('subject', '')}\nBody: {reply.get('body', '')}",
+        output_text=intent,
+        outcome=outcome,
+        metadata={"client_id": lead["id"]},
+    )
+
+    if intent == "interested":
+        await transition_lead(lead["id"], "interested")
+        await emit_event("lead_interested", {
+            "client_id": lead["id"],
+            "reply_preview": reply.get("body", "")[:200],
+        })
+        logger.info(f"Lead {lead['id']} replied with interest!")
+    elif intent == "not_interested":
+        await transition_lead(lead["id"], "lost")
+    elif intent == "unsubscribe":
+        await transition_lead(lead["id"], "unsubscribed")
+    else:
+        # Question or unclear — needs follow-up
+        await transition_lead(lead["id"], "replied")
+
+    return True
 
 
 async def _classify_reply(body: str, subject: str) -> str:
@@ -137,6 +177,7 @@ async def _send_follow_ups():
                 await _compose_and_queue_follow_up(lead)
         except Exception as e:
             logger.error(f"Follow-up failed for lead {lead['id']}: {e}")
+            await emit_pipeline_error("follow_up", e, lead_id=lead["id"])
 
 
 async def _should_follow_up(lead: dict) -> bool:
@@ -192,14 +233,29 @@ Return JSON: {{"subject": "...", "body": "..."}}"""
         end = result.rfind("}") + 1
         email_data = json.loads(result[start:end])
     except (json.JSONDecodeError, ValueError):
+        logger.warning(f"Could not parse follow-up JSON for lead {lead['id']}")
+        await emit_pipeline_error(
+            "follow_up.compose_parse",
+            ValueError("Could not parse follow-up JSON"),
+            lead_id=lead["id"],
+        )
         return
 
-    # Store follow-up
-    await fetch_one(
+    # Store follow-up and only advance the lead if the sequence row exists.
+    queued_email = await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status)
            VALUES (%s, %s, %s, %s, 'pending') RETURNING id""",
         (lead["id"], step, email_data.get("subject", ""), email_data.get("body", "")),
     )
+    if not queued_email or not queued_email.get("id"):
+        logger.error(f"Could not persist follow-up #{step} for lead {lead['id']}")
+        await emit_pipeline_error(
+            "follow_up.queue_insert",
+            ValueError("Could not persist follow-up email sequence"),
+            lead_id=lead["id"],
+            step=step,
+        )
+        return
 
     # Update lead
     await execute(

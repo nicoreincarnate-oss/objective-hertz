@@ -51,6 +51,14 @@ async def get_conn():
         yield conn
 
 
+@asynccontextmanager
+async def transaction():
+    """Run multiple DB statements inside a single transaction."""
+    async with get_conn() as conn:
+        async with conn.transaction():
+            yield conn
+
+
 async def execute(query: str, params: tuple = ()) -> None:
     """Execute a query (INSERT, UPDATE, DELETE)."""
     async with get_conn() as conn:
@@ -81,19 +89,29 @@ async def fetch_val(query: str, params: tuple = ()) -> Any:
 
 # ── Convenience helpers for common operations ──
 
-async def insert_task(task_type: str, payload: dict = None, priority: int = 5) -> int | None:
-    """Insert a task into the task queue if no pending/running task of the same type exists.
-    Returns task ID, or None if a duplicate was skipped."""
+async def insert_task(
+    task_type: str,
+    payload: dict = None,
+    priority: int = 5,
+    dedupe: bool = True,
+) -> int | None:
+    """Insert a task into the queue.
+
+    Scheduled recurring work should dedupe by task type to avoid runaway spend.
+    Daemon-to-daemon requests should set ``dedupe=False`` so distinct tasks do not
+    collapse into one another.
+    """
     import json
-    # Skip if there's already a pending or running task of this type
-    existing = await fetch_one(
-        """SELECT id FROM task_queue
-           WHERE task_type = %s AND status IN ('pending', 'running')
-           LIMIT 1""",
-        (task_type,),
-    )
-    if existing:
-        return None
+    if dedupe:
+        # Skip if there's already a pending or running task of this type
+        existing = await fetch_one(
+            """SELECT id FROM task_queue
+               WHERE task_type = %s AND status IN ('pending', 'running')
+               LIMIT 1""",
+            (task_type,),
+        )
+        if existing:
+            return None
 
     row = await fetch_one(
         """INSERT INTO task_queue (task_type, payload, priority)
@@ -129,6 +147,24 @@ async def set_config(key: str, value: Any) -> None:
     await execute(
         """INSERT INTO system_config (key, value)
            VALUES (%s, %s)
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()""",
+           ON CONFLICT (key) DO UPDATE
+           SET value = EXCLUDED.value,
+               is_customized = TRUE,
+               updated_at = NOW()""",
         (key, Jsonb(value)),
     )
+
+
+async def increment_config_int(key: str, delta: int = 1, default: int = 0) -> int:
+    """Atomically increment an integer system_config value and return the new value."""
+    row = await fetch_one(
+        """INSERT INTO system_config (key, value, is_customized)
+           VALUES (%s, to_jsonb((%s)::int), TRUE)
+           ON CONFLICT (key) DO UPDATE
+           SET value = to_jsonb((COALESCE(system_config.value #>> '{}', %s)::int + %s)),
+               is_customized = TRUE,
+               updated_at = NOW()
+           RETURNING (value #>> '{}')::int AS value""",
+        (key, default + delta, str(default), delta),
+    )
+    return int(row["value"]) if row else default + delta

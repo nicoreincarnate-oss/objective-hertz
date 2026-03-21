@@ -7,6 +7,7 @@ import logging
 
 from shared.db import fetch_all, fetch_one, execute, emit_event
 from shared.config import config
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.invoice")
@@ -39,11 +40,27 @@ async def _send_invoices():
                 logger.info(f"Invoice sent to {lead['business_name']}")
         except Exception as e:
             logger.error(f"Invoice failed for lead {lead['id']}: {e}")
+            await emit_pipeline_error("invoice", e, lead_id=lead["id"])
 
 
 async def _create_and_send_invoice(lead: dict) -> int | None:
     """Create an invoice and send it. Returns deal ID only if a payment link/reference was produced."""
     amount = config.pricing.website_5page  # Default 5-page price
+    description = f"Professional 5-page website for {lead['business_name']}"
+
+    existing_deal = await fetch_one(
+        """SELECT id, wise_reference FROM deals
+           WHERE client_id = %s AND product = 'website' AND status = 'pending'
+           ORDER BY created_at DESC LIMIT 1""",
+        (lead["id"],),
+    )
+    if existing_deal and existing_deal.get("wise_reference"):
+        logger.info(
+            "Reusing existing pending invoice for %s: %s",
+            lead["business_name"],
+            existing_deal["wise_reference"],
+        )
+        return existing_deal["id"]
 
     # Send via payment platform first — don't create a deal record until we have a deliverable invoice
     try:
@@ -53,7 +70,8 @@ async def _create_and_send_invoice(lead: dict) -> int | None:
             client_email=lead["email"],
             client_name=lead.get("contact_name", lead["business_name"]),
             amount=amount,
-            description=f"Professional 5-page website for {lead['business_name']}",
+            description=description,
+            idempotency_key=f"website:{lead['id']}:{amount}",
         )
     except ImportError:
         logger.error("Payment router module not available — cannot create invoices")

@@ -14,7 +14,7 @@ TRANSITIONS: dict[str, list[str]] = {
     "email_sent": ["followed_up", "replied", "unresponsive", "lost"],
     "followed_up": ["replied", "unresponsive", "lost"],
     "replied": ["interested", "lost", "unsubscribed"],
-    "interested": ["demo_built", "proposal_sent", "lost"],
+    "interested": ["demo_built", "lost"],
     "demo_built": ["proposal_sent", "negotiating", "lost"],
     "proposal_sent": ["negotiating", "closed", "lost"],
     "negotiating": ["closed", "lost"],
@@ -39,7 +39,7 @@ def valid_next_states(current: str) -> list[str]:
     return TRANSITIONS.get(current, [])
 
 
-async def transition_lead(client_id: int, new_status: str) -> bool:
+async def transition_lead(client_id: int, new_status: str, *, conn=None) -> bool:
     """
     Transition a lead to a new status.
     Returns True if successful, False if invalid transition.
@@ -49,7 +49,11 @@ async def transition_lead(client_id: int, new_status: str) -> bool:
 
     logger = logging.getLogger("perseus.titan.state_machine")
 
-    lead = await fetch_one("SELECT status FROM clients WHERE id = %s", (client_id,))
+    if conn is None:
+        lead = await fetch_one("SELECT status FROM clients WHERE id = %s", (client_id,))
+    else:
+        cursor = await conn.execute("SELECT status FROM clients WHERE id = %s", (client_id,))
+        lead = await cursor.fetchone()
     if not lead:
         logger.warning(f"Lead {client_id} not found")
         return False
@@ -59,9 +63,15 @@ async def transition_lead(client_id: int, new_status: str) -> bool:
         logger.warning(f"Invalid transition for lead {client_id}: {current} → {new_status}")
         return False
 
-    await execute(
-        "UPDATE clients SET status = %s, updated_at = NOW() WHERE id = %s",
-        (new_status, client_id),
-    )
+    if conn is None:
+        await execute(
+            "UPDATE clients SET status = %s, updated_at = NOW() WHERE id = %s",
+            (new_status, client_id),
+        )
+    else:
+        await conn.execute(
+            "UPDATE clients SET status = %s, updated_at = NOW() WHERE id = %s",
+            (new_status, client_id),
+        )
     logger.debug(f"Lead {client_id}: {current} → {new_status}")
     return True

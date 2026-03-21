@@ -3,6 +3,7 @@ Payment Router — routes invoices through Stripe (primary) or Wise (fallback).
 Works with Mexican bank accounts per Perseus requirements.
 """
 
+import hashlib
 import logging
 from typing import Any
 
@@ -43,15 +44,19 @@ class PaymentRouter:
         amount: float,
         description: str = "",
         currency: str = "USD",
+        idempotency_key: str = "",
     ) -> dict[str, Any]:
         """Create an invoice/payment link. Tries Stripe first, then Wise."""
+        invoice_key = idempotency_key or _invoice_idempotency_key(
+            client_email, amount, description, currency
+        )
         if self._stripe_available:
             return await self._create_stripe_invoice(
-                client_email, client_name, amount, description, currency
+                client_email, client_name, amount, description, currency, invoice_key
             )
         if self._wise_available:
             return await self._create_wise_invoice(
-                client_email, client_name, amount, description, currency
+                client_email, client_name, amount, description, currency, invoice_key
             )
         logger.warning("No payment provider available")
         return {"reference": "", "url": "", "provider": "none"}
@@ -68,7 +73,13 @@ class PaymentRouter:
     # ── Stripe ──────────────────────────────────────────────────────
 
     async def _create_stripe_invoice(
-        self, email: str, name: str, amount: float, description: str, currency: str
+        self,
+        email: str,
+        name: str,
+        amount: float,
+        description: str,
+        currency: str,
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a Stripe payment link for the invoice."""
         try:
@@ -76,7 +87,10 @@ class PaymentRouter:
                 # Create a payment link via Stripe API
                 resp = await client.post(
                     "https://api.stripe.com/v1/payment_links",
-                    headers={"Authorization": f"Bearer {config.payment.stripe_api_key}"},
+                    headers={
+                        "Authorization": f"Bearer {config.payment.stripe_api_key}",
+                        "Idempotency-Key": idempotency_key,
+                    },
                     data={
                         "line_items[0][price_data][currency]": currency.lower(),
                         "line_items[0][price_data][product_data][name]": description or "Website",
@@ -97,7 +111,9 @@ class PaymentRouter:
             logger.error(f"Stripe invoice creation failed: {e}")
             # Fall back to Wise if available
             if self._wise_available:
-                return await self._create_wise_invoice(email, name, amount, description, currency)
+                return await self._create_wise_invoice(
+                    email, name, amount, description, currency, idempotency_key
+                )
             return {"reference": "", "url": "", "provider": "stripe", "error": str(e)}
 
     async def _check_stripe_payments(self) -> list[dict[str, Any]]:
@@ -129,7 +145,13 @@ class PaymentRouter:
     # ── Wise ────────────────────────────────────────────────────────
 
     async def _create_wise_invoice(
-        self, email: str, name: str, amount: float, description: str, currency: str
+        self,
+        email: str,
+        name: str,
+        amount: float,
+        description: str,
+        currency: str,
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a Wise transfer quote (manual follow-up needed)."""
         try:
@@ -189,3 +211,9 @@ def _yesterday_timestamp() -> int:
     """Unix timestamp for 24 hours ago."""
     import time
     return int(time.time()) - 86400
+
+
+def _invoice_idempotency_key(email: str, amount: float, description: str, currency: str) -> str:
+    """Stable idempotency key for retried invoice creation."""
+    raw = f"{email.strip().lower()}|{amount:.2f}|{currency.upper()}|{description.strip()}"
+    return hashlib.sha256(raw.encode()).hexdigest()

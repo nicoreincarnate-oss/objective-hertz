@@ -14,8 +14,16 @@ Review mode: leads queue for Nico's approval before being added to campaign.
 import json
 import logging
 
-from shared.db import fetch_all, fetch_one, execute, get_config, set_config, emit_event
-from titan.state_machine import transition_lead
+from shared.db import (
+    emit_event,
+    execute,
+    fetch_all,
+    fetch_one,
+    get_config,
+    set_config,
+    transaction,
+)
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.training import collect_training_example
 
 logger = logging.getLogger("perseus.titan.email_send")
@@ -36,10 +44,12 @@ async def send_emails(batch_size: int = 50):
     leads = await fetch_all(
         """SELECT c.id as client_id, c.email, c.business_name,
                   c.contact_name, c.industry, c.city, c.country,
-                  es.id as seq_id, es.subject, es.body
+                  c.status as client_status,
+                  es.id as seq_id, es.step, es.subject, es.body
            FROM clients c
            JOIN email_sequences es ON es.client_id = c.id
-           WHERE c.status = 'email_drafted' AND es.status = 'pending' AND es.step = 1
+           WHERE c.status IN ('email_drafted', 'followed_up')
+             AND es.status = 'pending'
            ORDER BY c.lead_score DESC LIMIT %s""",
         (batch_size,),
     )
@@ -61,6 +71,7 @@ async def send_emails(batch_size: int = 50):
                 added_count += 1
         except Exception as e:
             logger.error(f"Failed to add lead {lead['client_id']} to campaign: {e}")
+            await emit_pipeline_error("email_send", e, client_id=lead["client_id"])
 
     if added_count:
         await emit_event("emails_queued", {"count": added_count, "campaign_id": campaign_id})
@@ -90,16 +101,15 @@ async def _get_or_create_campaign() -> str:
         name = f"{CAMPAIGN_PREFIX}-{datetime.now().strftime('%Y%m%d')}"
         campaign = await client.create_campaign(name)
         new_id = campaign.get("id", "")
-        await client.close()
 
         if new_id:
             await set_config("instantly_campaign_id", new_id)
             logger.info(f"Created Instantly campaign: {name} ({new_id})")
 
             # Activate the campaign so Instantly starts sending
-            client2 = InstantlyClient()
-            await client2.activate_campaign(new_id)
-            await client2.close()
+            await client.activate_campaign(new_id)
+
+        await client.close()
 
         return new_id
 
@@ -112,90 +122,99 @@ async def _get_or_create_campaign() -> str:
 
 
 async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
-    """Add a single lead to the Instantly campaign with personalized variables."""
-    try:
-        from tools.instantly_client import InstantlyClient
-        client = InstantlyClient()
+    """Add a single lead to the Instantly campaign via the compliance gate."""
+    from titan.compliance import send_to_instantly
 
-        # Instantly uses custom variables in email templates
-        # The email subject/body from our compose stage become the sequence
-        # For now, we add leads with variables that Instantly's sequence can use
-        await client.add_lead(
-            campaign_id=campaign_id,
-            email=lead["email"],
-            first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
-            company_name=lead.get("business_name", ""),
-            personalization=lead.get("body", "")[:500],  # Custom email body as variable
-            custom_subject=lead.get("subject", ""),
-            industry=lead.get("industry", ""),
-            city=lead.get("city", ""),
-            country=lead.get("country", ""),
-        )
-        await client.close()
+    success = await send_to_instantly(
+        campaign_id=campaign_id,
+        client_id=lead["client_id"],
+        email=lead["email"],
+        subject=lead.get("subject", ""),
+        body=lead.get("body", ""),
+        seq_id=lead["seq_id"],
+        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        company_name=lead.get("business_name", ""),
+        industry=lead.get("industry", ""),
+        city=lead.get("city", ""),
+        country=lead.get("country", ""),
+    )
 
-        # Update our tracking
-        await execute(
+    if not success:
+        return False
+
+    # Update our tracking atomically so a crash can't partially advance state.
+    async with transaction() as conn:
+        await conn.execute(
             "UPDATE email_sequences SET status = 'sent', sent_at = NOW() WHERE id = %s",
             (lead["seq_id"],),
         )
-        await execute(
-            "UPDATE clients SET last_contact_at = NOW() WHERE id = %s",
-            (lead["client_id"],),
-        )
-        await transition_lead(lead["client_id"], "email_sent")
-
-        # Record training example (outcome filled later by follow_up)
-        client_info = await fetch_one(
-            "SELECT research_summary, industry, language FROM clients WHERE id = %s",
-            (lead["client_id"],),
-        )
-        if client_info:
-            await collect_training_example(
-                example_type="email_compose",
-                input_text=json.dumps({
-                    "research": client_info.get("research_summary", ""),
-                    "industry": client_info.get("industry", ""),
-                    "language": client_info.get("language", "en"),
-                }),
-                output_text=json.dumps({
-                    "subject": lead.get("subject", ""),
-                    "body": lead.get("body", ""),
-                }),
-                outcome="",
-                metadata={"email_seq_id": lead["seq_id"], "client_id": lead["client_id"]},
+        if lead.get("step", 1) == 1:
+            await conn.execute(
+                """UPDATE clients
+                   SET status = 'email_sent', last_contact_at = NOW(), updated_at = NOW()
+                   WHERE id = %s""",
+                (lead["client_id"],),
+            )
+        else:
+            await conn.execute(
+                "UPDATE clients SET last_contact_at = NOW(), updated_at = NOW() WHERE id = %s",
+                (lead["client_id"],),
             )
 
-        return True
+    # Record training example (outcome filled later by follow_up)
+    client_info = await fetch_one(
+        "SELECT research_summary, industry, language FROM clients WHERE id = %s",
+        (lead["client_id"],),
+    )
+    if client_info:
+        await collect_training_example(
+            example_type="email_compose",
+            input_text=json.dumps({
+                "research": client_info.get("research_summary", ""),
+                "industry": client_info.get("industry", ""),
+                "language": client_info.get("language", "en"),
+            }),
+            output_text=json.dumps({
+                "subject": lead.get("subject", ""),
+                "body": lead.get("body", ""),
+            }),
+            outcome="",
+            metadata={"email_seq_id": lead["seq_id"], "client_id": lead["client_id"]},
+        )
 
-    except ImportError:
-        logger.warning("Instantly client not available")
-        return False
-    except Exception as e:
-        logger.error(f"Instantly add lead failed: {e}")
-        return False
+    return True
 
 
 async def _queue_for_review(batch_size: int):
     """In review mode: queue emails for Nico's approval instead of sending."""
+    from psycopg.types.json import Jsonb
+
     leads = await fetch_all(
         """SELECT c.id as client_id, c.email, c.business_name,
-                  es.id as seq_id, es.subject, es.body
+                  c.status as client_status,
+                  es.id as seq_id, es.step, es.subject, es.body
            FROM clients c
            JOIN email_sequences es ON es.client_id = c.id
-           WHERE c.status = 'email_drafted' AND es.status = 'pending' AND es.step = 1
+           WHERE c.status IN ('email_drafted', 'followed_up')
+             AND es.status = 'pending'
            LIMIT %s""",
         (batch_size,),
     )
 
     for lead in leads:
-        from psycopg.types.json import Jsonb
-        content = {"subject": lead.get("subject") or "", "body": lead.get("body") or ""}
+        content = {
+            "seq_id": lead["seq_id"],
+            "step": lead.get("step", 1),
+            "subject": lead.get("subject") or "",
+            "body": lead.get("body") or "",
+        }
         await execute(
             """INSERT INTO review_queue (item_type, client_id, content, status)
                VALUES ('email_draft', %s, %s, 'pending_review')""",
             (lead["client_id"], Jsonb(content)),
         )
-        await transition_lead(lead["client_id"], "email_queued")
+        if lead.get("step", 1) == 1:
+            await transition_lead(lead["client_id"], "email_queued")
 
     if leads:
         await emit_event("review_needed", {"type": "email_drafts", "count": len(leads)})

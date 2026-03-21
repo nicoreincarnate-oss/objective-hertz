@@ -65,3 +65,11 @@ class TestInsertTaskDedupe:
             results.append(await db.insert_task("lead_discovery"))
         assert results.count(None) == 9
         assert len(db.tables["task_queue"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_daemon_requests_can_bypass_dedupe(self, db):
+        first = await db.insert_task("web_scrape", {"url": "https://a.example"}, dedupe=False)
+        second = await db.insert_task("web_scrape", {"url": "https://b.example"}, dedupe=False)
+        assert first is not None
+        assert second is not None
+        assert len(db.tables["task_queue"]) == 2

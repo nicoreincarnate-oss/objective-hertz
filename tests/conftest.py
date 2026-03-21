@@ -46,11 +46,18 @@ class FakeDB:
     async def fetch_val(self, query: str, params: tuple = ()):
         return None
 
-    async def insert_task(self, task_type: str, payload: dict = None, priority: int = 5):
-        # Check dedupe
-        for t in self.tables["task_queue"]:
-            if t["task_type"] == task_type and t["status"] in ("pending", "running"):
-                return None
+    async def insert_task(
+        self,
+        task_type: str,
+        payload: dict = None,
+        priority: int = 5,
+        dedupe: bool = True,
+    ):
+        if dedupe:
+            # Check dedupe
+            for t in self.tables["task_queue"]:
+                if t["task_type"] == task_type and t["status"] in ("pending", "running"):
+                    return None
         task_id = self._next_id("task_queue")
         self.tables["task_queue"].append({
             "id": task_id,

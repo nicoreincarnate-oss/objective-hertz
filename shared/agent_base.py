@@ -21,6 +21,13 @@ class AgentBase(ABC):
     def __init__(self):
         self.logger = logging.getLogger(f"perseus.{self.name}")
         self._running = False
+        self._shutdown_requested = False
+        self._active_work: set[str] = set()
+        self._active_work_drained = asyncio.Event()
+        self._active_work_drained.set()
+        self._stopped = asyncio.Event()
+        self._stopped.set()
+        self._shutdown_timeout_seconds = 45
 
     @abstractmethod
     async def start(self):
@@ -58,6 +65,64 @@ class AgentBase(ABC):
         """Emit an event for other agents (Hermes, dashboard, etc.)."""
         await db.emit_event(event_type, {"agent": self.name, **(payload or {})})
 
+    def request_shutdown(self):
+        """Signal the agent to stop accepting new work."""
+        self._shutdown_requested = True
+        self._running = False
+
+    def begin_work(self, work_id: str):
+        """Track in-flight work so shutdown can wait for it to finish."""
+        self._active_work.add(work_id)
+        self._active_work_drained.clear()
+
+    def finish_work(self, work_id: str):
+        """Mark in-flight work as finished."""
+        self._active_work.discard(work_id)
+        if not self._active_work:
+            self._active_work_drained.set()
+
+    async def wait_for_work_drain(self, timeout: float | None = None) -> bool:
+        """Wait for in-flight work to finish."""
+        if not self._active_work:
+            return True
+        try:
+            await asyncio.wait_for(
+                self._active_work_drained.wait(),
+                timeout=timeout or self._shutdown_timeout_seconds,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def finalize_shutdown(self):
+        """Mark agent inactive and close its DB resources."""
+        try:
+            await self.deregister()
+        finally:
+            await db.close_pool()
+            self._stopped.set()
+
+    async def wait_until_stopped(self):
+        """Wait until start() has fully cleaned up."""
+        await self._stopped.wait()
+
+    async def requeue_stale_tasks(self) -> int:
+        """Release tasks left running by a previous crashed process."""
+        rows = await db.fetch_all(
+            """UPDATE task_queue
+               SET status = 'pending',
+                   assigned_agent = NULL,
+                   started_at = NULL,
+                   error = 'requeued after daemon restart'
+               WHERE status = 'running' AND assigned_agent = %s
+               RETURNING id""",
+            (self.name,),
+        )
+        count = len(rows)
+        if count:
+            self.logger.warning("Requeued %d stale running task(s) for %s", count, self.name)
+        return count
+
     async def get_pending_tasks(self, task_type: str = None) -> list[dict]:
         """Get pending tasks from the queue, optionally filtered by type."""
         if task_type:
@@ -76,22 +141,27 @@ class AgentBase(ABC):
     async def claim_task(self, task_id: int) -> bool:
         """Claim a task (set status to running). Returns True if claimed."""
         row = await db.fetch_one(
-            """UPDATE task_queue SET status = 'running', started_at = NOW()
+            """UPDATE task_queue
+               SET status = 'running', started_at = NOW(), assigned_agent = %s
                WHERE id = %s AND status = 'pending' RETURNING id""",
-            (task_id,),
+            (self.name, task_id),
         )
         return row is not None
 
     async def complete_task(self, task_id: int):
         """Mark a task as completed."""
         await db.execute(
-            "UPDATE task_queue SET status = 'completed', completed_at = NOW() WHERE id = %s",
-            (task_id,),
+            """UPDATE task_queue
+               SET status = 'completed', completed_at = NOW(), assigned_agent = %s
+               WHERE id = %s""",
+            (self.name, task_id),
         )
 
     async def fail_task(self, task_id: int, error: str):
         """Mark a task as failed."""
         await db.execute(
-            "UPDATE task_queue SET status = 'failed', error = %s, completed_at = NOW() WHERE id = %s",
-            (error, task_id),
+            """UPDATE task_queue
+               SET status = 'failed', error = %s, completed_at = NOW(), assigned_agent = %s
+               WHERE id = %s""",
+            (error, self.name, task_id),
         )

@@ -7,7 +7,9 @@ import json
 import logging
 
 from shared.db import fetch_all, execute
+from shared.comms import request_task_result
 from shared.llm_client import llm
+from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.research")
@@ -29,6 +31,7 @@ async def research_leads(batch_size: int = 10):
             await _research_one(lead)
         except Exception as e:
             logger.error(f"Research failed for lead {lead['id']}: {e}")
+            await emit_pipeline_error("lead_research", e, lead_id=lead["id"])
 
 
 async def _research_one(lead: dict):
@@ -104,23 +107,40 @@ Return JSON:
 
 
 async def _scrape_business_info(lead: dict) -> str:
-    """Try to scrape additional info about the business using Firecrawl."""
+    """Try to scrape additional info about the business via ClawdBot first."""
     try:
         from tools.firecrawl_client import scrape_url, enrich_business_profile
 
         if lead.get("website_url"):
-            result = scrape_url(lead["website_url"])
+            task_result = await request_task_result(
+                "web_scrape",
+                payload={"url": lead["website_url"]},
+                timeout_seconds=45,
+            )
+            result = {}
+            if task_result and task_result.get("ok"):
+                result = task_result.get("result", {}).get("result", {})
+            else:
+                result = scrape_url(lead["website_url"])
             if result.get("mode") == "live":
                 content = result.get("content", {})
                 return content.get("markdown", content.get("description", ""))[:1000]
 
-        # Enrich via search + scrape combo
-        profile = enrich_business_profile(
-            business_name=lead.get("business_name", ""),
-            city=lead.get("city", ""),
-            industry=lead.get("industry", ""),
-            website_url=lead.get("website_url", ""),
+        task_result = await request_task_result(
+            "enrich_lead",
+            payload={"client_id": lead["id"]},
+            timeout_seconds=60,
         )
+        if task_result and task_result.get("ok"):
+            profile = task_result.get("result", {}).get("profile", {})
+        else:
+            # Fallback: enrich via local search + scrape combo
+            profile = enrich_business_profile(
+                business_name=lead.get("business_name", ""),
+                city=lead.get("city", ""),
+                industry=lead.get("industry", ""),
+                website_url=lead.get("website_url", ""),
+            )
         if profile.get("mode") == "live":
             parts = []
             for sr in profile.get("search_results", [])[:2]:

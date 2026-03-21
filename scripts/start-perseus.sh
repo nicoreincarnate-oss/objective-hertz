@@ -31,25 +31,25 @@ echo "  ✓ Ollama running"
 # 3. Start Perseus daemon
 echo "[3/5] Starting Perseus (master)..."
 cd "$ROOT_DIR"
-nohup python -m perseus.daemon > "$LOG_DIR/perseus.log" 2>&1 &
+LOG_TO_STDOUT=0 nohup python -m perseus.daemon > /dev/null 2>&1 &
 echo $! > "$PID_DIR/perseus.pid"
 echo "  ✓ Perseus started (PID: $(cat $PID_DIR/perseus.pid))"
 
 # 4. Start Titan daemon
 echo "[4/5] Starting Titan (pipeline)..."
-nohup python -m titan.daemon > "$LOG_DIR/titan.log" 2>&1 &
+LOG_TO_STDOUT=0 nohup python -m titan.daemon > /dev/null 2>&1 &
 echo $! > "$PID_DIR/titan.pid"
 echo "  ✓ Titan started (PID: $(cat $PID_DIR/titan.pid))"
 
 # 5. Start Hermes daemon
 echo "[5/6] Starting Hermes (interface)..."
-nohup python -m hermes.daemon > "$LOG_DIR/hermes.log" 2>&1 &
+LOG_TO_STDOUT=0 nohup python -m hermes.daemon > /dev/null 2>&1 &
 echo $! > "$PID_DIR/hermes.pid"
 echo "  ✓ Hermes started (PID: $(cat $PID_DIR/hermes.pid))"
 
 # 6. Start ClawdBot daemon
 echo "[6/6] Starting ClawdBot (skills + browser)..."
-nohup python -m clawdbot.daemon > "$LOG_DIR/clawdbot.log" 2>&1 &
+LOG_TO_STDOUT=0 nohup python -m clawdbot.daemon > /dev/null 2>&1 &
 echo $! > "$PID_DIR/clawdbot.pid"
 echo "  ✓ ClawdBot started (PID: $(cat $PID_DIR/clawdbot.pid))"
 

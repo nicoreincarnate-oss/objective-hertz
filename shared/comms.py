@@ -13,6 +13,7 @@ This module provides a clean API for daemon-to-daemon communication.
 
 import json
 import logging
+import uuid
 from typing import Any, Optional
 
 from shared import db
@@ -27,6 +28,7 @@ async def request_task(
     payload: dict = None,
     priority: int = 5,
     request_id: str = "",
+    dedupe: bool = False,
 ) -> int:
     """
     Insert a task into the shared queue for any daemon to pick up.
@@ -44,7 +46,27 @@ async def request_task(
     full_payload = payload or {}
     if request_id:
         full_payload["request_id"] = request_id
-    return await db.insert_task(task_type, full_payload, priority)
+    return await db.insert_task(task_type, full_payload, priority, dedupe=dedupe)
+
+
+async def request_task_result(
+    task_type: str,
+    payload: dict = None,
+    priority: int = 5,
+    timeout_seconds: int = 60,
+) -> Optional[dict]:
+    """Request work from another daemon and wait for its task_result event."""
+    request_id = uuid.uuid4().hex
+    task_id = await request_task(
+        task_type,
+        payload=payload,
+        priority=priority,
+        request_id=request_id,
+        dedupe=False,
+    )
+    if task_id is None:
+        return None
+    return await wait_for_event("task_result", request_id=request_id, timeout_seconds=timeout_seconds)
 
 
 async def wait_for_event(

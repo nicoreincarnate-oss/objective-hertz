@@ -10,6 +10,8 @@ from typing import Optional
 
 from shared.db import fetch_all, fetch_one, execute, emit_event
 from shared.llm_client import llm
+from shared.pipeline_alerts import emit_pipeline_error
+from shared.comms import request_task_result
 from shared.skill_loader import find_skill, execute_skill
 from titan.memory import get_relevant_learnings
 
@@ -24,40 +26,78 @@ DISCOVERY_SKILLS = [
     "firecrawl-search",          # Firecrawl-based search
 ]
 
+DISCOVERY_SOURCE_DESCRIPTIONS = {
+    "apify-lead-generation": "Best for broad local-business discovery across maps and social sources.",
+    "outbound-prospecting": "Structured outbound prospecting workflow with higher-quality lead selection.",
+    "smart-web-scraper": "Useful when discovery needs structured extraction from web results.",
+    "openclaw-free-web-search": "Free self-hosted search option when paid providers are weak or unavailable.",
+    "firecrawl-search": "Firecrawl-based search skill when installed and working.",
+    "custom_firecrawl": "Built-in Firecrawl web search fallback implemented in this codebase.",
+}
+
 
 async def discover_leads(batch_size: int = 20) -> list[int]:
     """
     Discover new leads — businesses that need websites.
-    Tries installed skills first, falls back to custom Firecrawl code.
+    AI chooses the best available discovery source order.
     Returns list of new client IDs.
     """
-    # Check if any discovery skills are installed
-    for skill_name in DISCOVERY_SKILLS:
-        skill_path = find_skill(skill_name)
-        if skill_path:
-            logger.info(f"Using skill '{skill_name}' for lead discovery")
-            return await _discover_with_skill(skill_name, batch_size)
-
-    # Fallback: custom discovery logic
-    logger.info("No discovery skills found, using custom Firecrawl logic")
-    return await _discover_custom(batch_size)
-
-
-async def _discover_with_skill(skill_name: str, batch_size: int) -> list[int]:
-    """Use an installed skill for lead discovery."""
     strategy = await _get_discovery_strategy()
+    source_plan = await _choose_discovery_sources(strategy, batch_size)
+    new_lead_ids: list[int] = []
 
-    result = await execute_skill(
-        skill_name,
-        task_prompt=f"""Find {batch_size} businesses that don't have a website.
+    for source_name in source_plan["source_order"]:
+        remaining = batch_size - len(new_lead_ids)
+        if remaining <= 0:
+            break
+
+        if source_name == "custom_firecrawl":
+            discovered = await _discover_custom(remaining, strategy)
+        else:
+            logger.info(f"Using AI-selected discovery skill '{source_name}'")
+            discovered = await _discover_with_skill(source_name, remaining, strategy)
+
+        for lead_id in discovered:
+            if lead_id not in new_lead_ids:
+                new_lead_ids.append(lead_id)
+
+        if len(new_lead_ids) >= batch_size:
+            break
+
+    return new_lead_ids
+
+
+async def _discover_with_skill(skill_name: str, batch_size: int, strategy: dict) -> list[int]:
+    """Use an installed skill for lead discovery."""
+    task_prompt = f"""Find {batch_size} businesses that don't have a website.
 Search queries: {json.dumps(strategy['search_queries'])}
 Target industries: {json.dumps(strategy.get('target_industries', []))}
 
 For each business found, return JSON array:
-[{{"business_name": "...", "email": "...", "phone": "...", "industry": "...",
-   "city": "...", "country": "...", "website_url": "", "source": "{skill_name}"}}]""",
-        context={"batch_size": str(batch_size)},
+[{{
+  "business_name": "...", "email": "...", "phone": "...", "industry": "...",
+  "city": "...", "country": "...", "website_url": "", "source": "{skill_name}"
+}}]"""
+
+    task_result = await request_task_result(
+        "skill_execute",
+        payload={
+            "skill_name": skill_name,
+            "prompt": task_prompt,
+            "context": {"batch_size": str(batch_size)},
+        },
+        timeout_seconds=120,
     )
+
+    if task_result and task_result.get("ok"):
+        result = task_result.get("result", {}).get("result", "")
+    else:
+        logger.warning("ClawdBot skill execution unavailable, falling back to local skill execution")
+        result = await execute_skill(
+            skill_name,
+            task_prompt=task_prompt,
+            context={"batch_size": str(batch_size)},
+        )
 
     # Parse results and store leads
     new_lead_ids = []
@@ -71,26 +111,40 @@ For each business found, return JSON array:
                 new_lead_ids.append(lead_id)
     except (json.JSONDecodeError, ValueError):
         logger.warning(f"Could not parse skill output for {skill_name}")
+        await emit_pipeline_error(
+            "lead_discovery.skill_parse",
+            ValueError(f"Could not parse skill output for {skill_name}"),
+            context={"skill": skill_name},
+        )
 
     if new_lead_ids:
         await emit_event("leads_discovered", {"count": len(new_lead_ids), "skill": skill_name})
+    else:
+        await _emit_discovery_empty(
+            source="skill",
+            strategy=strategy,
+            details={"skill": skill_name},
+        )
     return new_lead_ids
 
 
-async def _discover_custom(batch_size: int) -> list[int]:
+async def _discover_custom(batch_size: int, strategy: dict) -> list[int]:
     """Fallback: custom discovery using Firecrawl + LLM."""
-    strategy = await _get_discovery_strategy()
     new_lead_ids = []
+    successful_queries = 0
 
     for query in strategy["search_queries"]:
         try:
             results = await _search_for_businesses(query)
+            if results:
+                successful_queries += 1
             for biz in results[:batch_size]:
                 lead_id = await _store_lead(biz)
                 if lead_id:
                     new_lead_ids.append(lead_id)
         except Exception as e:
             logger.error(f"Discovery search failed for '{query}': {e}")
+            await emit_pipeline_error("lead_discovery.search", e, context={"query": query})
 
     if new_lead_ids:
         await emit_event("leads_discovered", {
@@ -98,8 +152,106 @@ async def _discover_custom(batch_size: int) -> list[int]:
             "strategy": strategy.get("reasoning", ""),
         })
         logger.info(f"Discovered {len(new_lead_ids)} new leads")
+    else:
+        await _emit_discovery_empty(
+            source="custom",
+            strategy=strategy,
+            details={
+                "query_count": len(strategy.get("search_queries", [])),
+                "successful_queries": successful_queries,
+            },
+        )
 
     return new_lead_ids
+
+
+async def _choose_discovery_sources(strategy: dict, batch_size: int) -> dict:
+    """Ask AI which discovery sources to use, based on what is actually available."""
+    available_sources = []
+    for skill_name in DISCOVERY_SKILLS:
+        if find_skill(skill_name):
+            available_sources.append({
+                "name": skill_name,
+                "type": "skill",
+                "description": DISCOVERY_SOURCE_DESCRIPTIONS.get(skill_name, ""),
+            })
+
+    available_sources.append({
+        "name": "custom_firecrawl",
+        "type": "fallback",
+        "description": DISCOVERY_SOURCE_DESCRIPTIONS["custom_firecrawl"],
+    })
+
+    if len(available_sources) == 1:
+        return {
+            "source_order": ["custom_firecrawl"],
+            "reasoning": "No discovery skills installed; using built-in Firecrawl fallback.",
+        }
+
+    prompt = f"""You are Titan choosing the best discovery sources for this run.
+
+Goal: find {batch_size} businesses that need websites.
+Strategy:
+{json.dumps(strategy)}
+
+Available sources:
+{json.dumps(available_sources)}
+
+Choose an ordered list of source names to try for this run.
+Rules:
+1. Pick from the available source names only.
+2. Put the best source first.
+3. Keep custom_firecrawl as a fallback unless it is clearly the best choice.
+4. Return at most 3 sources.
+
+Return JSON:
+{{
+  "source_order": ["source1", "source2"],
+  "reasoning": "why this order"
+}}"""
+
+    result = await llm.generate(prompt, model="fast", temperature=0.3)
+
+    try:
+        start = result.find("{")
+        end = result.rfind("}") + 1
+        data = json.loads(result[start:end])
+        valid_names = {source["name"] for source in available_sources}
+        source_order = [
+            source_name
+            for source_name in data.get("source_order", [])
+            if source_name in valid_names
+        ]
+        if not source_order:
+            raise ValueError("No valid discovery sources selected")
+        if "custom_firecrawl" not in source_order:
+            source_order.append("custom_firecrawl")
+        return {
+            "source_order": source_order[:3],
+            "reasoning": data.get("reasoning", ""),
+        }
+    except (json.JSONDecodeError, ValueError, TypeError):
+        default_order = [source["name"] for source in available_sources]
+        return {
+            "source_order": default_order[:3],
+            "reasoning": "Fallback source order based on installed skills and built-in fallback.",
+        }
+
+
+async def _emit_discovery_empty(source: str, strategy: dict, details: dict | None = None) -> None:
+    """Surface zero-result discovery runs so broken sources don't fail silently."""
+    payload = {
+        "source": source,
+        "reasoning": strategy.get("reasoning", ""),
+        "search_queries": strategy.get("search_queries", [])[:5],
+        **(details or {}),
+    }
+    await emit_event("lead_discovery_empty", payload)
+    await emit_pipeline_error(
+        "lead_discovery.empty",
+        RuntimeError("Lead discovery returned zero leads"),
+        context=payload,
+    )
 
 
 async def _get_discovery_strategy() -> dict:

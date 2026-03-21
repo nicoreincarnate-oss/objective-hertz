@@ -10,6 +10,7 @@ from pathlib import Path
 
 from shared.db import fetch_all, fetch_one, execute
 from shared.llm_client import llm
+from shared.pipeline_alerts import emit_pipeline_error
 from shared.skill_loader import find_skill, execute_skill
 from titan.state_machine import transition_lead
 from titan.memory import get_relevant_learnings
@@ -69,6 +70,7 @@ async def compose_emails(batch_size: int = 20):
                 await _compose_one(lead, soul_copy, learned_tips)
         except Exception as e:
             logger.error(f"Email compose failed for lead {lead['id']}: {e}")
+            await emit_pipeline_error("email_compose", e, lead_id=lead["id"])
 
 
 async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learned_tips: str):

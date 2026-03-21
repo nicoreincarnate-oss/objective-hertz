@@ -3,7 +3,9 @@ Hermes Telegram Bot — Nico's interface to Perseus.
 Commands, alerts, morning briefings.
 """
 
+import hmac
 import logging
+import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -14,8 +16,66 @@ from titan.review_mode import get_pending_reviews, approve_review, reject_review
 logger = logging.getLogger("perseus.hermes.telegram")
 
 
+async def _require_chat_access(update: Update) -> bool:
+    """Allow commands only from Nico's configured Telegram chat."""
+    configured_chat = str(config.telegram.chat_id).strip()
+    actual_chat = str(update.effective_chat.id if update.effective_chat else "").strip()
+
+    if not configured_chat:
+        logger.warning("TELEGRAM_CHAT_ID is not configured — denying Telegram command")
+        if update.message:
+            await update.message.reply_text("Telegram control is not configured.")
+        return False
+
+    if not hmac.compare_digest(actual_chat, configured_chat):
+        logger.warning("Unauthorized Telegram chat attempted command access: %s", actual_chat or "unknown")
+        if update.message:
+            await update.message.reply_text("Unauthorized.")
+        return False
+
+    return True
+
+
+async def _require_destructive_auth(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    usage: str,
+    secret_arg_index: int,
+) -> bool:
+    """Require both authorized chat access and a second secret for destructive actions."""
+    if not await _require_chat_access(update):
+        return False
+
+    configured_secret = os.getenv("TELEGRAM_ADMIN_SECRET", "").strip()
+    if not configured_secret:
+        logger.warning("TELEGRAM_ADMIN_SECRET is not configured — denying destructive Telegram command")
+        if update.message:
+            await update.message.reply_text("Telegram admin secret is not configured.")
+        return False
+
+    if len(context.args) <= secret_arg_index:
+        if update.message:
+            await update.message.reply_text(usage)
+        return False
+
+    provided_secret = context.args[secret_arg_index].strip()
+    if not hmac.compare_digest(provided_secret, configured_secret):
+        logger.warning(
+            "Telegram destructive command rejected due to invalid admin secret from chat %s",
+            update.effective_chat.id if update.effective_chat else "unknown",
+        )
+        if update.message:
+            await update.message.reply_text("Unauthorized.")
+        return False
+
+    return True
+
+
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show system status."""
+    if not await _require_chat_access(update):
+        return
     pipeline = await _get_pipeline_summary()
     await update.message.reply_text(
         f"*PERSEUS Status*\n\n{pipeline}",
@@ -25,6 +85,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_leads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show active leads."""
+    if not await _require_chat_access(update):
+        return
     leads = await fetch_all(
         """SELECT status, COUNT(*) as count FROM clients
            GROUP BY status ORDER BY count DESC"""
@@ -37,6 +99,8 @@ async def cmd_leads(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show revenue status."""
+    if not await _require_chat_access(update):
+        return
     total = await fetch_val(
         "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'paid'"
     ) or 0
@@ -51,6 +115,8 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show items pending review."""
+    if not await _require_chat_access(update):
+        return
     items = await get_pending_reviews()
     if not items:
         await update.message.reply_text("No items pending review.")
@@ -65,12 +131,16 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Approve a review queue item."""
-    if not context.args:
-        await update.message.reply_text("Usage: /approve <review_id>")
+    if not await _require_destructive_auth(
+        update,
+        context,
+        usage="Usage: /approve <review_id> <admin_secret> [notes]",
+        secret_arg_index=1,
+    ):
         return
     try:
         review_id = int(context.args[0])
-        notes = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+        notes = " ".join(context.args[2:]) if len(context.args) > 2 else ""
         result = await approve_review(review_id, notes)
         if result:
             await update.message.reply_text(f"Approved #{review_id}")
@@ -82,12 +152,16 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reject a review queue item."""
-    if not context.args:
-        await update.message.reply_text("Usage: /reject <review_id> [reason]")
+    if not await _require_destructive_auth(
+        update,
+        context,
+        usage="Usage: /reject <review_id> <admin_secret> [reason]",
+        secret_arg_index=1,
+    ):
         return
     try:
         review_id = int(context.args[0])
-        notes = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+        notes = " ".join(context.args[2:]) if len(context.args) > 2 else ""
         result = await reject_review(review_id, notes)
         if result:
             await update.message.reply_text(f"Rejected #{review_id}")
@@ -99,6 +173,13 @@ async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Pause Titan and ClawdBot (manual — Perseus won't auto-unpause)."""
+    if not await _require_destructive_auth(
+        update,
+        context,
+        usage="Usage: /pause <admin_secret>",
+        secret_arg_index=0,
+    ):
+        return
     from shared.db import set_config
     await set_config("titan_paused", True)
     await set_config("clawdbot_paused", True)
@@ -108,6 +189,13 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Resume Titan and ClawdBot."""
+    if not await _require_destructive_auth(
+        update,
+        context,
+        usage="Usage: /resume <admin_secret>",
+        secret_arg_index=0,
+    ):
+        return
     from shared.db import set_config
     await set_config("titan_paused", False)
     await set_config("clawdbot_paused", False)
@@ -117,16 +205,18 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help."""
+    if not await _require_chat_access(update):
+        return
     await update.message.reply_text(
         "*Perseus Commands:*\n"
         "/status — System overview\n"
         "/leads — Pipeline breakdown\n"
         "/revenue — Revenue stats\n"
         "/review — Pending approvals\n"
-        "/approve <id> — Approve item\n"
-        "/reject <id> — Reject item\n"
-        "/pause — Pause Titan\n"
-        "/resume — Resume Titan\n"
+        "/approve <id> <secret> — Approve item\n"
+        "/reject <id> <secret> — Reject item\n"
+        "/pause <secret> — Pause Titan\n"
+        "/resume <secret> — Resume Titan\n"
         "/help — This message",
         parse_mode="Markdown",
     )

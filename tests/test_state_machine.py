@@ -19,9 +19,9 @@ class TestValidTransitions:
             assert can_transition(path[i], path[i + 1]), \
                 f"{path[i]} → {path[i+1]} should be valid"
 
-    def test_skip_demo_straight_to_proposal(self):
-        """Interested leads can go directly to proposal_sent (no demo)."""
-        assert can_transition("interested", "proposal_sent")
+    def test_interested_cannot_skip_demo_before_proposal(self):
+        """The strategy requires a demo before a proposal can be sent."""
+        assert not can_transition("interested", "proposal_sent")
 
     def test_proposal_to_closed(self):
         assert can_transition("proposal_sent", "closed")

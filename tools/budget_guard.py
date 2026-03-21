@@ -48,7 +48,7 @@ async def get_month_spending(monthly_cap: Decimal = None) -> dict:
     month = date.today().replace(day=1)
 
     total = await fetch_val(
-        "SELECT COALESCE(SUM(amount), 0) FROM budget_tracking WHERE month = %s",
+        "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
         (month,),
     ) or 0
 
@@ -57,7 +57,7 @@ async def get_month_spending(monthly_cap: Decimal = None) -> dict:
     percent = float(total_dec / monthly_cap * 100) if monthly_cap > 0 else 0
 
     categories = await fetch_all(
-        """SELECT category, SUM(amount) as amount FROM budget_tracking
+        """SELECT category, SUM(amount) as amount FROM v_effective_budget_tracking
            WHERE month = %s GROUP BY category ORDER BY amount DESC""",
         (month,),
     )

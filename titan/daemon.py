@@ -88,40 +88,55 @@ class TitanDaemon(AgentBase):
         """Start Titan's main loop — polls task_queue from Perseus + runs pipeline."""
         logger.info("Titan starting up...")
         await db.init_pool()
+        from titan.compliance import assert_compliance_ready
+        await assert_compliance_ready()
+        await self.requeue_stale_tasks()
         await self.register()
+        self._stopped.clear()
         self._running = True
 
         logger.info("Titan is LIVE. Listening for tasks from Perseus.")
-        while self._running:
-            try:
-                # Check if paused
-                paused = await db.get_config("titan_paused", False)
-                if paused:
-                    logger.debug("Titan is paused. Waiting.")
-                    await asyncio.sleep(10)
-                    continue
+        try:
+            while self._running:
+                self.begin_work("loop:cycle")
+                try:
+                    # Check if paused
+                    paused = await db.get_config("titan_paused", False)
+                    if paused:
+                        logger.debug("Titan is paused. Waiting.")
+                        await asyncio.sleep(10)
+                        continue
 
-                # Process tasks from Perseus scheduler
-                await self._process_task_queue()
+                    # Process tasks from Perseus scheduler
+                    await self._process_task_queue()
 
-                # Also run the full pipeline cycle (Titan is self-driven too)
-                await self._run_pipeline_cycle()
+                    # Also run the full pipeline cycle (Titan is self-driven too)
+                    await self._run_pipeline_cycle()
 
-                # Heartbeat so Perseus knows we're alive
-                await heartbeat(self.name)
+                    # Heartbeat so Perseus knows we're alive
+                    await heartbeat(self.name)
 
-            except Exception as e:
-                logger.error(f"Titan cycle error: {e}", exc_info=True)
-                await self.emit_event("titan_error", {"error": str(e)})
+                except Exception as e:
+                    logger.error(f"Titan cycle error: {e}", exc_info=True)
+                    await self.emit_event("titan_error", {"error": str(e)})
+                finally:
+                    self.finish_work("loop:cycle")
 
-            await asyncio.sleep(self._cycle_interval)
+                await asyncio.sleep(self._cycle_interval)
+        finally:
+            await self.finalize_shutdown()
 
     async def stop(self):
         """Gracefully stop Titan."""
-        logger.info("Titan shutting down...")
-        self._running = False
-        await self.deregister()
-        await db.close_pool()
+        logger.info("Titan shutdown requested...")
+        self.request_shutdown()
+        drained = await self.wait_for_work_drain()
+        if not drained:
+            logger.warning(
+                "Titan shutdown timed out with %d in-flight operation(s); stale tasks will be requeued on restart",
+                len(self._active_work),
+            )
+        await self.wait_until_stopped()
         logger.info("Titan stopped.")
 
     async def health_check(self) -> dict:
@@ -134,6 +149,8 @@ class TitanDaemon(AgentBase):
         """Process pending tasks dispatched by Perseus."""
         tasks = await self.get_pending_tasks()
         for task in tasks:
+            if self._shutdown_requested:
+                break
             task_type = task["task_type"]
             handler = TASK_HANDLERS.get(task_type)
             if not handler:
@@ -143,6 +160,8 @@ class TitanDaemon(AgentBase):
             if not claimed:
                 continue  # Another agent got it
 
+            work_id = f"task:{task['id']}"
+            self.begin_work(work_id)
             try:
                 await handler()
                 await self.complete_task(task["id"])
@@ -150,6 +169,8 @@ class TitanDaemon(AgentBase):
             except Exception as e:
                 await self.fail_task(task["id"], str(e))
                 logger.error(f"Task {task['id']} ({task_type}) failed: {e}")
+            finally:
+                self.finish_work(work_id)
 
     async def _run_pipeline_cycle(self):
         """One full cycle of the pipeline. Each stage processes its leads."""
@@ -166,6 +187,10 @@ class TitanDaemon(AgentBase):
         ]
 
         for stage_name, stage_fn in stages:
+            if self._shutdown_requested:
+                break
+            work_id = f"stage:{stage_name}"
+            self.begin_work(work_id)
             try:
                 await stage_fn()
             except Exception as e:
@@ -174,6 +199,8 @@ class TitanDaemon(AgentBase):
                     "stage": stage_name,
                     "error": str(e),
                 })
+            finally:
+                self.finish_work(work_id)
 
 
 async def main():

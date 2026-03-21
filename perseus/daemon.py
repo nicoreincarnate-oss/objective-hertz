@@ -36,6 +36,7 @@ class PerseusDaemon(AgentBase):
 
         await db.init_pool()
         await self.register()
+        self._stopped.clear()
         self._running = True
 
         # Initialize last_run times
@@ -46,19 +47,25 @@ class PerseusDaemon(AgentBase):
         logger.info(f"Loaded {len(SCHEDULES)} schedules")
         logger.info("Perseus is LIVE.")
 
-        while self._running:
-            try:
-                await self._tick()
-            except Exception as e:
-                logger.error(f"Perseus tick error: {e}", exc_info=True)
-            await asyncio.sleep(10)  # Check every 10 seconds
+        try:
+            while self._running:
+                self.begin_work("loop:tick")
+                try:
+                    await self._tick()
+                except Exception as e:
+                    logger.error(f"Perseus tick error: {e}", exc_info=True)
+                finally:
+                    self.finish_work("loop:tick")
+                await asyncio.sleep(10)  # Check every 10 seconds
+        finally:
+            await self.finalize_shutdown()
 
     async def stop(self):
         """Gracefully stop Perseus."""
-        logger.info("Perseus shutting down...")
-        self._running = False
-        await self.deregister()
-        await db.close_pool()
+        logger.info("Perseus shutdown requested...")
+        self.request_shutdown()
+        await self.wait_for_work_drain()
+        await self.wait_until_stopped()
         logger.info("Perseus stopped.")
 
     async def health_check(self) -> dict:

@@ -38,36 +38,49 @@ class ClawdBotDaemon(AgentBase):
         """Start ClawdBot's main loop."""
         logger.info("ClawdBot starting up...")
         await db.init_pool()
+        await self.requeue_stale_tasks()
         await self.register()
+        self._stopped.clear()
         self._running = True
 
         # Log available skills
         skills = list_installed_skills()
         logger.info(f"ClawdBot is LIVE. {len(skills)} skills available: {[s['name'] for s in skills]}")
 
-        while self._running:
-            try:
-                paused = await db.get_config("clawdbot_paused", False)
-                if paused:
-                    logger.debug("ClawdBot is paused. Waiting.")
-                    await asyncio.sleep(10)
-                    continue
+        try:
+            while self._running:
+                self.begin_work("loop:cycle")
+                try:
+                    paused = await db.get_config("clawdbot_paused", False)
+                    if paused:
+                        logger.debug("ClawdBot is paused. Waiting.")
+                        await asyncio.sleep(10)
+                        continue
 
-                await self._process_task_queue()
-                await heartbeat(self.name)
+                    await self._process_task_queue()
+                    await heartbeat(self.name)
 
-            except Exception as e:
-                logger.error(f"ClawdBot cycle error: {e}", exc_info=True)
-                await self.emit_event("clawdbot_error", {"error": str(e)})
+                except Exception as e:
+                    logger.error(f"ClawdBot cycle error: {e}", exc_info=True)
+                    await self.emit_event("clawdbot_error", {"error": str(e)})
+                finally:
+                    self.finish_work("loop:cycle")
 
-            await asyncio.sleep(self._cycle_interval)
+                await asyncio.sleep(self._cycle_interval)
+        finally:
+            await self.finalize_shutdown()
 
     async def stop(self):
         """Gracefully stop ClawdBot."""
-        logger.info("ClawdBot shutting down...")
-        self._running = False
-        await self.deregister()
-        await db.close_pool()
+        logger.info("ClawdBot shutdown requested...")
+        self.request_shutdown()
+        drained = await self.wait_for_work_drain()
+        if not drained:
+            logger.warning(
+                "ClawdBot shutdown timed out with %d in-flight operation(s); stale tasks will be requeued on restart",
+                len(self._active_work),
+            )
+        await self.wait_until_stopped()
         logger.info("ClawdBot stopped.")
 
     async def health_check(self) -> dict:
@@ -82,6 +95,8 @@ class ClawdBotDaemon(AgentBase):
         """Process pending tasks assigned to ClawdBot."""
         tasks = await self.get_pending_tasks()
         for task in tasks:
+            if self._shutdown_requested:
+                break
             task_type = task["task_type"]
             handler = TASK_HANDLERS.get(task_type)
             if not handler:
@@ -91,16 +106,43 @@ class ClawdBotDaemon(AgentBase):
             if not claimed:
                 continue
 
+            work_id = f"task:{task['id']}"
+            self.begin_work(work_id)
             try:
                 payload = task.get("payload", {})
                 if isinstance(payload, str):
                     payload = json.loads(payload)
-                await handler(payload)
+                request_id = payload.get("request_id", "")
+                result = await handler(payload)
+                if request_id:
+                    await db.emit_event("task_result", {
+                        "request_id": request_id,
+                        "task_type": task_type,
+                        "ok": True,
+                        "result": result or {},
+                    })
                 await self.complete_task(task["id"])
                 logger.debug(f"Task {task['id']} ({task_type}) completed")
             except Exception as e:
                 await self.fail_task(task["id"], str(e))
+                request_id = ""
+                if isinstance(task.get("payload"), str):
+                    try:
+                        request_id = json.loads(task["payload"]).get("request_id", "")
+                    except Exception:
+                        request_id = ""
+                elif isinstance(task.get("payload"), dict):
+                    request_id = task["payload"].get("request_id", "")
+                if request_id:
+                    await db.emit_event("task_result", {
+                        "request_id": request_id,
+                        "task_type": task_type,
+                        "ok": False,
+                        "error": str(e),
+                    })
                 logger.error(f"Task {task['id']} ({task_type}) failed: {e}")
+            finally:
+                self.finish_work(work_id)
 
 
 # ── Task Handlers ──────────────────────────────────────────────────
@@ -132,6 +174,10 @@ async def handle_skill_execute(payload: dict):
         await _store_learning("skill_execution", f"Skill {skill_name}: {result[:500]}")
 
     logger.info(f"Skill '{skill_name}' executed successfully")
+    return {
+        "skill": skill_name,
+        "result": result[:2000] if result else "",
+    }
 
 
 async def handle_web_scrape(payload: dict):
@@ -150,12 +196,17 @@ async def handle_web_scrape(payload: dict):
     })
 
     logger.info(f"Scraped {url}")
+    return {
+        "url": url,
+        "result": result,
+    }
 
 
 async def handle_site_verify(payload: dict):
     """Verify a deployed site is live and functional."""
     url = payload.get("url", "")
     client_id = payload.get("client_id")
+    request_id = payload.get("request_id", "")
 
     if not url:
         raise ValueError("url is required")
@@ -174,6 +225,7 @@ async def handle_site_verify(payload: dict):
                 "is_live": is_live,
                 "content_length": content_length,
                 "client_id": client_id,
+                "request_id": request_id,
             }
 
             if client_id and is_live:
@@ -189,15 +241,18 @@ async def handle_site_verify(payload: dict):
                     "url": url,
                     "status_code": status_code,
                     "client_id": client_id,
+                    "request_id": request_id,
                 })
 
             logger.info(f"Site verify: {url} → {status_code} ({'LIVE' if is_live else 'DOWN'})")
+            return result
 
     except Exception as e:
         await db.emit_event("site_down", {
             "url": url,
             "error": str(e),
             "client_id": client_id,
+            "request_id": request_id,
         })
         raise
 
@@ -216,10 +271,14 @@ async def handle_browser_task(payload: dict):
             "result": result[:2000] if result else "",
             "request_id": payload.get("request_id", ""),
         })
+        return {
+            "result": result[:2000] if result else "",
+            "url": url,
+        }
     else:
         # Fallback: just scrape the URL
         if url:
-            await handle_web_scrape(payload)
+            return await handle_web_scrape(payload)
         else:
             raise ValueError("No browser-automation skill and no URL provided")
 
@@ -265,7 +324,13 @@ async def handle_enrich_lead(payload: dict):
     await db.emit_event("lead_enriched", {
         "client_id": client_id,
         "business_name": lead.get("business_name", ""),
+        "request_id": payload.get("request_id", ""),
     })
+    return {
+        "client_id": client_id,
+        "business_name": lead.get("business_name", ""),
+        "profile": result,
+    }
 
 
 # ── Shared Memory Helpers ──────────────────────────────────────────
@@ -298,6 +363,7 @@ async def handle_site_verify_batch(payload: dict):
         except Exception as e:
             logger.error(f"Site verify failed for client {site['id']}: {e}")
     logger.info(f"Batch site verification: {len(sites)} sites checked")
+    return {"checked": len(sites)}
 
 
 async def handle_enrich_leads_batch(payload: dict):
@@ -315,6 +381,7 @@ async def handle_enrich_leads_batch(payload: dict):
             logger.error(f"Enrich failed for client {lead['id']}: {e}")
     if leads:
         logger.info(f"Batch lead enrichment: {len(leads)} leads processed")
+    return {"processed": len(leads)}
 
 
 TASK_HANDLERS = {

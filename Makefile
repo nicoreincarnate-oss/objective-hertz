@@ -1,4 +1,6 @@
-.PHONY: help start stop status logs health up down restart clean test
+.PHONY: help start stop status logs health up down restart clean test lint typecheck quality
+
+PYTHON ?= python3
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -63,7 +65,15 @@ health: ## Quick health check
 	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
 
 test: ## Run tests (no infrastructure needed)
-	python -m pytest tests/ -v
+	$(PYTHON) -m pytest tests/ -v
+
+lint: ## Lint first-party code
+	$(PYTHON) -m ruff check shared perseus titan hermes clawdbot tests
+
+typecheck: ## Type-check first-party code
+	$(PYTHON) -m mypy shared perseus titan hermes clawdbot
+
+quality: lint typecheck test ## Run the local quality gates
 
 clean: ## Remove all Docker volumes (DESTRUCTIVE)
 	@echo "WARNING: This will delete ALL data (Postgres, Qdrant, Mem0)!"

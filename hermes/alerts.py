@@ -42,6 +42,12 @@ def _format_event(event: dict) -> str:
 
     formatters = {
         "leads_discovered": lambda p: f"Found {p.get('count', 0)} new leads",
+        "lead_discovery_empty": lambda p: (
+            f"Lead discovery returned 0 leads via {p.get('source', 'unknown')}"
+        ),
+        "memory_write_failed": lambda p: (
+            f"Memory write degraded: {p.get('error', 'unknown')[:160]}"
+        ),
         "emails_sent": lambda p: f"Sent {p.get('count', 0)} emails ({p.get('daily_total', 0)} today)",
         "lead_interested": lambda p: f"HOT LEAD interested! Client #{p.get('client_id', '?')}",
         "review_needed": lambda p: f"Review needed: {p.get('count', 1)} {p.get('type', 'items')}",
@@ -50,6 +56,13 @@ def _format_event(event: dict) -> str:
         "site_deployed": lambda p: f"Site deployed: {p.get('url', '')} for {p.get('business_name', '')}",
         "autonomy_unlocked": lambda p: f"AUTONOMY UNLOCKED! {p.get('message', '')}",
         "budget_exceeded": lambda p: "BUDGET WARNING — limit reached",
+        "pipeline_error": lambda p: (
+            f"Pipeline error in {p.get('stage', '?')}: "
+            f"{p.get('error_type', 'Error')} — {p.get('error', 'unknown')[:160]}"
+        ),
+        "pipeline_stage_error": lambda p: (
+            f"Pipeline stage failed: {p.get('stage', '?')} — {p.get('error', 'unknown')[:160]}"
+        ),
         "titan_error": lambda p: f"Titan error: {p.get('error', 'unknown')[:200]}",
         "clawdbot_error": lambda p: f"ClawdBot error: {p.get('error', 'unknown')[:200]}",
         "urgent_alert": lambda p: f"ALERT from {p.get('sender', '?')}: {p.get('message', '')}",

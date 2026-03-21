@@ -114,6 +114,10 @@ class PerseusConfig:
     root_dir: Path = _ROOT
     log_level: str = _env("LOG_LEVEL", "INFO")
     log_dir: Path = _ROOT / _env("LOG_DIR", "logs")
+    log_format: str = _env("LOG_FORMAT", "text")
+    log_to_stdout: bool = _env_bool("LOG_TO_STDOUT", True)
+    log_max_bytes: int = _env_int("LOG_MAX_BYTES", 10485760)
+    log_backup_count: int = _env_int("LOG_BACKUP_COUNT", 5)
     review_mode: bool = _env_bool("REVIEW_MODE", True)
     sales_before_autonomy: int = _env_int("SALES_BEFORE_AUTONOMY", 10)
 
