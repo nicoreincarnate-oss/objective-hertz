@@ -128,13 +128,14 @@ class AgentBase(ABC):
         if task_type:
             return await db.fetch_all(
                 """SELECT * FROM task_queue
-                   WHERE status = 'pending' AND task_type = %s
+                   WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                     AND task_type = %s
                    ORDER BY priority ASC, created_at ASC LIMIT 50""",
                 (task_type,),
             )
         return await db.fetch_all(
             """SELECT * FROM task_queue
-               WHERE status = 'pending'
+               WHERE status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3)
                ORDER BY priority ASC, created_at ASC LIMIT 50""",
         )
 
@@ -143,7 +144,9 @@ class AgentBase(ABC):
         row = await db.fetch_one(
             """UPDATE task_queue
                SET status = 'running', started_at = NOW(), assigned_agent = %s
-               WHERE id = %s AND status = 'pending' RETURNING id""",
+               WHERE id = %s
+                 AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+               RETURNING id""",
             (self.name, task_id),
         )
         return row is not None
@@ -159,9 +162,26 @@ class AgentBase(ABC):
 
     async def fail_task(self, task_id: int, error: str):
         """Mark a task as failed."""
-        await db.execute(
+        row = await db.fetch_one(
             """UPDATE task_queue
-               SET status = 'failed', error = %s, completed_at = NOW(), assigned_agent = %s
-               WHERE id = %s""",
+               SET retry_count = COALESCE(retry_count, 0) + 1,
+                   status = CASE
+                       WHEN COALESCE(retry_count, 0) + 1 >= 3 THEN 'dead_letter'
+                       ELSE 'failed'
+                   END,
+                   error = %s,
+                   completed_at = NOW(),
+                   assigned_agent = %s
+               WHERE id = %s
+               RETURNING status, retry_count""",
             (error, self.name, task_id),
         )
+        if row and row.get("status") == "dead_letter":
+            await db.emit_event(
+                "urgent_alert",
+                {
+                    "sender": self.name,
+                    "message": f"Task {task_id} moved to dead-letter queue after {row.get('retry_count', 0)} failures",
+                    "task_id": task_id,
+                },
+            )

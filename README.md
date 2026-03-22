@@ -7,18 +7,18 @@ Fully autonomous AI revenue system. Finds businesses without websites globally, 
 ```
                     PERSEUS (Master Scheduler)
                    /       |        \         \
-              TITAN    HERMES    CLAWDBOT    (Postgres + Mem0)
-           (revenue) (interface) (skills)     shared memory
+              TITAN  HERMES AGENT CLAWDBOT   (Postgres + Mem0)
+           (revenue) (interface)  (skills)    shared memory
 ```
 
-4 daemons, 1 shared brain:
+Official Hermes + 3 worker daemons + dashboard:
 
 - **Perseus** — Master orchestrator. Schedules work, monitors health, enforces budget.
 - **Titan** — Revenue engine. 10-stage pipeline: discover → research → email → follow up → demo → close → build → deploy → invoice → learn.
-- **Hermes** — Nico's interface. Telegram bot, event alerts, web dashboard, morning briefings.
-- **ClawdBot** — Skills executor. Runs installed skills, scrapes websites, verifies deployments, enriches leads.
+- **Hermes Agent** — Nico's primary interface. Official Hermes gateway, memory, skills, cron, voice, delegation, and coordination.
+- **ClawdBot** — Specialist execution brain. Runs installed skills, scrapes websites, verifies deployments, enriches leads, and handles heavier implementation/research tasks.
 
-All 4 daemons communicate through Postgres (task_queue, events, titan_learnings, system_config) and Mem0 vector memory. See `shared/comms.py`.
+Perseus, Titan, and ClawdBot communicate through Postgres (task_queue, events, titan_learnings, system_config) and Mem0 vector memory. Official Hermes runs alongside them, using synced local skills plus the dashboard API to observe and operate the system. Hermes and ClawdBot are meant to help each other whenever that improves the business: Hermes coordinates and synthesizes, ClawdBot executes and verifies. See `shared/comms.py`.
 
 ## Quick Start
 
@@ -26,7 +26,7 @@ All 4 daemons communicate through Postgres (task_queue, events, titan_learnings,
 cp .env.example .env          # Configure API keys
 pip install -r requirements.txt
 make up                       # Start Docker (Postgres, Qdrant, Mem0, N8N)
-make start                    # Start all 4 daemons
+make start                    # Start Hermes gateway + workers + dashboard
 ```
 
 ## Autonomy Rules
@@ -71,10 +71,10 @@ $200 Claude Max + ~$100 Instantly.ai + tools/domains + GPU training buffer.
 
 | Component | Tool |
 |-----------|------|
-| AI Brain | Claude API (primary) + Ollama Qwen2.5 14B (fallback) |
+| AI Brain | Hermes Agent (primary interface) + provider-selected main model |
 | Pipeline | Titan (Python asyncio, 10 stages) |
-| Interface | Hermes Telegram bot + web dashboard (port 8500) |
-| Skills | ClawdBot + shared/skill_loader.py (4 skill directories) |
+| Interface | War Room (React :3000) + Telegram bot + FastAPI API (:8500) |
+| Skills | ClawdBot (26 capabilities, 3 registries, safety vetting) |
 | Email | Instantly.ai (campaign-based, warmup, account rotation) |
 | Scraping | Firecrawl + browser-use |
 | Sites | v0.dev Platform API (project → chat → deploy) |
@@ -85,20 +85,22 @@ $200 Claude Max + ~$100 Instantly.ai + tools/domains + GPU training buffer.
 ## Commands
 
 ```bash
-make start    # Start everything (Docker + 4 daemons)
-make stop     # Stop everything
-make status   # System status (all 4 daemons + Docker + Ollama)
-make logs     # Tail all daemon logs
-make health   # Quick health check (Postgres, Qdrant, Mem0, N8N, Ollama)
-make restart  # Stop + start
-make up       # Docker services only
+make setup     # First-run: prompts for API keys, generates secrets, builds frontend
+make start     # Start everything (Docker + Hermes gateway + workers + War Room)
+make stop      # Stop everything
+make status    # System status (Hermes gateway + workers + Docker + Ollama)
+make dashboard # Start dashboard backend standalone (dev mode, port 8500)
+make logs      # Tail all daemon logs
+make health    # Quick health check (Postgres, Qdrant, Mem0, N8N, Ollama)
+make restart   # Stop + start
+make up        # Docker services only
 make down     # Stop Docker
 ```
 
 ## 24/7 Operation (macOS LaunchAgents)
 
 ```bash
-./scripts/install-launchagents.sh   # Install all 4 LaunchAgent plists
+./scripts/install-launchagents.sh   # Install all 5 LaunchAgent plists
 # Auto-starts on login, auto-restarts on crash
 ```
 
@@ -108,7 +110,7 @@ make down     # Stop Docker
 shared/           Config, LLM client (Claude+Ollama), DB pool, comms layer, skill loader
 perseus/          Master daemon, scheduler (15 schedules), agent registry
 titan/            Pipeline (10 stages), state machine, memory, training, review mode
-hermes/           Telegram bot (9 commands), alerts, web dashboard, Hermes skills
+hermes/           Dashboard backend + frontend + local Perseus skills for official Hermes
 clawdbot/         Skills executor, web scraper, site verifier, lead enricher
 tools/            Instantly, Firecrawl, payments, budget guard, runtime honesty
 soul/             Personality, autonomy rules, copywriting guidelines

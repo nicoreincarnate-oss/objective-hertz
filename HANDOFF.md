@@ -75,8 +75,14 @@ All 4 daemons share state through: `task_queue`, `events`, `titan_learnings`, `s
 - `titan/review_mode.py` — First 10 sales approval queue
 - `hermes/telegram_bot.py` — 9 Telegram commands
 - `hermes/alerts.py` — Event → Telegram dispatcher + morning briefing
-- `hermes/web/app.py` — FastAPI dashboard (port 8500)
-- `clawdbot/daemon.py` — Skills executor, scraper, site verifier
+- `hermes/web/app.py` — FastAPI API backend (port 8500, token auth)
+- `hermes/web/frontend/` — War Room React dashboard (Next.js, port 3000)
+- `clawdbot/daemon.py` — Autonomous skills agent (26 capabilities, self-equipping)
+- `clawdbot/capabilities.py` — Capability map (3 registries, Claw ecosystem)
+- `clawdbot/capability_resolver.py` — Auto-install missing skills from registries
+- `clawdbot/safety.py` — Skill vetting gate (static scan + LLM review)
+- `titan/deliverability.py` — Domain protection + warm-up ramp + volume control
+- `titan/expansion.py` — Revenue expansion gate with shadow rollouts
 - `tools/instantly_client.py` — Instantly.ai API v2 client
 - `tools/payment_router.py` — Stripe + Wise payment routing
 - `tools/firecrawl_client.py` — Web scraping with runtime honesty
@@ -87,5 +93,5 @@ All 4 daemons share state through: `task_queue`, `events`, `titan_learnings`, `s
 - `deploy_site.py` only verifies — actual deployment handled by `build_site.py` via v0.dev
 - No end-to-end test yet (needs running infrastructure + real API keys)
 - Vast.ai automation requires SSH key setup for SCP uploads
-- browser-use integration in ClawdBot is stubbed (falls back to Firecrawl scraping)
 - N8N is provisioned in Docker but not actively used by the Python runtime
+- ClawdBot browser skills resolve via DroidClaw/agent-browser/playwright — falls back to Firecrawl HTTP scraping when none are installed

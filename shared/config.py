@@ -57,6 +57,7 @@ class ClaudeConfig:
     api_key: str = _env("ANTHROPIC_API_KEY")
     primary_model: str = _env("CLAUDE_PRIMARY_MODEL", "claude-sonnet-4-6")
     fast_model: str = _env("CLAUDE_FAST_MODEL", "claude-haiku-4-5-20251001")
+    genius_model: str = _env("CLAUDE_GENIUS_MODEL", "claude-opus-4")
 
 
 @dataclass(frozen=True)

@@ -221,3 +221,71 @@ async def is_agent_alive(agent_name: str, max_age_seconds: int = 120) -> bool:
         (agent_name, max_age_seconds),
     )
     return row is not None
+
+
+# ── Agent Decisions (auditable autonomous decision trail) ─────────
+
+async def record_decision(
+    agent: str,
+    decision_type: str,
+    context: dict,
+    decision: dict,
+    reasoning: str = "",
+) -> int | None:
+    """Record an autonomous decision for auditability and cross-agent visibility."""
+    row = await db.fetch_one(
+        """INSERT INTO agent_decisions (agent, decision_type, context, decision, reasoning)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+        (agent, decision_type, json.dumps(context), json.dumps(decision), reasoning),
+    )
+    return row["id"] if row else None
+
+
+async def record_decision_outcome(decision_id: int, outcome: dict) -> None:
+    """Update a decision with its observed outcome (for closed-loop learning)."""
+    await db.execute(
+        "UPDATE agent_decisions SET outcome = %s WHERE id = %s",
+        (json.dumps(outcome), decision_id),
+    )
+
+
+async def get_recent_decisions(agent: str = "", decision_type: str = "", limit: int = 10) -> list[dict]:
+    """Read recent decisions, optionally filtered by agent or type."""
+    if agent and decision_type:
+        return await db.fetch_all(
+            """SELECT * FROM agent_decisions
+               WHERE agent = %s AND decision_type = %s
+               ORDER BY created_at DESC LIMIT %s""",
+            (agent, decision_type, limit),
+        )
+    if agent:
+        return await db.fetch_all(
+            "SELECT * FROM agent_decisions WHERE agent = %s ORDER BY created_at DESC LIMIT %s",
+            (agent, limit),
+        )
+    return await db.fetch_all(
+        "SELECT * FROM agent_decisions ORDER BY created_at DESC LIMIT %s",
+        (limit,),
+    )
+
+
+async def request_help(
+    from_agent: str,
+    problem: str,
+    context: dict | None = None,
+) -> int | None:
+    """An agent asks for help. Creates a task + decision record for visibility."""
+    decision_id = await record_decision(
+        agent=from_agent,
+        decision_type="help_request",
+        context={"problem": problem, **(context or {})},
+        decision={"action": "requesting_help"},
+        reasoning=problem,
+    )
+    await broadcast("agent_help_request", {
+        "from": from_agent,
+        "problem": problem,
+        "decision_id": decision_id,
+        **(context or {}),
+    })
+    return decision_id

@@ -11,7 +11,7 @@ from shared.db import fetch_all, fetch_one, execute, emit_event
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
-from titan.memory import get_relevant_learnings
+from titan.memory import format_rules_for_prompt, get_relevant_learnings
 from titan.training import collect_email_outcome, collect_training_example
 
 logger = logging.getLogger("perseus.titan.follow_up")
@@ -148,8 +148,57 @@ async def _process_reply(reply: dict) -> bool:
     return True
 
 
+# Multilingual unsubscribe keywords — deterministic first-pass check.
+# Missing an unsubscribe request is a legal violation; a 3B model can't be trusted
+# to catch "darse de baja" or "désabonnez" reliably.  This list is cheap and safe.
+_UNSUB_KEYWORDS: set[str] = {
+    # English
+    "unsubscribe", "opt out", "opt-out", "remove me", "stop emailing",
+    "stop mailing", "take me off", "do not contact", "don't contact",
+    "no more emails", "remove from list", "cancel subscription",
+    # Spanish
+    "darse de baja", "darme de baja", "cancelar suscripción", "cancelar suscripcion",
+    "no me contacten", "no me escriban", "eliminar de la lista", "dejar de recibir",
+    "no quiero recibir", "baja de la lista",
+    # French
+    "désabonner", "desabonner", "se désinscrire", "se desinscrire",
+    "ne plus recevoir", "supprimer de la liste",
+    # German
+    "abmelden", "abbestellen", "austragen", "keine e-mails mehr",
+    "nicht mehr kontaktieren",
+    # Portuguese
+    "cancelar inscrição", "cancelar inscricao", "descadastrar",
+    "não quero receber", "nao quero receber", "remover da lista",
+    # Italian
+    "annullare l'iscrizione", "cancellare iscrizione", "non contattarmi",
+    "rimuovi dalla lista",
+    # Dutch
+    "uitschrijven", "afmelden", "verwijder mij",
+    # Japanese (romaji + common)
+    "配信停止", "配信解除", "登録解除",
+    # Korean
+    "수신거부", "구독취소",
+    # Chinese
+    "退订", "取消订阅",
+}
+
+
+def _is_unsub_by_keyword(text: str) -> bool:
+    """Fast deterministic unsubscribe detection across languages."""
+    lowered = text.lower()
+    return any(kw in lowered for kw in _UNSUB_KEYWORDS)
+
+
 async def _classify_reply(body: str, subject: str) -> str:
-    """Classify a reply into intent categories."""
+    """Classify a reply into intent categories.
+
+    Layer 1: deterministic multilingual keyword scan (free, instant, no false negatives).
+    Layer 2: LLM classification for everything else.
+    """
+    combined = f"{subject} {body}"
+    if _is_unsub_by_keyword(combined):
+        return "unsubscribe"
+
     return await llm.classify(
         f"Subject: {subject}\nBody: {body}",
         ["interested", "not_interested", "question", "unsubscribe", "out_of_office"],
@@ -212,12 +261,17 @@ async def _compose_and_queue_follow_up(lead: dict):
         "follow-up emails, re-engagement, what gets replies on second/third contact"
     )
 
+    # Get proven rules (data-backed constraints)
+    rules_block = await format_rules_for_prompt(["email_performance", "copywriting", "timing"])
+
     prompt = f"""Write follow-up email #{step} for {lead['business_name']}.
 Previous emails got no response. This is a cold outreach about building them a website.
 Language: {'Spanish' if lang == 'es' else 'English'}
 
 WHAT WE'VE LEARNED WORKS:
 {learnings}
+
+{rules_block}
 
 Key rules:
 - Different angle from previous emails

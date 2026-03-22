@@ -1,4 +1,4 @@
-.PHONY: help start stop status logs health up down restart clean test lint typecheck quality
+.PHONY: help start stop status logs health up down restart clean test lint typecheck quality backup restore
 
 PYTHON ?= python3
 
@@ -6,10 +6,14 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-start: ## Start all Perseus systems (Docker + daemons)
+setup: ## First-run setup — prompts for API keys, generates secrets, creates .env
+	@bash ./scripts/setup-perseus.sh
+
+start: ## Start Perseus workers + official Hermes + dashboard/frontend
+	@if [ ! -f .env ]; then echo "No .env found — running first-time setup..."; bash ./scripts/setup-perseus.sh; fi
 	@./scripts/start-perseus.sh
 
-stop: ## Stop all Perseus systems
+stop: ## Stop Perseus workers + official Hermes + dashboard/frontend
 	@./scripts/stop-perseus.sh
 
 up: ## Start Docker services only (Postgres, Qdrant, Mem0, N8N)
@@ -36,14 +40,17 @@ status: ## System status
 	@echo "  PERSEUS — System Status"
 	@echo "======================================"
 	@echo ""
-	@echo "=== Daemons ==="
-	@for agent in perseus titan hermes clawdbot; do \
+	@echo "=== Local Processes ==="
+	@for agent in perseus titan clawdbot dashboard frontend; do \
 		if [ -f logs/pids/$$agent.pid ] && kill -0 $$(cat logs/pids/$$agent.pid) 2>/dev/null; then \
 			echo "  $$agent: RUNNING (PID: $$(cat logs/pids/$$agent.pid))"; \
 		else \
 			echo "  $$agent: STOPPED"; \
 		fi; \
 	done
+	@echo ""
+	@echo "=== Hermes Gateway ==="
+	@hermes gateway status 2>/dev/null | sed 's/^/  /' || echo "  Hermes gateway unavailable"
 	@echo ""
 	@echo "=== Docker ==="
 	@docker compose ps 2>/dev/null || echo "Docker not running"
@@ -55,7 +62,7 @@ status: ## System status
 	@df -h / | tail -1
 
 logs: ## Tail daemon logs
-	@tail -f logs/perseus.log logs/titan.log logs/hermes.log logs/clawdbot.log 2>/dev/null || echo "No log files yet"
+	@tail -f logs/perseus.log logs/titan.log logs/clawdbot.log logs/dashboard.log $(HOME)/.hermes/logs/gateway.log 2>/dev/null || echo "No log files yet"
 
 health: ## Quick health check
 	@echo "Postgres:  $$(docker exec perseus-postgres pg_isready 2>/dev/null && echo 'OK' || echo 'DOWN')"
@@ -63,6 +70,9 @@ health: ## Quick health check
 	@echo "Mem0:      $$(curl -sf http://localhost:8888/api/v1/health > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "N8N:       $$(curl -sf http://localhost:5678/healthz > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
+
+dashboard: ## Start dashboard backend (standalone, port 8500)
+	$(PYTHON) -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 --reload
 
 test: ## Run tests (no infrastructure needed)
 	$(PYTHON) -m pytest tests/ -v
@@ -74,6 +84,16 @@ typecheck: ## Type-check first-party code
 	$(PYTHON) -m mypy shared perseus titan hermes clawdbot
 
 quality: lint typecheck test ## Run the local quality gates
+
+backup: ## Create a Postgres backup in backups/
+	@./scripts/backup-postgres.sh
+
+restore: ## Restore Postgres from BACKUP=/abs/path/to/file.sql.gz
+	@if [ -z "$(BACKUP)" ]; then \
+		echo "Usage: make restore BACKUP=/absolute/path/to/backup.sql.gz"; \
+		exit 1; \
+	fi
+	@./scripts/restore-from-backup.sh "$(BACKUP)"
 
 clean: ## Remove all Docker volumes (DESTRUCTIVE)
 	@echo "WARNING: This will delete ALL data (Postgres, Qdrant, Mem0)!"

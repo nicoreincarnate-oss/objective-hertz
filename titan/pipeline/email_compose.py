@@ -51,6 +51,7 @@ async def compose_emails(batch_size: int = 20):
         """SELECT id, business_name, contact_name, email, industry,
                   research_summary, lead_score, language, country, city
            FROM clients WHERE status = 'researched'
+             AND email IS NOT NULL AND email != ''
            ORDER BY lead_score DESC, created_at ASC LIMIT %s""",
         (batch_size,),
     )
@@ -60,20 +61,24 @@ async def compose_emails(batch_size: int = 20):
         "cold email composition, subject lines, copywriting, what gets replies"
     )
 
+    # Get proven rules (deterministic, data-backed constraints)
+    from titan.memory import format_rules_for_prompt
+    rules_block = await format_rules_for_prompt(["email_performance", "copywriting"])
+
     soul_copy = _load_soul_copy()
 
     for lead in leads:
         try:
             if active_skill:
-                await _compose_with_skill(lead, active_skill, soul_copy, learned_tips)
+                await _compose_with_skill(lead, active_skill, soul_copy, learned_tips, rules_block)
             else:
-                await _compose_one(lead, soul_copy, learned_tips)
+                await _compose_one(lead, soul_copy, learned_tips, rules_block)
         except Exception as e:
             logger.error(f"Email compose failed for lead {lead['id']}: {e}")
             await emit_pipeline_error("email_compose", e, lead_id=lead["id"])
 
 
-async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learned_tips: str):
+async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learned_tips: str, rules_block: str = ""):
     """Compose email using an installed skill."""
     lead_id = lead["id"]
     lang = lead.get("language", "en")
@@ -93,6 +98,7 @@ Language: {'Spanish' if lang == 'es' else 'English'}
 Offer: Professional website under $325.
 Guidelines: {soul_copy[:500]}
 What works: {learned_tips[:300]}
+{rules_block}
 
 Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}""",
         context={"lead_id": str(lead_id)},
@@ -109,16 +115,28 @@ Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}"
         await _compose_one(lead, soul_copy_text, learned_tips)
         return
 
+    subject = email_data.get("subject", "")
+    body = email_data.get("body", "")
+    passed, issues = validate_email_content(subject, body)
+    if not passed:
+        logger.warning(f"Skill email validation failed for lead {lead_id}: {issues}")
+        await emit_pipeline_error(
+            "email_compose.content_validation",
+            ValueError(f"Content issues: {', '.join(issues)}"),
+            lead_id=lead_id,
+        )
+        return
+
     await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status)
            VALUES (%s, 1, %s, %s, 'pending') RETURNING id""",
-        (lead_id, email_data.get("subject", ""), email_data.get("body", "")),
+        (lead_id, subject, body),
     )
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email via skill '{skill_name}' for lead {lead_id}")
 
 
-async def _compose_one(lead: dict, soul_copy: str, learned_tips: str):
+async def _compose_one(lead: dict, soul_copy: str, learned_tips: str, rules_block: str = ""):
     """Compose a custom email for one lead."""
     lead_id = lead["id"]
     lang = lead.get("language", "en")
@@ -132,6 +150,8 @@ COPYWRITING GUIDELINES:
 
 WHAT WE'VE LEARNED WORKS:
 {learned_tips}
+
+{rules_block}
 
 LEAD INFORMATION:
 - Business: {lead['business_name']}
@@ -167,11 +187,24 @@ Return JSON:
         logger.warning(f"Failed to parse email JSON for lead {lead_id}")
         return
 
+    # Validate content before storing
+    subject = email_data.get("subject", "")
+    body = email_data.get("body", "")
+    passed, issues = validate_email_content(subject, body)
+    if not passed:
+        logger.warning(f"Email content validation failed for lead {lead_id}: {issues}")
+        await emit_pipeline_error(
+            "email_compose.content_validation",
+            ValueError(f"Content issues: {', '.join(issues)}"),
+            lead_id=lead_id,
+        )
+        return  # Don't store invalid content
+
     # Store the email draft
     await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status)
            VALUES (%s, 1, %s, %s, 'pending') RETURNING id""",
-        (lead_id, email_data.get("subject", ""), email_data.get("body", "")),
+        (lead_id, subject, body),
     )
 
     await transition_lead(lead_id, "email_drafted")
@@ -182,3 +215,56 @@ def _compose_model_for_lead(lead: dict) -> str:
     """Reserve smart composition for the leads most likely to pay."""
     lead_score = float(lead.get("lead_score", 0) or 0)
     return "smart" if lead_score >= 80 else "fast"
+
+
+# ── Content validation (GAP 18) ───────────────────────────────────
+
+import re
+
+# Patterns that indicate false or misleading claims the LLM might generate.
+_CLAIM_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"we.ve (?:helped|worked with|served)\s+\d+", re.IGNORECASE), "fabricated client count"),
+    (re.compile(r"\d+\+?\s*(?:businesses|clients|companies)\s+(?:trust|rely on|use)", re.IGNORECASE), "fabricated social proof"),
+    (re.compile(r"guarantee(?:d|s)?\s+(?:roi|return|results|revenue|traffic|leads)", re.IGNORECASE), "guaranteed results claim"),
+    (re.compile(r"100%\s+(?:satisfaction|money.back|refund)", re.IGNORECASE), "unrealistic guarantee"),
+    (re.compile(r"(?:award.winning|certified|accredited)\s+(?:team|agency|company)", re.IGNORECASE), "fabricated credentials"),
+    (re.compile(r"as (?:seen|featured) (?:on|in)\s+", re.IGNORECASE), "fabricated media mention"),
+]
+
+# Spam trigger words/patterns that hurt deliverability
+_SPAM_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"ACT NOW", re.IGNORECASE), "urgency spam trigger"),
+    (re.compile(r"LIMITED TIME", re.IGNORECASE), "urgency spam trigger"),
+    (re.compile(r"FREE FREE", re.IGNORECASE), "repeated free"),
+    (re.compile(r"!!!", re.IGNORECASE), "excessive punctuation"),
+    (re.compile(r"\$\$\$", re.IGNORECASE), "money symbols"),
+    (re.compile(r"CLICK HERE", re.IGNORECASE), "click here spam trigger"),
+    (re.compile(r"BUY NOW", re.IGNORECASE), "buy now spam trigger"),
+]
+
+
+def validate_email_content(subject: str, body: str) -> tuple[bool, list[str]]:
+    """
+    Validate generated email content for misleading claims and spam triggers.
+    Returns (passed, list_of_issues).
+    """
+    issues: list[str] = []
+    combined = f"{subject} {body}"
+
+    for pattern, reason in _CLAIM_PATTERNS:
+        if pattern.search(combined):
+            issues.append(f"FALSE_CLAIM: {reason}")
+
+    for pattern, reason in _SPAM_PATTERNS:
+        if pattern.search(combined):
+            issues.append(f"SPAM: {reason}")
+
+    # Length checks
+    if len(subject) > 80:
+        issues.append("QUALITY: subject too long (>80 chars)")
+    if len(body) > 1000:
+        issues.append("QUALITY: body too long (>1000 chars)")
+    if len(body) < 30:
+        issues.append("QUALITY: body too short (<30 chars)")
+
+    return len(issues) == 0, issues

@@ -1,10 +1,13 @@
 """
-Hermes Daemon — starts Telegram bot and alert dispatcher.
+Hermes Daemon — starts Telegram bot, alert dispatcher, and web dashboard.
 """
 
 import asyncio
+import os
 import signal
 import logging
+
+import uvicorn
 
 from shared.config import config
 from shared.logging_config import setup_logging
@@ -15,6 +18,9 @@ from hermes.telegram_bot import create_bot
 from hermes.alerts import dispatch_alerts, send_morning_briefing
 
 logger = setup_logging("hermes")
+
+DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8500"))
 
 
 class HermesDaemon(AgentBase):
@@ -27,21 +33,31 @@ class HermesDaemon(AgentBase):
         self._alert_interval = 30  # Check for alerts every 30 seconds
 
     async def start(self):
-        """Start Hermes — Telegram bot + alert dispatcher."""
+        """Start Hermes — web dashboard + Telegram bot + alert dispatcher."""
         logger.info("Hermes starting up...")
         await db.init_pool()
         await self.register()
         self._stopped.clear()
         self._running = True
 
+        # Start the web dashboard in a background task
+        dashboard_task = asyncio.create_task(self._run_dashboard())
+
         try:
-            if not config.telegram.bot_token:
-                logger.warning("TELEGRAM_BOT_TOKEN not set — running alert dispatcher only")
+            _token = (config.telegram.bot_token or "").strip()
+            _placeholder_tokens = {"", "CHANGE_ME", "your-bot-token-here"}
+            if not _token or _token in _placeholder_tokens:
+                logger.warning("TELEGRAM_BOT_TOKEN not set or placeholder — running dashboard + alerts only")
                 await self._alert_loop()
             else:
                 # Run bot and alert dispatcher concurrently
                 bot = create_bot()
-                await bot.initialize()
+                try:
+                    await bot.initialize()
+                except Exception as e:
+                    logger.warning("Telegram bot failed to initialize (%s) — running dashboard + alerts only", e)
+                    await self._alert_loop()
+                    return
                 await bot.start()
                 try:
                     await bot.updater.start_polling()
@@ -60,7 +76,26 @@ class HermesDaemon(AgentBase):
                     await bot.stop()
                     await bot.shutdown()
         finally:
+            dashboard_task.cancel()
             await self.finalize_shutdown()
+
+    async def _run_dashboard(self):
+        """Run the FastAPI dashboard via uvicorn in the same process."""
+        from hermes.web.app import app
+
+        uvicorn_config = uvicorn.Config(
+            app,
+            host=DASHBOARD_HOST,
+            port=DASHBOARD_PORT,
+            log_level="warning",
+            access_log=False,
+        )
+        server = uvicorn.Server(uvicorn_config)
+        logger.info("Dashboard starting on http://%s:%d", DASHBOARD_HOST, DASHBOARD_PORT)
+        try:
+            await server.serve()
+        except asyncio.CancelledError:
+            server.should_exit = True
 
     async def _alert_loop(self):
         """Standalone alert loop when Telegram is not configured."""

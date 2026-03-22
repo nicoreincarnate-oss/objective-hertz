@@ -120,8 +120,20 @@ class InstantlyClient:
     # ── Campaigns ──────────────────────────────────────────────────
 
     async def create_campaign(self, name: str) -> dict:
-        """Create a new campaign. Returns campaign object with id."""
-        return await self._post("/campaigns", {"name": name})
+        """Create a new campaign with built-in sequences DISABLED.
+
+        Perseus owns all sequencing logic (follow_up.py).  Instantly is a
+        dumb sending pipe — it must not auto-send its own follow-ups or
+        the prospect gets double emails.
+        """
+        campaign = await self._post("/campaigns", {"name": name})
+        campaign_id = campaign.get("id", "")
+        if campaign_id:
+            try:
+                await self.disable_sequences(campaign_id)
+            except Exception as e:
+                logger.warning("Could not disable sequences for campaign %s: %s", campaign_id, e)
+        return campaign
 
     async def get_campaign(self, campaign_id: str) -> dict:
         """Get campaign details."""
@@ -130,6 +142,17 @@ class InstantlyClient:
     async def list_campaigns(self) -> list:
         """List all campaigns."""
         return await self._get("/campaigns")
+
+    async def disable_sequences(self, campaign_id: str) -> dict:
+        """Disable Instantly's built-in auto-sequences on a campaign.
+
+        Perseus owns follow-up timing and content via follow_up.py.
+        Instantly must only send what Perseus explicitly adds as leads.
+        """
+        return await self._patch(f"/campaigns/{campaign_id}", {
+            "sequences": [],
+            "auto_follow_up": False,
+        })
 
     async def activate_campaign(self, campaign_id: str) -> dict:
         """Activate/resume a campaign to start sending."""

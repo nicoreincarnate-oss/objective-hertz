@@ -83,7 +83,7 @@ def test_assert_compliance_ready_raises_and_alerts():
         }
         return values.get(key, default)
 
-    with patch.dict("os.environ", {}, clear=False):
+    with patch.dict("os.environ", {"UNSUBSCRIBE_SECRET": ""}, clear=False):
         with patch.object(compliance, "get_config", AsyncMock(side_effect=fake_get_config)):
             with patch.object(compliance, "emit_event", AsyncMock()) as emit_event:
                 try:

@@ -71,6 +71,51 @@ def _format_event(event: dict) -> str:
         "revenue_expansion_blueprint_ready": lambda p: (
             f"Expansion blueprint ready via {p.get('builder_skill', '?')} for opportunity #{p.get('opportunity_id', '?')}"
         ),
+        "domain_paused": lambda p: (
+            f"DOMAIN PAUSED: {p.get('domain', '?')} — "
+            f"bounce {p.get('bounce_rate', 0):.1f}%, spam {p.get('spam_rate', 0):.2f}%"
+        ),
+        "domain_resumed": lambda p: (
+            f"Domain resumed: {p.get('domain', '?')} — bounce recovered to {p.get('bounce_rate', 0):.1f}%"
+        ),
+        "domain_warning": lambda p: (
+            f"Domain warning: {p.get('domain', '?')} — bounce {p.get('bounce_rate', 0):.1f}%, "
+            f"volume {p.get('action', 'reduced')}"
+        ),
+        "skill_blocked": lambda p: (
+            f"SKILL BLOCKED: {p.get('skill', '?')} — {p.get('details', 'unknown')[:160]}"
+        ),
+        "expansion_spend_blocked": lambda p: (
+            f"Expansion blocked: {p.get('capability', '?')} costs ${p.get('estimated_cost', 0)}/mo, "
+            f"only ${p.get('budget_remaining', 0):.0f} remaining"
+        ),
+        "warmup_graduated": lambda p: (
+            f"Warm-up complete after day {p.get('day', '?')}. Reputation-based volume control active."
+        ),
+        "agent_recommendation": lambda p: (
+            f"ClawdBot → {p.get('to', '?')}: {p.get('message', '')[:200]}"
+        ),
+        "service_signup_needed": lambda p: (
+            f"ClawdBot needs {p.get('service', '?')}: {p.get('purpose', '')[:120]}. "
+            f"Sign up at {p.get('url', '?')}"
+        ),
+        "n8n_workflow_completed": lambda p: (
+            f"N8N workflow {p.get('webhook_path', '?')}: {'OK' if p.get('ok') else 'FAILED'}"
+        ),
+        "sleep_cycle_complete": lambda p: (
+            f"Sleep cycle #{p.get('cycle_id', '?')}: "
+            f"{p.get('proposals', 0)} proposed → {p.get('survived', 0)} survived → "
+            f"{p.get('applied', 0)} applied. Top: {p.get('top_change', 'none')[:80]}"
+        ),
+        "cell_division_proposed": lambda p: (
+            f"CELL DIVISION: {p.get('name', '?')} proposed — {p.get('reason', '')[:120]}"
+        ),
+        "notebooklm_generated": lambda p: (
+            f"NotebookLM {p.get('type', '?')}: "
+            + (f"🎧 {p['audio_url'][:60]}" if p.get('audio_url') else "")
+            + (f" 📊 {p['infographic_url'][:60]}" if p.get('infographic_url') else "")
+            or "generated"
+        ),
         "emails_sent": lambda p: f"Sent {p.get('count', 0)} emails ({p.get('daily_total', 0)} today)",
         "lead_interested": lambda p: f"HOT LEAD interested! Client #{p.get('client_id', '?')}",
         "review_needed": lambda p: f"Review needed: {p.get('count', 1)} {p.get('type', 'items')}",
@@ -146,6 +191,30 @@ async def send_morning_briefing():
         f"*Pending review:* {pending_review}\n\n"
         f"_Perseus is running. Titan is working._"
     )
+
+    # Try to generate a NotebookLM audio briefing + infographic (async, non-blocking)
+    try:
+        from tools.notebooklm_client import get_notebooklm_status
+        if get_notebooklm_status().get("available"):
+            from shared.db import insert_task
+            await insert_task("notebooklm", {
+                "notebook_type": "briefing",
+                "pipeline_data": {
+                    "total_leads": total_leads,
+                    "yesterday_sent": yesterday_sent,
+                    "interested": interested,
+                    "revenue": float(revenue),
+                    "pending_review": pending_review,
+                },
+                "learnings": [],  # Titan fills these in daily_reflection
+                "metrics": {
+                    "total_leads": total_leads,
+                    "revenue": float(revenue),
+                },
+            }, dedupe=True)
+            message += "\n\n_Audio briefing generating via NotebookLM..._"
+    except Exception:
+        pass  # NotebookLM is a nice-to-have, not critical
 
     await _send_telegram(message)
     logger.info("Morning briefing sent")

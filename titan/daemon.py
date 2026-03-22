@@ -4,8 +4,9 @@ Runs continuously, processing leads through the full pipeline.
 """
 
 import asyncio
-import signal
+import json
 import logging
+import signal
 
 from shared.config import config
 from shared.logging_config import setup_logging
@@ -22,6 +23,7 @@ from titan.pipeline.build_site import build_sites
 from titan.pipeline.deploy_site import deploy_sites
 from titan.pipeline.invoice import process_invoices
 from titan.memory import daily_reflection, weekly_strategy_review
+from titan.deliverability import monitor_deliverability
 from titan.expansion import review_revenue_expansion
 from titan.training import run_lora_training
 from perseus.agent_registry import heartbeat
@@ -56,6 +58,32 @@ async def _handle_morning_briefing():
     logger.info("Morning briefing event emitted for Hermes")
 
 
+async def _handle_sleep_cycle():
+    """Run the nightly sleep cycle — contrarian Opus debate + backprop."""
+    from perseus.sleep_cycle import run_sleep_cycle
+    result = await run_sleep_cycle()
+    logger.info(f"Sleep cycle complete: {result}")
+
+
+async def _handle_operator_message(payload: dict):
+    """Acknowledge an operator note routed from the War Room."""
+    message = str(payload.get("message", "")).strip()
+    if not message:
+        raise ValueError("operator message is required")
+
+    await db.emit_event(
+        "agent_message_ack",
+        {
+            "agent": "titan",
+            "reply": "Titan received your note and queued it for the next cycle.",
+            "operator_message": message,
+            "priority": payload.get("priority", "priority"),
+            "source": payload.get("source", "war_room"),
+        },
+    )
+    logger.info("Titan received operator message: %s", message)
+
+
 # Map task_queue task types to pipeline functions (direct references, not lambdas)
 TASK_HANDLERS = {
     "lead_discovery": discover_leads,
@@ -67,13 +95,16 @@ TASK_HANDLERS = {
     "build_sites": build_sites,
     "process_invoices": process_invoices,
     "sync_analytics": sync_campaign_analytics,
+    "deliverability_check": monitor_deliverability,
     "daily_reflection": daily_reflection,
     "weekly_strategy": weekly_strategy_review,
     "revenue_expansion_review": review_revenue_expansion,
+    "sleep_cycle": _handle_sleep_cycle,
     "lora_training": run_lora_training,
     "health_check": _handle_health_check,
     "budget_check": _handle_budget_check,
     "morning_briefing": _handle_morning_briefing,
+    "titan_operator_message": _handle_operator_message,
 }
 
 
@@ -165,7 +196,13 @@ class TitanDaemon(AgentBase):
             work_id = f"task:{task['id']}"
             self.begin_work(work_id)
             try:
-                await handler()
+                payload = task.get("payload", {})
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                if task_type == "titan_operator_message":
+                    await handler(payload)
+                else:
+                    await handler()
                 await self.complete_task(task["id"])
                 logger.debug(f"Task {task['id']} ({task_type}) completed")
             except Exception as e:
@@ -175,22 +212,37 @@ class TitanDaemon(AgentBase):
                 self.finish_work(work_id)
 
     async def _run_pipeline_cycle(self):
-        """One full cycle of the pipeline. Each stage processes its leads."""
+        """One full cycle of the pipeline. Checks infra health before each stage."""
+        # Check infrastructure health — skip stages whose dependencies are down
+        infra = await db.get_config("infra_health", {})
+
         stages = [
-            ("discover", discover_leads),
-            ("research", research_leads),
-            ("compose", compose_emails),
-            ("send", send_emails),
-            ("follow_up", process_follow_ups),
-            ("close", process_interested_leads),
-            ("build", build_sites),
-            ("deploy", deploy_sites),
-            ("invoice", process_invoices),
+            ("discover", discover_leads, ["ollama"]),
+            ("research", research_leads, ["ollama"]),
+            ("compose", compose_emails, ["ollama"]),
+            ("send", send_emails, ["instantly"]),
+            ("follow_up", process_follow_ups, ["instantly", "ollama"]),
+            ("close", process_interested_leads, ["ollama"]),
+            ("build", build_sites, []),
+            ("deploy", deploy_sites, []),
+            ("invoice", process_invoices, []),
         ]
 
-        for stage_name, stage_fn in stages:
+        for stage_name, stage_fn, required_services in stages:
             if self._shutdown_requested:
                 break
+
+            # Check required services
+            skip = False
+            for svc in required_services:
+                from perseus.health import is_service_ok
+                if not is_service_ok(infra, svc):
+                    logger.warning(f"Skipping stage '{stage_name}': {svc} is down")
+                    skip = True
+                    break
+            if skip:
+                continue
+
             work_id = f"stage:{stage_name}"
             self.begin_work(work_id)
             try:

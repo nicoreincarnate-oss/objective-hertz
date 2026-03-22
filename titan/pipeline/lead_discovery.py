@@ -315,16 +315,22 @@ async def _emit_discovery_empty(source: str, strategy: dict, details: dict | Non
 
 
 async def _get_discovery_strategy() -> dict:
-    """Ask AI what to search for based on learnings."""
+    """Ask AI what to search for based on learnings and proven rules."""
     # Get relevant learnings from structured DB + vector memory
     insights = await get_relevant_learnings(
         "lead discovery, target industries, regions that convert, businesses without websites"
     )
 
+    # Get proven targeting rules
+    from titan.memory import format_rules_for_prompt
+    rules_block = await format_rules_for_prompt(["targeting", "industry"])
+
     prompt = f"""You are Titan, an AI that finds businesses without websites.
 
 Based on these learnings from past discovery:
 {insights}
+
+{rules_block}
 
 Generate 5 search queries to find businesses that:
 1. Don't have a website (or have a terrible one)

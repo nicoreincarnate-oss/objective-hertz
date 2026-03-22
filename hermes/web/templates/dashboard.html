@@ -3,88 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Perseus Dashboard</title>
+    <title>PERSEUS War Room</title>
     <link rel="stylesheet" href="/static/style.css">
     <meta http-equiv="refresh" content="30">
 </head>
 <body>
-    <header>
-        <h1>PERSEUS</h1>
-        <span class="badge {{ 'review' if review_mode else 'autonomous' }}">
-            {{ 'REVIEW MODE' if review_mode else 'AUTONOMOUS' }}
-        </span>
-    </header>
-
-    <div class="grid">
-        <!-- Revenue -->
-        <div class="card revenue">
-            <h2>Revenue</h2>
-            <div class="big-number">${{ "%.2f"|format(total_revenue) }}</div>
-            <p>Pending: ${{ "%.2f"|format(pending_revenue) }}</p>
-            <p>Sales completed: {{ sales_completed }}</p>
-        </div>
-
-        <!-- Email Stats -->
-        <div class="card">
-            <h2>Emails</h2>
-            <div class="big-number">{{ emails_today }}</div>
-            <p>Sent today</p>
-            <p>This week: {{ emails_week }}</p>
-        </div>
-
-        <!-- Pipeline -->
-        <div class="card">
-            <h2>Pipeline</h2>
-            <div class="big-number">{{ total_leads }}</div>
-            <p>Total leads</p>
-            <p>Interested: {{ interested }} | Closed: {{ closed }}</p>
-        </div>
-
-        <!-- Review Queue -->
-        <div class="card {{ 'alert' if pending_review > 0 else '' }}">
-            <h2>Review Queue</h2>
-            <div class="big-number">{{ pending_review }}</div>
-            <p>Items awaiting approval</p>
-        </div>
-    </div>
-
-    <!-- Pipeline Breakdown -->
-    <div class="card wide">
-        <h2>Pipeline Breakdown</h2>
-        <div class="pipeline-bar">
-            {% for status, count in pipeline.items() %}
-            <div class="stage" title="{{ status }}: {{ count }}">
-                <span class="label">{{ status }}</span>
-                <span class="count">{{ count }}</span>
+    <div class="app-shell">
+        <header class="hero-card">
+            <div class="hero-topline">
+                <div>
+                    <p class="eyebrow">War Room</p>
+                    <p class="brand">PERSEUS</p>
+                </div>
+                <span class="mode-pill {{ mode_tone }}">{{ mode_label }}</span>
             </div>
-            {% endfor %}
-        </div>
-    </div>
 
-    <!-- Recent Events -->
-    <div class="card wide">
-        <h2>Recent Events</h2>
-        <table>
-            <thead>
-                <tr><th>Time</th><th>Event</th><th>Details</th></tr>
-            </thead>
-            <tbody>
-                {% for event in events[:15] %}
-                <tr>
-                    <td>{{ event.created_at.strftime('%H:%M') if event.created_at else '' }}</td>
-                    <td><code>{{ event.event_type }}</code></td>
-                    <td>{{ event.payload | string | truncate(80) }}</td>
-                </tr>
+            <div class="hero-copy">
+                <div>
+                    <p class="section-kicker">Operator Brief</p>
+                    <h1>{{ hero_summary }}</h1>
+                </div>
+                <p class="hero-detail">{{ hero_detail }}</p>
+                <p class="hero-context">{{ hero_context }}</p>
+            </div>
+
+            <div class="signal-rail" aria-label="Current runtime signals">
+                {% for signal in signal_rail %}
+                <div class="signal-pill {{ signal.tone }}">
+                    <span>{{ signal.label }}</span>
+                    <strong>{{ signal.value }}</strong>
+                </div>
                 {% endfor %}
-                {% if not events %}
-                <tr><td colspan="3">No events yet. Titan is warming up.</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
-    </div>
+            </div>
+        </header>
 
-    <footer>
-        Perseus &mdash; Autonomous AI Revenue System | Auto-refreshes every 30s
-    </footer>
+        <nav class="section-nav" aria-label="Dashboard sections">
+            <a href="#metrics">Metrics</a>
+            <a href="#agent-link">Link</a>
+            <a href="#queue">Queue</a>
+            <a href="#pipeline">Pipeline</a>
+            <a href="#signals">Signals</a>
+        </nav>
+
+        <section id="metrics" class="metric-strip" aria-label="Core metrics">
+            {% for metric in metrics %}
+            <article class="metric-card {{ metric.tone }}">
+                <p class="metric-label">{{ metric.label }}</p>
+                <p class="metric-value">{{ metric.value }}</p>
+                <p class="metric-detail">{{ metric.detail }}</p>
+            </article>
+            {% endfor %}
+        </section>
+
+        <main class="dashboard-grid">
+            <section id="agent-link" class="panel panel-link">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Operator Channel</p>
+                        <h2>Agent Link</h2>
+                    </div>
+                    <p class="panel-note">Talk to an agent and leave an auditable directive trail.</p>
+                </div>
+
+                {% if operator_status %}
+                <p class="panel-banner success">{{ operator_status }}</p>
+                {% endif %}
+                {% if operator_error %}
+                <p class="panel-banner warning">{{ operator_error }}</p>
+                {% endif %}
+
+                <form class="agent-form" method="post" action="/api/operator-chat">
+                    <label class="form-field">
+                        <span>Target Agent</span>
+                        <select name="target_agent">
+                            {% for option in agent_options %}
+                            <option value="{{ option.value }}">{{ option.label }} — {{ option.description }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Priority</span>
+                        <select name="priority">
+                            <option value="urgent">Urgent</option>
+                            <option value="priority" selected>Priority</option>
+                            <option value="routine">Routine</option>
+                        </select>
+                    </label>
+
+                    <label class="form-field">
+                        <span>Message</span>
+                        <textarea
+                            name="message"
+                            rows="4"
+                            placeholder="Pause low-value outreach, focus on hot leads, and report anything blocked before noon."
+                        ></textarea>
+                    </label>
+
+                    <button type="submit" class="submit-button">Send To Agent</button>
+                </form>
+
+                <div class="thread-list">
+                    {% for item in operator_thread %}
+                    <article class="thread-item {{ item.tone }}">
+                        <div class="ledger-time">{{ item.time }}</div>
+                        <div class="ledger-copy">
+                            <p class="thread-eyebrow">{{ item.eyebrow }}</p>
+                            <h3>{{ item.title }}</h3>
+                            <p>{{ item.detail }}</p>
+                        </div>
+                    </article>
+                    {% endfor %}
+                    {% if not operator_thread %}
+                    <p class="empty-state">{{ operator_empty_thread }}</p>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section id="queue" class="panel panel-priority">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Mission Control</p>
+                        <h2>Priority Queue</h2>
+                    </div>
+                    <p class="panel-note">The shortest path to keeping momentum clean.</p>
+                </div>
+
+                <div class="priority-list">
+                    {% for item in priority_queue %}
+                    <article class="priority-card {{ item.tone }}">
+                        <div class="priority-topline">
+                            <span>{{ item.eyebrow }}</span>
+                            <strong>{{ item.metric }}</strong>
+                        </div>
+                        <h3>{{ item.title }}</h3>
+                        <p>{{ item.detail }}</p>
+                        <small>{{ item.footnote }}</small>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section id="pipeline" class="panel panel-pipeline">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Flow</p>
+                        <h2>Pipeline Pulse</h2>
+                    </div>
+                    <p class="panel-note">{{ pipeline_total }} live stage entries across the current queue.</p>
+                </div>
+
+                <div class="pipeline-flow" aria-label="Pipeline breakdown">
+                    {% for stage in pipeline_stages %}
+                    <article class="stage-card" style="--share: {{ stage.share }}%;">
+                        <div class="stage-meter"></div>
+                        <div class="stage-copy">
+                            <span>{{ stage.label }}</span>
+                            <strong>{{ stage.count }}</strong>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section id="signals" class="panel panel-signals">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Telemetry</p>
+                        <h2>Signal Ledger</h2>
+                    </div>
+                    <p class="panel-note">{{ footer_note }}</p>
+                </div>
+
+                <div class="ledger">
+                    {% for event in signal_ledger %}
+                    <article class="ledger-item {{ event.tone }}">
+                        <div class="ledger-time">{{ event.time }}</div>
+                        <div class="ledger-copy">
+                            <h3>{{ event.title }}</h3>
+                            <p>{{ event.detail }}</p>
+                        </div>
+                    </article>
+                    {% endfor %}
+                    {% if not signal_ledger %}
+                    <p class="empty-state">{{ empty_signal_ledger }}</p>
+                    {% endif %}
+                </div>
+            </section>
+        </main>
+    </div>
 </body>
 </html>

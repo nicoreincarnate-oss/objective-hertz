@@ -1,6 +1,7 @@
 """
 Stage 8: Build Website
-Build a full 5-page website for closed deals via v0.dev Platform API.
+Build a full 5-page website for closed deals using ClawdBot's 5-agent
+competitive build process (parallel variants → Opus review → synthesis → v0 deploy).
 """
 
 import logging
@@ -16,7 +17,7 @@ async def build_sites():
     """Build websites for all closed deals."""
     leads = await fetch_all(
         """SELECT id, business_name, contact_name, industry,
-                  research_summary, language, country, city, demo_site_url
+                  research_summary, research_facts, language, country, city, demo_site_url
            FROM clients WHERE status = 'closed'
            ORDER BY created_at ASC LIMIT 3"""
     )
@@ -45,81 +46,6 @@ async def build_sites():
 
 
 async def _build_full_site(lead: dict) -> str:
-    """Build a full 5-page website via v0.dev Platform API (project → chat → deploy)."""
-    import httpx
-    import os
-
-    api_key = os.getenv("V0_API_KEY", "")
-    if not api_key:
-        logger.warning("V0_API_KEY not set — cannot build sites")
-        return ""
-
-    v0_headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    v0_base = "https://api.v0.dev/v1"
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            # Step 1: Create project
-            proj_resp = await client.post(
-                f"{v0_base}/projects",
-                json={"name": f"Site - {lead['business_name'][:30]}"},
-                headers=v0_headers,
-            )
-            proj_resp.raise_for_status()
-            project_id = proj_resp.json().get("id", "")
-
-            if not project_id:
-                raise ValueError("No project ID returned from v0.dev")
-
-            # Step 2: Create chat with site generation prompt
-            prompt = f"""Build a professional 5-page website for:
-Business: {lead['business_name']}
-Industry: {lead.get('industry', 'general services')}
-Location: {lead.get('city', '')}, {lead.get('country', '')}
-Contact: {lead.get('contact_name', '')}
-
-Pages: Home, About, Services, Gallery/Portfolio, Contact
-Style: Modern, professional, mobile-responsive
-Include: Hero section, service descriptions, contact form, testimonials section, footer with business info"""
-
-            chat_resp = await client.post(
-                f"{v0_base}/chats",
-                json={
-                    "initialMessage": prompt,
-                    "projectId": project_id,
-                },
-                headers=v0_headers,
-            )
-            chat_resp.raise_for_status()
-            chat_data = chat_resp.json()
-            chat_id = chat_data.get("id", "")
-            version_id = chat_data.get("versionId", chat_data.get("version_id", ""))
-
-            if not chat_id:
-                raise ValueError("No chat ID returned from v0.dev")
-
-            # Step 3: Deploy to Vercel
-            if version_id:
-                deploy_resp = await client.post(
-                    f"{v0_base}/deployments",
-                    json={
-                        "projectId": project_id,
-                        "chatId": chat_id,
-                        "versionId": version_id,
-                    },
-                    headers=v0_headers,
-                )
-                deploy_resp.raise_for_status()
-                deploy_data = deploy_resp.json()
-                url = deploy_data.get("webUrl", deploy_data.get("url", ""))
-                if url:
-                    logger.info(f"v0.dev site deployed: {url}")
-                    return url
-
-    except Exception as e:
-        logger.error(f"v0.dev site build failed: {e}")
-
-    return ""
+    """Build a full website using ClawdBot's 5-agent competitive process."""
+    from clawdbot.site_builder import build_full_site
+    return await build_full_site(lead)

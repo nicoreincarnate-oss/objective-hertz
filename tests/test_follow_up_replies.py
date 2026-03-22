@@ -30,6 +30,7 @@ def load_follow_up_module():
 
     fake_memory = types.ModuleType("titan.memory")
     fake_memory.get_relevant_learnings = AsyncMock(return_value="")
+    fake_memory.format_rules_for_prompt = AsyncMock(return_value="")
 
     fake_training = types.ModuleType("titan.training")
     fake_training.collect_email_outcome = AsyncMock()
