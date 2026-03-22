@@ -7,13 +7,12 @@ AI picks the best sources and learns what works.
 import json
 import logging
 import random
-from typing import Optional
 
-from shared.db import fetch_all, fetch_one, execute, emit_event, get_config
+from shared.comms import request_task_result
+from shared.db import emit_event, fetch_one, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from shared.comms import request_task_result
-from shared.skill_loader import find_skill, execute_skill
+from shared.skill_loader import execute_skill, find_skill
 from titan.memory import get_relevant_learnings
 
 logger = logging.getLogger("perseus.titan.discovery")
@@ -400,7 +399,7 @@ async def _search_for_businesses(query: str) -> list[dict]:
         return []
 
 
-async def _store_lead(business: dict) -> Optional[int]:
+async def _store_lead(business: dict) -> int | None:
     """Store a discovered lead in the database. Returns client_id or None if duplicate.
 
     Leads without email are stored — they get enriched in the research stage.

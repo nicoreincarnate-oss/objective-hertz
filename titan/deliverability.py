@@ -9,9 +9,8 @@ Called as a scheduled task by Perseus (via Titan daemon).
 """
 
 import logging
-from datetime import date
 
-from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val, get_config, set_config
+from shared.db import emit_event, fetch_all, fetch_one, fetch_val, get_config, set_config
 
 logger = logging.getLogger("perseus.titan.deliverability")
 
@@ -104,7 +103,6 @@ async def _check_domain_health():
 
         bounce_rate = float(row.get("bounce_rate", 0) or 0)
         emails_sent = int(row.get("emails_sent", 0) or 0)
-        health = row.get("health_status", "OK")
 
         if emails_sent < 10:
             continue  # Not enough data to judge

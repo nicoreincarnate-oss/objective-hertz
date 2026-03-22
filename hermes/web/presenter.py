@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from hermes.web.operator_chat import build_operator_thread, get_agent_options
-
 
 PIPELINE_ORDER = [
     "discovered",

@@ -5,28 +5,25 @@ Runs continuously, processing leads through the full pipeline.
 
 import asyncio
 import json
-import logging
 import signal
 
-from shared.config import config
-from shared.logging_config import setup_logging
+from perseus.agent_registry import heartbeat
 from shared import db
 from shared.agent_base import AgentBase
-
-from titan.pipeline.lead_discovery import discover_leads
-from titan.pipeline.lead_research import research_leads
+from shared.logging_config import setup_logging
+from titan.deliverability import monitor_deliverability
+from titan.expansion import review_revenue_expansion
+from titan.memory import daily_reflection, weekly_strategy_review
+from titan.pipeline.build_site import build_sites
+from titan.pipeline.close_deal import process_interested_leads
+from titan.pipeline.deploy_site import deploy_sites
 from titan.pipeline.email_compose import compose_emails
 from titan.pipeline.email_send import send_emails, sync_campaign_analytics
 from titan.pipeline.follow_up import process_follow_ups
-from titan.pipeline.close_deal import process_interested_leads
-from titan.pipeline.build_site import build_sites
-from titan.pipeline.deploy_site import deploy_sites
 from titan.pipeline.invoice import process_invoices
-from titan.memory import daily_reflection, weekly_strategy_review
-from titan.deliverability import monitor_deliverability
-from titan.expansion import review_revenue_expansion
+from titan.pipeline.lead_discovery import discover_leads
+from titan.pipeline.lead_research import research_leads
 from titan.training import run_lora_training
-from perseus.agent_registry import heartbeat
 
 logger = setup_logging("titan")
 

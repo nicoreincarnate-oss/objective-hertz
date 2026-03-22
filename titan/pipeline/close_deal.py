@@ -7,12 +7,18 @@ Uses Claude Sonnet for high-quality proposals.
 import json
 import logging
 
-from shared.db import fetch_all, fetch_one, execute, emit_event, get_config, set_config, increment_config_int
+from shared.db import (
+    emit_event,
+    execute,
+    fetch_all,
+    get_config,
+    increment_config_int,
+    set_config,
+)
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from titan.state_machine import transition_lead
 from titan.memory import get_relevant_learnings
-from titan.training import collect_training_example
+from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.close")
 

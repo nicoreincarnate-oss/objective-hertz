@@ -5,8 +5,8 @@ Send invoices and track payments. Works with Mexican bank account.
 
 import logging
 
-from shared.db import fetch_all, fetch_one, execute, emit_event
 from shared.config import config
+from shared.db import emit_event, execute, fetch_all, fetch_one
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 
@@ -135,5 +135,4 @@ async def _check_payments():
             logger.info(f"Payment received for client {deal['client_id']}!")
 
             # Record the learning
-            from titan.pipeline.close_deal import mark_sale_closed
             # Sale already closed, but this confirms payment

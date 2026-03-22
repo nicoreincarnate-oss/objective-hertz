@@ -3,17 +3,17 @@ Stage 3: Email Composition
 Write 100% custom email per lead using Claude API.
 Every email is unique — based on research, personalization hooks, and learnings.
 """
-
 import json
 import logging
+import re
 from pathlib import Path
 
-from shared.db import fetch_all, fetch_one, execute
+from shared.db import fetch_all, fetch_one
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from shared.skill_loader import find_skill, execute_skill
-from titan.state_machine import transition_lead
+from shared.skill_loader import execute_skill, find_skill
 from titan.memory import get_relevant_learnings
+from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.email_compose")
 
@@ -218,8 +218,6 @@ def _compose_model_for_lead(lead: dict) -> str:
 
 
 # ── Content validation (GAP 18) ───────────────────────────────────
-
-import re
 
 # Patterns that indicate false or misleading claims the LLM might generate.
 _CLAIM_PATTERNS: list[tuple[re.Pattern, str]] = [

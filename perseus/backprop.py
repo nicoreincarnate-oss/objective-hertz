@@ -12,7 +12,6 @@ Immutable sections are protected — compliance rules can never be edited.
 """
 
 import logging
-import re
 import subprocess
 from pathlib import Path
 from typing import Any

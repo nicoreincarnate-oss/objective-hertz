@@ -9,6 +9,7 @@ Pass as ?token=<secret> in the URL or Authorization: Bearer <secret> header.
 import hmac
 import json as _json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,10 +20,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from contextlib import asynccontextmanager
-
-from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.insights import answer_strategic_question
+from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
 from shared.db import emit_event, fetch_all, fetch_val, get_config, insert_task
@@ -221,7 +220,7 @@ async def api_leads():
         """SELECT id, business_name, email, industry, status, lead_score, created_at
            FROM clients ORDER BY created_at DESC LIMIT 50"""
     )
-    return JSONResponse(content=_json.loads(_json.dumps([dict(l) for l in leads], default=str)))
+    return JSONResponse(content=_json.loads(_json.dumps([dict(lead) for lead in leads], default=str)))
 
 
 @app.get("/api/events")

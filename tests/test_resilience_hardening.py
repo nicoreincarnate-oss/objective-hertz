@@ -7,8 +7,7 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(coro):

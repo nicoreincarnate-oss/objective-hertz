@@ -4,7 +4,10 @@ import asyncio
 import importlib
 import sys
 import types
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(coro):
@@ -69,7 +72,7 @@ def test_build_demo_and_propose_stops_when_demo_build_fails():
 
 
 def test_mark_sale_closed_uses_atomic_sales_increment():
-    code = open("/Users/majovega/Desktop/objective-hertz/titan/pipeline/close_deal.py").read()
+    code = (ROOT / "titan" / "pipeline" / "close_deal.py").read_text()
 
     assert 'increment_config_int("sales_completed", 1, default=0)' in code
     assert 'await set_config("sales_completed", sales + 1)' not in code

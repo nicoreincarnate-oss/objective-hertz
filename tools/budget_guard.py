@@ -40,7 +40,7 @@ class BudgetGuard:
         }
 
 
-async def get_month_spending(monthly_cap: Decimal = None) -> dict:
+async def get_month_spending(monthly_cap: Decimal | None = None) -> dict:
     """Get total spending for the current month."""
     if monthly_cap is None:
         monthly_cap = Decimal(str(config.budget.monthly_cap))

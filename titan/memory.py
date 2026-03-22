@@ -15,9 +15,9 @@ import logging
 import time
 from datetime import datetime
 
-from shared.db import fetch_all, fetch_one, execute, fetch_val, emit_event
-from shared.llm_client import llm
 from shared.config import config
+from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
+from shared.llm_client import llm
 
 logger = logging.getLogger("perseus.titan.memory")
 
@@ -30,7 +30,7 @@ _last_mem0_alert_at: dict[str, float] = {
 
 # ── Vector Memory (Mem0 + Qdrant) ─────────────────────────────────────
 
-async def store_memory(content: str, category: str, client_id: int = None, metadata: dict = None):
+async def store_memory(content: str, category: str, client_id: int | None = None, metadata: dict | None = None) -> None:
     """Store a memory in Mem0 for vector-searchable retrieval."""
     import httpx
     mem_metadata = {
@@ -122,8 +122,8 @@ async def get_relevant_learnings(context: str, limit: int = 10) -> str:
     parts = []
     if db_learnings:
         parts.append("STRUCTURED INSIGHTS:")
-        for l in db_learnings:
-            parts.append(f"  [{l['category']}] {l['insight']}")
+        for learning in db_learnings:
+            parts.append(f"  [{learning['category']}] {learning['insight']}")
     if vector_memories:
         parts.append("RELEVANT MEMORIES:")
         for m in vector_memories:
@@ -236,7 +236,7 @@ METRICS THIS WEEK:
 {json.dumps(weekly_metrics, indent=2, default=str)}
 
 DAILY INSIGHTS THIS WEEK:
-{json.dumps([dict(l) for l in weekly_learnings], default=str)}
+{json.dumps([dict(learning) for learning in weekly_learnings], default=str)}
 
 TRAINING DATA: {dict(training_stats) if training_stats else 'None'}
 

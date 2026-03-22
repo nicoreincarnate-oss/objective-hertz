@@ -13,12 +13,10 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 from typing import Any
 
 from shared.comms import record_decision
-from shared.config import config
-from shared.db import emit_event, execute
+from shared.db import emit_event
 from shared.llm_client import llm
 
 logger = logging.getLogger("perseus.clawdbot.site_builder")
@@ -87,9 +85,6 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     """Core build process: generate variants → review → synthesize → deploy."""
     business_name = lead.get("business_name", "Business")
     industry = lead.get("industry", "general services")
-    city = lead.get("city", "")
-    country = lead.get("country", "")
-    research = lead.get("research_summary", "")
 
     brief = await _build_product_brief(lead, site_type, page_count)
 
@@ -190,7 +185,8 @@ Guardrails:
 - Make the page feel custom to this business, not like an industry template.
 - Use shadcn/ui as the visual/component spine, adapted into original code.
 - Reuse 21st.dev-style section patterns selectively when they improve conversion.
-- Treat Stitch as art direction/prototyping input, not production truth.{''.join(f'{line}\n' for line in skill_lines) if skill_lines else ''}"""
+- Treat Stitch as art direction/prototyping input, not production truth.
+{(chr(10).join(skill_lines) + chr(10)) if skill_lines else ""}"""
 
 
 def _extract_reference_urls(lead: dict) -> list[str]:
@@ -459,12 +455,12 @@ async def _build_variants(brief: str, logo_url: str, site_type: str) -> list[dic
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    variants = []
+    variants: list[dict] = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             logger.warning(f"Variant {i} failed: {result}")
             continue
-        if result and result.get("html"):
+        if isinstance(result, dict) and result.get("html"):
             variants.append(result)
 
     logger.info(f"Built {len(variants)}/{len(tasks)} variants successfully")
@@ -725,7 +721,6 @@ Output ONLY the HTML code."""
     result = await execute_plan(plan)
 
     if result["completed"] and result["results"]:
-        raw = result["results"][0].get("result", "")
         # execute_plan truncates to 2000 chars — we need the full step result
         full_result = plan.steps[0].result
         return _extract_html(full_result)

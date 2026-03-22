@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-
 _CURATED_SOURCES = [
     {
         "source": "21st.dev",

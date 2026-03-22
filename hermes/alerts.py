@@ -3,9 +3,11 @@ Hermes alert dispatcher — sends Telegram notifications for important events.
 """
 
 import logging
+
 import httpx
+
 from shared.config import config
-from shared.db import fetch_all, execute
+from shared.db import execute, fetch_all
 
 logger = logging.getLogger("perseus.hermes.alerts")
 
@@ -165,7 +167,7 @@ async def _send_telegram(message: str):
 
 async def send_morning_briefing():
     """Send the daily morning briefing to Nico."""
-    from shared.db import fetch_val, fetch_all
+    from shared.db import fetch_val
 
     total_leads = await fetch_val("SELECT COUNT(*) FROM clients") or 0
     yesterday_sent = await fetch_val(

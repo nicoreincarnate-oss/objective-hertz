@@ -7,6 +7,8 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def run(coro):
     return asyncio.run(coro)
@@ -244,10 +246,10 @@ def test_review_revenue_expansion_routes_tool_builds_through_clawdbot_builder():
 
 
 def test_runtime_wiring_exists_for_revenue_expansion():
-    scheduler_code = (Path("/Users/majovega/Desktop/objective-hertz/perseus/scheduler.py")).read_text()
-    daemon_code = (Path("/Users/majovega/Desktop/objective-hertz/titan/daemon.py")).read_text()
-    discovery_code = (Path("/Users/majovega/Desktop/objective-hertz/titan/pipeline/lead_discovery.py")).read_text()
-    readme_code = (Path("/Users/majovega/Desktop/objective-hertz/README.md")).read_text()
+    scheduler_code = (ROOT / "perseus" / "scheduler.py").read_text()
+    daemon_code = (ROOT / "titan" / "daemon.py").read_text()
+    discovery_code = (ROOT / "titan" / "pipeline" / "lead_discovery.py").read_text()
+    readme_code = (ROOT / "README.md").read_text()
 
     assert 'Schedule("revenue_expansion_review"' in scheduler_code
     assert '"revenue_expansion_review": review_revenue_expansion' in daemon_code

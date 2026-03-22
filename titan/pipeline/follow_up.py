@@ -5,13 +5,12 @@ AI decides persistence per lead. Handle replies, multi-step sequences.
 
 import json
 import logging
-from datetime import datetime, timedelta
 
-from shared.db import fetch_all, fetch_one, execute, emit_event
+from shared.db import emit_event, execute, fetch_all, fetch_one
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from titan.state_machine import transition_lead
 from titan.memory import format_rules_for_prompt, get_relevant_learnings
+from titan.state_machine import transition_lead
 from titan.training import collect_email_outcome, collect_training_example
 
 logger = logging.getLogger("perseus.titan.follow_up")
@@ -28,8 +27,8 @@ async def _check_replies():
     replies = []
     fetch_client = None
     try:
-        from tools.instantly_client import InstantlyClient
         from shared.db import get_config
+        from tools.instantly_client import InstantlyClient
         fetch_client = InstantlyClient()
 
         campaign_id = await get_config("instantly_campaign_id", "")

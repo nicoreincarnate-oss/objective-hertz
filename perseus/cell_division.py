@@ -7,7 +7,6 @@ This is the "stem cell" stage — the capability exists but is gated on
 operator consent. The system will never autonomously spawn agents.
 """
 
-import json
 import logging
 from typing import Any
 
@@ -28,7 +27,7 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
 
     Called by the sleep cycle after Phase C. Only proposes — never creates.
     """
-    proposals = []
+    proposals: list[dict[str, Any]] = []
 
     # Check: sustained pipeline stage errors
     errors = snapshot.get("recent_errors", [])
@@ -88,7 +87,7 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
 
     # Dedupe and limit
     seen_names = set()
-    unique_proposals = []
+    unique_proposals: list[dict[str, Any]] = []
     for p in proposals:
         if p["name"] not in seen_names:
             seen_names.add(p["name"])

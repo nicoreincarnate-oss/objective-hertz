@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from shared.db import get_config, set_config, fetch_all, fetch_val
+from shared.db import fetch_all, fetch_val, get_config, set_config
 
 logger = logging.getLogger("perseus.self_model")
 
@@ -77,7 +77,7 @@ async def format_all_self_models() -> str:
     """Format all agents' self-models for the sleep cycle."""
     models = await get_all_self_models()
     parts = []
-    for name, model in models.items():
+    for name, _model in models.items():
         parts.append(await format_self_model_for_prompt(name))
     return "\n\n".join(parts)
 

@@ -14,7 +14,7 @@ This module provides a clean API for daemon-to-daemon communication.
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from shared import db
 
@@ -25,11 +25,11 @@ logger = logging.getLogger("perseus.comms")
 
 async def request_task(
     task_type: str,
-    payload: dict = None,
+    payload: dict[str, Any] | None = None,
     priority: int = 5,
     request_id: str = "",
     dedupe: bool = False,
-) -> int:
+) -> int | None:
     """
     Insert a task into the shared queue for any daemon to pick up.
 
@@ -51,10 +51,10 @@ async def request_task(
 
 async def request_task_result(
     task_type: str,
-    payload: dict = None,
+    payload: dict[str, Any] | None = None,
     priority: int = 5,
     timeout_seconds: int = 60,
-) -> Optional[dict]:
+) -> dict | None:
     """Request work from another daemon and wait for its task_result event."""
     request_id = uuid.uuid4().hex
     task_id = await request_task(
@@ -73,7 +73,7 @@ async def wait_for_event(
     event_type: str,
     request_id: str = "",
     timeout_seconds: int = 60,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Wait for a specific event (result from another daemon).
     Polls the events table. Returns the event payload or None on timeout.
@@ -110,7 +110,7 @@ async def wait_for_event(
 
 # ── Broadcast to All Daemons ──────────────────────────────────────
 
-async def broadcast(event_type: str, payload: dict = None, sender: str = ""):
+async def broadcast(event_type: str, payload: dict[str, Any] | None = None, sender: str = "") -> None:
     """
     Broadcast an event visible to all daemons.
     Hermes will also pick this up for Telegram alerts.
@@ -131,7 +131,7 @@ async def store_learning(
     insight: str,
     confidence: float = 0.5,
     source_agent: str = "",
-    source_lead_id: int = None,
+    source_lead_id: int | None = None,
 ):
     """
     Store a structured learning accessible by all daemons.
@@ -167,7 +167,7 @@ async def get_learnings(category: str = "", limit: int = 10) -> list[dict]:
 
 # ── Shared Memory (Vector/Semantic via Mem0) ──────────────────────
 
-async def store_vector_memory(content: str, category: str = "", metadata: dict = None):
+async def store_vector_memory(content: str, category: str = "", metadata: dict[str, Any] | None = None) -> None:
     """Store a memory in the shared Mem0 vector store."""
     try:
         from titan.memory import store_memory
@@ -180,7 +180,7 @@ async def search_vector_memory(query: str, limit: int = 5) -> list[dict]:
     """Search the shared vector memory."""
     try:
         from titan.memory import search_memory
-        return await search_memory(query, limit)
+        return [{"memory": item} for item in await search_memory(query, limit)]
     except Exception as e:
         logger.debug(f"Vector memory search failed (non-critical): {e}")
         return []

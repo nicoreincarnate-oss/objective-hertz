@@ -6,7 +6,7 @@ competitive build process (parallel variants → Opus review → synthesis → v
 
 import logging
 
-from shared.db import fetch_all, execute, emit_event
+from shared.db import emit_event, execute, fetch_all
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 

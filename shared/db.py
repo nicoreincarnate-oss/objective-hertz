@@ -4,10 +4,9 @@ Async connection pool using psycopg (v3, async-native).
 """
 
 import logging
-from typing import Any, Optional
 from contextlib import asynccontextmanager
+from typing import Any
 
-import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -15,7 +14,7 @@ from shared.config import config
 
 logger = logging.getLogger("perseus.db")
 
-_pool: Optional[AsyncConnectionPool] = None
+_pool: AsyncConnectionPool | None = None
 
 
 async def init_pool(min_size: int = 2, max_size: int = 10):
@@ -65,7 +64,7 @@ async def execute(query: str, params: tuple = ()) -> None:
         await conn.execute(query, params)
 
 
-async def fetch_one(query: str, params: tuple = ()) -> Optional[dict[str, Any]]:
+async def fetch_one(query: str, params: tuple = ()) -> dict[str, Any] | None:
     """Fetch a single row."""
     async with get_conn() as conn:
         cursor = await conn.execute(query, params)
@@ -91,7 +90,7 @@ async def fetch_val(query: str, params: tuple = ()) -> Any:
 
 async def insert_task(
     task_type: str,
-    payload: dict = None,
+    payload: dict[str, Any] | None = None,
     priority: int = 5,
     dedupe: bool = True,
 ) -> int | None:
@@ -118,10 +117,10 @@ async def insert_task(
            VALUES (%s, %s, %s) RETURNING id""",
         (task_type, json.dumps(payload or {}), priority),
     )
-    return row["id"]
+    return int(row["id"]) if row else None
 
 
-async def emit_event(event_type: str, payload: dict = None) -> int:
+async def emit_event(event_type: str, payload: dict[str, Any] | None = None) -> int:
     """Emit an event for Hermes/dashboard. Returns event ID."""
     import json
     row = await fetch_one(
@@ -129,7 +128,7 @@ async def emit_event(event_type: str, payload: dict = None) -> int:
            VALUES (%s, %s) RETURNING id""",
         (event_type, json.dumps(payload or {})),
     )
-    return row["id"]
+    return int(row["id"]) if row else 0
 
 
 async def get_config(key: str, default: Any = None) -> Any:

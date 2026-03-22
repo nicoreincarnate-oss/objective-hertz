@@ -16,11 +16,12 @@ Used by:
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
-from shared.llm_client import llm
 from shared.comms import record_decision
+from shared.llm_client import llm
 
 logger = logging.getLogger("perseus.execution_loop")
 
@@ -106,10 +107,10 @@ async def execute_plan(plan: TaskPlan) -> dict[str, Any]:
 
     Returns: {"completed": bool, "steps_passed": N, "steps_total": N, "results": [...]}
     """
-    results = []
+    results: list[dict[str, Any]] = []
     all_passed = True
 
-    for i, step in enumerate(plan.steps):
+    for _i, step in enumerate(plan.steps):
         step_result = await _execute_step(step, plan, previous_results=results)
         results.append(step_result)
 
@@ -243,7 +244,7 @@ def build_plan(
     default_model: str = DEFAULT_MODEL,
 ) -> TaskPlan:
     """Build a TaskPlan from a list of step dicts (from decompose_task or manual)."""
-    plan_steps = []
+    plan_steps: list[Step] = []
     for s in steps:
         plan_steps.append(Step(
             name=s.get("name", f"step_{len(plan_steps)}"),
@@ -287,7 +288,7 @@ async def gsd_and_loop(
     step_dicts = await decompose_task(task_description, context=context, model=model)
 
     # Build plan with optional checks
-    plan_steps = []
+    plan_steps: list[Step] = []
     for s in step_dicts:
         step = Step(
             name=s.get("name", f"step_{len(plan_steps)}"),

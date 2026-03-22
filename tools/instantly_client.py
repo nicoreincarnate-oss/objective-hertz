@@ -13,7 +13,7 @@ Auth: Bearer token via INSTANTLY_API_KEY
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import Any
 
 import httpx
 
@@ -76,7 +76,7 @@ class InstantlyClient:
         *,
         params: dict | None = None,
         data: dict | None = None,
-    ) -> dict:
+    ) -> Any:
         """Central request path with light throttling and 429 retry handling."""
         request_fn = getattr(self._http, method)
         url = f"{BASE_URL}{path}"
@@ -105,16 +105,16 @@ class InstantlyClient:
 
         raise RuntimeError(f"Instantly request failed after retries: {method.upper()} {path}")
 
-    async def _get(self, path: str, params: dict = None) -> dict:
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return await self._request("get", path, params=params)
 
-    async def _post(self, path: str, data: dict = None) -> dict:
+    async def _post(self, path: str, data: dict[str, Any] | None = None) -> Any:
         return await self._request("post", path, data=data)
 
-    async def _patch(self, path: str, data: dict = None) -> dict:
+    async def _patch(self, path: str, data: dict[str, Any] | None = None) -> Any:
         return await self._request("patch", path, data=data)
 
-    async def _delete(self, path: str) -> dict:
+    async def _delete(self, path: str) -> Any:
         return await self._request("delete", path)
 
     # ── Campaigns ──────────────────────────────────────────────────
@@ -139,7 +139,7 @@ class InstantlyClient:
         """Get campaign details."""
         return await self._get(f"/campaigns/{campaign_id}")
 
-    async def list_campaigns(self) -> list:
+    async def list_campaigns(self) -> Any:
         """List all campaigns."""
         return await self._get("/campaigns")
 
@@ -164,14 +164,14 @@ class InstantlyClient:
 
     async def get_campaign_analytics(self, campaign_id: str = "") -> dict:
         """Get campaign analytics (sent, opens, clicks, replies)."""
-        params = {}
+        params: dict[str, Any] = {}
         if campaign_id:
             params["id"] = campaign_id
         return await self._get("/campaigns/analytics", params)
 
     async def get_campaign_daily_analytics(self, campaign_id: str = "") -> dict:
         """Get daily campaign analytics."""
-        params = {}
+        params: dict[str, Any] = {}
         if campaign_id:
             params["id"] = campaign_id
         return await self._get("/campaigns/daily-analytics", params)
@@ -207,9 +207,9 @@ class InstantlyClient:
             lead["campaign_id"] = campaign_id
         return await self._post("/leads/bulk", {"leads": leads})
 
-    async def list_leads(self, campaign_id: str = "", limit: int = 100) -> list:
+    async def list_leads(self, campaign_id: str = "", limit: int = 100) -> Any:
         """List leads. Note: This is a POST endpoint due to complex filtering."""
-        data = {"limit": limit}
+        data: dict[str, Any] = {"limit": limit}
         if campaign_id:
             data["campaign_id"] = campaign_id
         return await self._post("/leads/list", data)
@@ -224,7 +224,7 @@ class InstantlyClient:
 
     # ── Email Accounts ─────────────────────────────────────────────
 
-    async def list_accounts(self) -> list:
+    async def list_accounts(self) -> Any:
         """List connected email sending accounts."""
         return await self._get("/accounts")
 
@@ -264,13 +264,13 @@ class InstantlyClient:
 
     # ── Emails / Inbox ─────────────────────────────────────────────
 
-    async def list_emails(self, campaign_id: str = "", is_unread: bool = None,
-                          limit: int = 50) -> list:
+    async def list_emails(self, campaign_id: str = "", is_unread: bool | None = None,
+                          limit: int = 50) -> Any:
         """
         List emails (replies, sent). Rate limited to 20 req/min.
         Use to check for new replies.
         """
-        params = {"limit": limit}
+        params: dict[str, Any] = {"limit": limit}
         if campaign_id:
             params["campaign_id"] = campaign_id
         if is_unread is not None:

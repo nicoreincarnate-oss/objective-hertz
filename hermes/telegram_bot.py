@@ -6,14 +6,27 @@ Commands, alerts, morning briefings.
 import hmac
 import logging
 import os
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from shared.config import config
-from shared.db import fetch_all, fetch_one, fetch_val, get_config
-from titan.review_mode import get_pending_reviews, approve_review, reject_review
+from shared.db import fetch_all, fetch_val, get_config
+from titan.review_mode import approve_review, get_pending_reviews, reject_review
 
 logger = logging.getLogger("perseus.hermes.telegram")
+
+
+async def _reply(update: Update, text: str, *, parse_mode: str | None = None) -> None:
+    """Reply via the effective message when present."""
+    message = update.effective_message
+    if not message:
+        return
+    await message.reply_text(text, parse_mode=parse_mode)
+
+
+def _args(context: ContextTypes.DEFAULT_TYPE) -> list[str]:
+    return list(context.args or [])
 
 
 async def _require_chat_access(update: Update) -> bool:
@@ -24,13 +37,13 @@ async def _require_chat_access(update: Update) -> bool:
     if not configured_chat:
         logger.warning("TELEGRAM_CHAT_ID is not configured — denying Telegram command")
         if update.message:
-            await update.message.reply_text("Telegram control is not configured.")
+            await _reply(update, "Telegram control is not configured.")
         return False
 
     if not hmac.compare_digest(actual_chat, configured_chat):
         logger.warning("Unauthorized Telegram chat attempted command access: %s", actual_chat or "unknown")
         if update.message:
-            await update.message.reply_text("Unauthorized.")
+            await _reply(update, "Unauthorized.")
         return False
 
     return True
@@ -51,22 +64,23 @@ async def _require_destructive_auth(
     if not configured_secret:
         logger.warning("TELEGRAM_ADMIN_SECRET is not configured — denying destructive Telegram command")
         if update.message:
-            await update.message.reply_text("Telegram admin secret is not configured.")
+            await _reply(update, "Telegram admin secret is not configured.")
         return False
 
-    if len(context.args) <= secret_arg_index:
+    args = _args(context)
+    if len(args) <= secret_arg_index:
         if update.message:
-            await update.message.reply_text(usage)
+            await _reply(update, usage)
         return False
 
-    provided_secret = context.args[secret_arg_index].strip()
+    provided_secret = args[secret_arg_index].strip()
     if not hmac.compare_digest(provided_secret, configured_secret):
         logger.warning(
             "Telegram destructive command rejected due to invalid admin secret from chat %s",
             update.effective_chat.id if update.effective_chat else "unknown",
         )
         if update.message:
-            await update.message.reply_text("Unauthorized.")
+            await _reply(update, "Unauthorized.")
         return False
 
     return True
@@ -77,7 +91,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_chat_access(update):
         return
     pipeline = await _get_pipeline_summary()
-    await update.message.reply_text(
+    await _reply(update, 
         f"*PERSEUS Status*\n\n{pipeline}",
         parse_mode="Markdown",
     )
@@ -94,7 +108,7 @@ async def cmd_leads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "*Lead Pipeline:*\n"
     for lead in leads:
         text += f"  {lead['status']}: {lead['count']}\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await _reply(update, text, parse_mode="Markdown")
 
 
 async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,7 +121,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = await fetch_val(
         "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'pending'"
     ) or 0
-    await update.message.reply_text(
+    await _reply(update, 
         f"*Revenue*\n  Collected: ${total:.2f}\n  Pending: ${pending:.2f}",
         parse_mode="Markdown",
     )
@@ -119,14 +133,14 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     items = await get_pending_reviews()
     if not items:
-        await update.message.reply_text("No items pending review.")
+        await _reply(update, "No items pending review.")
         return
 
     text = f"*{len(items)} items pending review:*\n\n"
     for item in items[:10]:
         text += f"  [{item['id']}] {item['item_type']} — {item.get('business_name', 'unknown')}\n"
     text += "\nUse /approve <id> or /reject <id>"
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await _reply(update, text, parse_mode="Markdown")
 
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,15 +153,16 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):
         return
     try:
-        review_id = int(context.args[0])
-        notes = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+        args = _args(context)
+        review_id = int(args[0])
+        notes = " ".join(args[2:]) if len(args) > 2 else ""
         result = await approve_review(review_id, notes)
         if result:
-            await update.message.reply_text(f"Approved #{review_id}")
+            await _reply(update, f"Approved #{review_id}")
         else:
-            await update.message.reply_text(f"Review #{review_id} not found")
+            await _reply(update, f"Review #{review_id} not found")
     except ValueError:
-        await update.message.reply_text("Invalid ID")
+        await _reply(update, "Invalid ID")
 
 
 async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -160,15 +175,16 @@ async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):
         return
     try:
-        review_id = int(context.args[0])
-        notes = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+        args = _args(context)
+        review_id = int(args[0])
+        notes = " ".join(args[2:]) if len(args) > 2 else ""
         result = await reject_review(review_id, notes)
         if result:
-            await update.message.reply_text(f"Rejected #{review_id}")
+            await _reply(update, f"Rejected #{review_id}")
         else:
-            await update.message.reply_text(f"Review #{review_id} not found")
+            await _reply(update, f"Review #{review_id} not found")
     except ValueError:
-        await update.message.reply_text("Invalid ID")
+        await _reply(update, "Invalid ID")
 
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,7 +200,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_config("titan_paused", True)
     await set_config("clawdbot_paused", True)
     await set_config("titan_manual_pause", True)
-    await update.message.reply_text("Titan + ClawdBot PAUSED (manual). Use /resume to restart.")
+    await _reply(update, "Titan + ClawdBot PAUSED (manual). Use /resume to restart.")
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,14 +216,14 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_config("titan_paused", False)
     await set_config("clawdbot_paused", False)
     await set_config("titan_manual_pause", False)
-    await update.message.reply_text("Titan + ClawdBot RESUMED.")
+    await _reply(update, "Titan + ClawdBot RESUMED.")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help."""
     if not await _require_chat_access(update):
         return
-    await update.message.reply_text(
+    await _reply(update, 
         "*Perseus Commands:*\n"
         "/status — System overview\n"
         "/leads — Pipeline breakdown\n"

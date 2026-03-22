@@ -8,10 +8,8 @@ When budget hits alert threshold, auto-downgrades to Ollama.
 When budget is exceeded, only Ollama is available.
 """
 
-import asyncio
 import logging
 from datetime import date
-from typing import Optional
 
 import httpx
 
@@ -80,7 +78,6 @@ class LLMClient:
         # Budget check — downgrade Claude to Ollama when needed
         model = await self._budget_gate(model)
 
-        cost_ctx = {"client_id": client_id, "pipeline_stage": pipeline_stage}
 
         if model in ("local", "local-small"):
             # Budget gate downgraded us
@@ -88,7 +85,14 @@ class LLMClient:
 
         try:
             result = await self._claude_generate(prompt, system, model, max_tokens, temperature)
-            await self._record_claude_spend(prompt, result, system, model, **cost_ctx)
+            await self._record_claude_spend(
+                prompt,
+                result,
+                system,
+                model,
+                client_id=client_id,
+                pipeline_stage=pipeline_stage,
+            )
             return result
         except Exception as e:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")

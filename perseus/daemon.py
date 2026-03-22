@@ -8,15 +8,13 @@ import asyncio
 import json
 import signal
 import time
-import logging
 
-from shared.config import config
-from shared.logging_config import setup_logging
+from perseus.agent_registry import check_agent_health, heartbeat
+from perseus.scheduler import SCHEDULE_MAP, SCHEDULES
 from shared import db
 from shared.agent_base import AgentBase
-
-from perseus.scheduler import SCHEDULES, SCHEDULE_MAP
-from perseus.agent_registry import heartbeat, check_agent_health
+from shared.config import config
+from shared.logging_config import setup_logging
 
 logger = setup_logging("perseus")
 
@@ -339,7 +337,6 @@ def _decide_priorities(state: dict) -> dict:
     ready_close = state.get("ready_to_close", 0)
     ready_deliver = state.get("ready_to_deliver", 0)
     ready_invoice = state.get("ready_to_invoice", 0)
-    top_funnel = state.get("top_of_funnel", 0)
     outreach = state.get("outreach_active", 0)
 
     # Priority 1: Invoices waiting → money sitting on the table

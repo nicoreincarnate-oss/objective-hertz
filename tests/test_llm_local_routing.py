@@ -20,7 +20,7 @@ def make_client(api_key="sk-test-key"):
     sys.modules.pop("shared.llm_client", None)
     sys.modules.pop("shared.config", None)
 
-    env = {"ANTHROPIC_API_KEY": api_key} if api_key else {}
+    env = {"ANTHROPIC_API_KEY": api_key}
     with patch.dict(os.environ, env, clear=False):
         with patch("httpx.AsyncClient", return_value=object()):
             module = importlib.import_module("shared.llm_client")

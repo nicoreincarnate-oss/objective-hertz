@@ -5,13 +5,10 @@ Strategy: mock the DB layer so unit tests run without Postgres.
 shared/db.py is the single choke point — every daemon goes through it.
 """
 
-import asyncio
-import json
-from unittest.mock import AsyncMock, patch
 from collections import defaultdict
+from unittest.mock import patch
 
 import pytest
-
 
 # ── In-memory DB mock ──────────────────────────────────────────────
 

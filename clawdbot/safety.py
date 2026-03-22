@@ -16,7 +16,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from shared.db import emit_event, get_config, set_config
 
@@ -152,7 +151,7 @@ async def vet_skill(skill_path: Path) -> VetResult:
         return result
 
     # Layer 2: LLM review (if skill-vetter is installed)
-    from shared.skill_loader import find_skill, execute_skill
+    from shared.skill_loader import execute_skill, find_skill
     if find_skill("skill-vetter"):
         try:
             llm_review = await execute_skill(

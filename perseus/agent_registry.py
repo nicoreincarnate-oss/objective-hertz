@@ -3,9 +3,8 @@ Agent registry — all agents register here so Perseus knows what's running.
 """
 
 import logging
-from typing import Optional
 
-from shared.db import fetch_all, fetch_one, execute
+from shared.db import execute, fetch_all, fetch_one
 
 logger = logging.getLogger("perseus.registry")
 
@@ -17,7 +16,7 @@ async def get_active_agents() -> list[dict]:
     )
 
 
-async def get_agent(name: str) -> Optional[dict]:
+async def get_agent(name: str) -> dict | None:
     """Get a specific agent's status."""
     return await fetch_one(
         "SELECT * FROM agent_registry WHERE name = %s", (name,)

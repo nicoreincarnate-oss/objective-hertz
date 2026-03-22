@@ -7,7 +7,6 @@ and registers with Perseus.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from shared import db
 
@@ -61,7 +60,7 @@ class AgentBase(ABC):
             (self.name,),
         )
 
-    async def emit_event(self, event_type: str, payload: dict = None):
+    async def emit_event(self, event_type: str, payload: dict | None = None):
         """Emit an event for other agents (Hermes, dashboard, etc.)."""
         await db.emit_event(event_type, {"agent": self.name, **(payload or {})})
 
@@ -91,7 +90,7 @@ class AgentBase(ABC):
                 timeout=timeout or self._shutdown_timeout_seconds,
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def finalize_shutdown(self):
@@ -123,7 +122,7 @@ class AgentBase(ABC):
             self.logger.warning("Requeued %d stale running task(s) for %s", count, self.name)
         return count
 
-    async def get_pending_tasks(self, task_type: str = None) -> list[dict]:
+    async def get_pending_tasks(self, task_type: str | None = None) -> list[dict]:
         """Get pending tasks from the queue, optionally filtered by type."""
         if task_type:
             return await db.fetch_all(

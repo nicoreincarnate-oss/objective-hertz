@@ -1,11 +1,10 @@
 """Tests for budget-aware LLM routing — the spend control plane."""
 
-import importlib
 import sys
 import types
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 @pytest.fixture

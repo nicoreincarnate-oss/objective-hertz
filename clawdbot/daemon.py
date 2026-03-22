@@ -10,18 +10,16 @@ ClawdBot is the hands of Perseus:
 """
 
 import asyncio
-import signal
-import logging
 import json
+import signal
 
-from shared.config import config
-from shared.logging_config import setup_logging
+from perseus.agent_registry import heartbeat
 from shared import db
 from shared.agent_base import AgentBase
 from shared.comms import record_decision
-from shared.skill_loader import find_skill, execute_skill, list_installed_skills
-
-from perseus.agent_registry import heartbeat
+from shared.config import config
+from shared.logging_config import setup_logging
+from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 
 logger = setup_logging("clawdbot")
 
@@ -95,7 +93,7 @@ class ClawdBotDaemon(AgentBase):
 
     async def _execute_with_brain(self, task_type: str, payload: dict, default_handler) -> dict | None:
         """Route task through Opus brain if complex, or directly to handler if simple."""
-        from clawdbot.brain import should_use_brain, decide_approach
+        from clawdbot.brain import decide_approach, should_use_brain
 
         if not await should_use_brain(task_type, payload):
             return await default_handler(payload)
@@ -323,7 +321,7 @@ class ClawdBotDaemon(AgentBase):
 
     async def _resolve_expansion_skill(self, exp: dict):
         """Try to resolve a missing expansion skill via the capability resolver."""
-        from clawdbot.capability_resolver import resolve_capability, is_already_resolved
+        from clawdbot.capability_resolver import is_already_resolved, resolve_capability
 
         skill_name = exp["capability_name"]
         if find_skill(skill_name):
@@ -350,7 +348,7 @@ class ClawdBotDaemon(AgentBase):
         from_agent = payload.get("from", "")
 
         # First try the fast keyword-based capability resolver
-        from clawdbot.capability_resolver import resolve_capability, is_already_resolved
+        from clawdbot.capability_resolver import is_already_resolved, resolve_capability
         capability = _problem_to_capability(problem)
 
         if capability:
@@ -380,7 +378,7 @@ class ClawdBotDaemon(AgentBase):
 
     async def _resolve_repeated_capability_needs(self):
         """If the same capability_missing event fires 3+ times in an hour, proactively resolve."""
-        from clawdbot.capability_resolver import resolve_capability, is_already_resolved
+        from clawdbot.capability_resolver import is_already_resolved, resolve_capability
 
         try:
             rows = await db.fetch_all(
@@ -482,18 +480,18 @@ async def handle_skill_execute(payload: dict):
             raise ValueError(f"Skill '{skill_name}' not found and could not be resolved")
 
     # Safety: vet external skills before first execution
-    from clawdbot.safety import vet_skill, is_skill_vetted
+    from clawdbot.safety import is_skill_vetted, vet_skill
     if not await is_skill_vetted(skill_name):
         vet_result = await vet_skill(skill_path)
         if not vet_result.passed:
             raise ValueError(f"Skill '{skill_name}' blocked by safety gate: {vet_result.details[:200]}")
 
-    result = await execute_skill(skill_name, task_prompt, context)
+    skill_output = await execute_skill(skill_name, task_prompt, context)
 
     # Store result as event so requesting daemon can pick it up
     await db.emit_event("skill_result", {
         "skill": skill_name,
-        "result": result[:2000] if result else "",
+        "result": skill_output[:2000] if skill_output else "",
         "request_id": payload.get("request_id", ""),
     })
 
@@ -634,13 +632,13 @@ async def handle_browser_task(payload: dict):
                     break
 
     if skill_name:
-        result = await execute_skill(skill_name, task_description, {"url": url})
+        skill_output = await execute_skill(skill_name, task_description, {"url": url})
         await db.emit_event("browser_result", {
-            "result": result[:2000] if result else "",
+            "result": skill_output[:2000] if skill_output else "",
             "request_id": payload.get("request_id", ""),
         })
         return {
-            "result": result[:2000] if result else "",
+            "result": skill_output[:2000] if skill_output else "",
             "url": url,
         }
 
@@ -660,11 +658,11 @@ async def _playwright_fallback(url: str, description: str) -> dict:
     """Last-resort browser automation using Playwright directly. Self-installs if needed."""
     try:
         from playwright.async_api import async_playwright
-    except ImportError:
+    except ImportError as err:
         from clawdbot.capability_resolver import _pip_install, _run_post_install
         installed = await _pip_install("playwright")
         if not installed:
-            raise ImportError("Could not install playwright")
+            raise ImportError("Could not install playwright") from err
         await _run_post_install(["playwright", "install", "chromium"])
         from playwright.async_api import async_playwright
 
@@ -879,7 +877,6 @@ def _problem_to_capability(problem: str) -> str:
         "contact info": "email_finder",
         "phone": "phone",
         "call": "phone",
-        "sms": "phone",
         "lead": "lead_generation",
         # Building and code
         "build": "code_builder",
@@ -962,7 +959,7 @@ async def handle_n8n_workflow(payload: dict):
     if not webhook_path:
         raise ValueError("webhook_path is required (e.g. /webhook/lead-enrichment)")
 
-    from tools.n8n_client import trigger_workflow, get_n8n_status
+    from tools.n8n_client import get_n8n_status, trigger_workflow
 
     status = get_n8n_status()
     if not status.get("available"):
@@ -987,8 +984,11 @@ async def handle_n8n_workflow(payload: dict):
 async def handle_image_generation(payload: dict):
     """Generate images via Recraft AI for client websites, demos, and marketing."""
     from tools.recraft_client import (
-        generate_image, generate_logo, generate_hero_image,
-        generate_social_graphic, get_recraft_status,
+        generate_hero_image,
+        generate_image,
+        generate_logo,
+        generate_social_graphic,
+        get_recraft_status,
     )
 
     status = get_recraft_status()
@@ -1011,8 +1011,9 @@ async def handle_image_generation(payload: dict):
 
     if result.get("url"):
         # Record the spend (~$0.01 per image)
-        from shared.db import execute
         from datetime import date
+
+        from shared.db import execute
         await execute(
             """INSERT INTO budget_tracking (month, category, amount, description, client_id, pipeline_stage)
                VALUES (%s, 'recraft_api', 0.01, %s, %s, %s)""",
@@ -1028,10 +1029,10 @@ async def handle_image_generation(payload: dict):
 async def handle_notebooklm(payload: dict):
     """Generate NotebookLM artifacts: briefings, research, client deliverables."""
     from tools.notebooklm_client import (
-        get_notebooklm_status,
         create_briefing_notebook,
-        create_market_research_notebook,
         create_client_deliverable,
+        create_market_research_notebook,
+        get_notebooklm_status,
     )
 
     status = get_notebooklm_status()

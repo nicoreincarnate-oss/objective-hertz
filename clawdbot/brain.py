@@ -13,9 +13,9 @@ Complex, ambiguous, or multi-step problems go through the brain.
 import json
 import logging
 
-from shared.llm_client import llm
 from shared.comms import record_decision
-from shared.skill_loader import list_installed_skills, find_skill
+from shared.llm_client import llm
+from shared.skill_loader import find_skill, list_installed_skills
 
 logger = logging.getLogger("perseus.clawdbot.brain")
 

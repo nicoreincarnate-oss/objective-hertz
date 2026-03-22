@@ -13,7 +13,6 @@ Every step is recorded in agent_decisions for auditability.
 
 import asyncio
 import logging
-import subprocess
 import sys
 from datetime import datetime
 
@@ -23,10 +22,10 @@ from clawdbot.capabilities import (
     SKILL_REGISTRIES,
     get_resolution_strategies,
 )
-from clawdbot.safety import vet_skill, is_skill_vetted
-from shared.comms import record_decision, broadcast
-from shared.db import get_config, set_config, emit_event
-from shared.skill_loader import find_skill, execute_skill
+from clawdbot.safety import vet_skill
+from shared.comms import broadcast, record_decision
+from shared.db import emit_event, get_config, set_config
+from shared.skill_loader import execute_skill, find_skill
 
 logger = logging.getLogger("perseus.clawdbot.resolver")
 
@@ -144,7 +143,7 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
                     logger.warning(f"Failed to clone {repo_url}: {stderr.decode()[:200]}")
                     continue
                 logger.info(f"Cloned registry '{repo_name}' to {clone_dir}")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"Clone of {repo_url} timed out")
                 continue
             except Exception as e:
@@ -196,7 +195,7 @@ async def _pip_install(package: str) -> bool:
             return True
         logger.warning(f"pip install {package} failed: {stderr.decode()[:200]}")
         return False
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(f"pip install {package} timed out")
         return False
     except Exception as e:

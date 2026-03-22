@@ -7,9 +7,10 @@ import asyncio
 import json
 import logging
 import re
+from typing import Any
 
-from shared.db import fetch_all, execute
 from shared.comms import request_task_result
+from shared.db import execute, fetch_all
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
@@ -19,7 +20,6 @@ logger = logging.getLogger("perseus.titan.research")
 
 async def research_leads(batch_size: int = 10):
     """Research all discovered leads that haven't been researched yet."""
-    from shared.db import fetch_all
 
     leads = await fetch_all(
         """SELECT id, business_name, email, industry, website_url, country, city
@@ -140,7 +140,7 @@ Return JSON:
 async def _scrape_business_info(lead: dict) -> str | dict:
     """Try to scrape additional info about the business via ClawdBot first."""
     try:
-        from tools.firecrawl_client import scrape_url, enrich_business_profile
+        from tools.firecrawl_client import enrich_business_profile, scrape_url
 
         scrape_task = None
         browser_task = None
@@ -164,6 +164,9 @@ async def _scrape_business_info(lead: dict) -> str | dict:
             timeout_seconds=60,
         )
 
+        scrape_result: Any
+        browser_result: Any
+        enrich_result: Any
         scrape_result, browser_result, enrich_result = await asyncio.gather(
             scrape_task if scrape_task else asyncio.sleep(0, result=None),
             browser_task if browser_task else asyncio.sleep(0, result=None),
@@ -323,8 +326,6 @@ def _select_reference_sites(search_results: list[dict], lead: dict) -> list[dict
     lead_url = str(lead.get("website_url", "") or "").rstrip("/")
 
     for item in search_results:
-        if not isinstance(item, dict):
-            continue
         url = str(item.get("url", "") or "").strip().rstrip("/")
         if not url or url == lead_url or url in seen:
             continue

@@ -6,7 +6,6 @@ Called by Perseus every tick. Results stored in system_config for all agents to 
 import asyncio
 import logging
 import shutil
-import subprocess
 import time
 
 import httpx
@@ -52,8 +51,8 @@ async def check_infrastructure() -> dict:
         if isinstance(status, dict) and status.get("status") != "ok":
             recovered = await _attempt_recovery(service)
             if recovered:
-                health[service]["status"] = "recovered"
-                health[service]["recovery"] = "auto"
+                status["status"] = "recovered"
+                status["recovery"] = "auto"
 
     return health
 
@@ -156,7 +155,7 @@ async def _attempt_recovery(service: str) -> bool:
 async def _recover_ollama() -> bool:
     """Try to restart Ollama."""
     try:
-        proc = await asyncio.create_subprocess_exec(
+        await asyncio.create_subprocess_exec(
             "ollama", "serve",
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
@@ -195,7 +194,7 @@ async def _recover_docker_service(service_name: str) -> bool:
     except FileNotFoundError:
         logger.error("docker binary not found — cannot auto-recover")
         return False
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(f"Docker restart timed out for {service_name}")
         return False
 

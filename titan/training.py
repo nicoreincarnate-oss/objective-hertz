@@ -21,8 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from shared.config import config
-from shared.db import fetch_all, fetch_one, fetch_val, execute, emit_event
-from shared.llm_client import llm
+from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
 
 logger = logging.getLogger("perseus.titan.training")
 
@@ -34,7 +33,7 @@ async def collect_training_example(
     input_text: str,
     output_text: str,
     outcome: str = "",
-    metadata: dict = None,
+    metadata: dict | None = None,
 ):
     """
     Collect a single training example from a real interaction.
@@ -90,7 +89,7 @@ async def collect_email_outcome(email_seq_id: int, outcome: str):
     )
 
 
-async def export_training_data(min_examples: int = 100) -> Path:
+async def export_training_data(min_examples: int = 100) -> Path | None:
     """
     Export training data as JSONL file for LoRA fine-tuning.
     Only exports examples with known outcomes (positive/negative).
@@ -163,7 +162,6 @@ async def should_train() -> bool:
             return False
 
     # Check budget
-    from shared.db import get_config
     monthly_spend = await fetch_val(
         """SELECT COALESCE(SUM(amount), 0) FROM budget_tracking
            WHERE month = DATE_TRUNC('month', CURRENT_DATE)
@@ -307,16 +305,16 @@ if __name__ == "__main__":
 '''
 
 
-async def _train_on_cloud_gpu(data_path: Path) -> Path:
+async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
     """
     Upload data and run LoRA training on Vast.ai.
     Full lifecycle: search → rent → upload → train → download → destroy.
     Returns path to the downloaded adapter weights.
     """
     import asyncio
-    import httpx
     import os
-    import tempfile
+
+    import httpx
 
     vast_key = os.getenv("VAST_AI_API_KEY", "")
     if not vast_key:
@@ -454,7 +452,7 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path:
             logger.info("Training started on remote GPU")
 
             # Step 6: Poll for completion (up to 3 hours)
-            for attempt in range(108):  # 3 hours at 100s intervals
+            for _attempt in range(108):  # 3 hours at 100s intervals
                 await asyncio.sleep(100)
                 check = subprocess.run(
                     f"ssh {ssh_opts} root@{ssh_host} 'cat /workspace/TRAINING_COMPLETE 2>/dev/null'",
@@ -522,7 +520,7 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path:
                 })
 
 
-async def _train_local(data_path: Path) -> Path:
+async def _train_local(data_path: Path) -> Path | None:
     """
     Attempt LoRA training locally on Mac Studio M4 Max.
     Uses MLX for Apple Silicon optimized training.

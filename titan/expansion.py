@@ -16,10 +16,10 @@ import json
 import logging
 from decimal import Decimal
 
-from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val, get_config, set_config
-from shared.llm_client import llm
 from shared.comms import request_task_result
-from shared.skill_loader import list_installed_skills, find_skill
+from shared.db import emit_event, execute, fetch_one, fetch_val, get_config, set_config
+from shared.llm_client import llm
+from shared.skill_loader import find_skill, list_installed_skills
 from titan.memory import get_relevant_learnings
 
 logger = logging.getLogger("perseus.titan.expansion")
@@ -234,7 +234,6 @@ Return JSON list:
             continue
 
         status = "proposed"
-        shadow_started = None
         capability_name = str(candidate.get("capability_name", "")).strip()
         if (
             candidate.get("stage") == "lead_discovery"

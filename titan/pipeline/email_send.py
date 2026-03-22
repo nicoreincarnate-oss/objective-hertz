@@ -416,6 +416,7 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
 async def _queue_for_review(batch_size: int):
     """In review mode: queue emails for Nico's approval instead of sending."""
     from psycopg.types.json import Jsonb
+
     from titan.state_machine import transition_lead
 
     leads = await fetch_all(

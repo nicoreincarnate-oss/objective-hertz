@@ -16,17 +16,14 @@ This mirrors the neural network training loop:
 
 import json
 import logging
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date
 from typing import Any
 
-from shared.comms import record_decision
 from shared.config import config
-from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
+from shared.db import emit_event, fetch_all, fetch_one
 from shared.llm_client import llm
 from shared.self_model import (
     compute_agent_metrics,
-    format_all_self_models,
     get_all_self_models,
     update_self_model,
 )
@@ -261,7 +258,7 @@ def _filter_surviving(proposals: list[dict], verdicts: list[dict]) -> list[dict]
 
 async def _apply_changes(proposals: list[dict], cycle_id: int) -> int:
     """Apply surviving proposals via the backprop engine."""
-    from perseus.backprop import apply_soul_doc_edit, apply_config_change, apply_rule_change
+    from perseus.backprop import apply_config_change, apply_rule_change, apply_soul_doc_edit
 
     applied = 0
     for proposal in proposals:

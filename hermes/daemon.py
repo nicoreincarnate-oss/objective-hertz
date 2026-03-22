@@ -5,17 +5,15 @@ Hermes Daemon — starts Telegram bot, alert dispatcher, and web dashboard.
 import asyncio
 import os
 import signal
-import logging
 
 import uvicorn
 
-from shared.config import config
-from shared.logging_config import setup_logging
+from hermes.alerts import dispatch_alerts
+from hermes.telegram_bot import create_bot
 from shared import db
 from shared.agent_base import AgentBase
-
-from hermes.telegram_bot import create_bot
-from hermes.alerts import dispatch_alerts, send_morning_briefing
+from shared.config import config
+from shared.logging_config import setup_logging
 
 logger = setup_logging("hermes")
 

@@ -6,8 +6,7 @@ Deploy built sites to hosting. AI picks best platform.
 import logging
 
 from shared.comms import request_task_result
-from shared.db import fetch_all, execute, emit_event
-from titan.state_machine import transition_lead
+from shared.db import fetch_all
 
 logger = logging.getLogger("perseus.titan.deploy")
 
