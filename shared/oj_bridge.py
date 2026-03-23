@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from shared.observability import ensure_trace_context
+
 logger = logging.getLogger("perseus.oj_bridge")
 
 # ── Agent A2A endpoints ──────────────────────────────────────────────
@@ -181,9 +183,28 @@ def call_agent(agent_name: str, capability: str, params: Optional[dict] = None, 
     if client is None:
         return {"error": f"No A2A URL configured for agent '{agent_name}'"}
 
-    payload = json.dumps({"capability": capability, "params": params or {}})
+    request_params = dict(params or {})
+    meta = ensure_trace_context(
+        request_id=str(request_params.get("request_id", "") or ""),
+        task_id=str(request_params.get("task_id", "") or ""),
+    )
+    existing_meta = request_params.get("_meta", {}) if isinstance(request_params.get("_meta", {}), dict) else {}
+    request_params["_meta"] = {
+        **existing_meta,
+        **meta,
+    }
+    payload = json.dumps({"capability": capability, "params": request_params})
     try:
-        task = client.send_task(payload)
+        task = client.send_task(
+            payload,
+            request_id=meta["request_id"],
+            headers={
+                "X-Trace-Id": meta["trace_id"],
+                "X-Correlation-Id": meta["correlation_id"],
+                "X-Request-Id": meta["request_id"],
+            },
+            metadata=meta,
+        )
         if task.state in ("completed", "working"):
             try:
                 return json.loads(task.output_text)
@@ -208,8 +229,13 @@ def forward_event_to_hermes(event_type: str, payload: dict) -> None:
     Non-blocking — failures are logged and ignored (DB fallback still works).
     """
     try:
+        meta = ensure_trace_context(
+            request_id=str(payload.get("request_id", "") or ""),
+            task_id=str(payload.get("task_id", "") or ""),
+        )
         call_agent("hermes", "event_forward", {
             "event_type": event_type,
+            "_meta": meta,
             **payload,
         })
     except Exception as exc:

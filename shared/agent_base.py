@@ -6,9 +6,23 @@ and registers with Perseus.
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from shared import db
+from shared.observability import (
+    bind_context_from_payload,
+    capture_exception,
+    configure_service_observability,
+    record_agent_shutdown,
+    record_agent_started,
+    record_event_emitted,
+    record_task_claimed,
+    record_task_completed,
+    record_task_failed,
+    observe_work_duration,
+    set_active_work,
+)
 
 
 class AgentBase(ABC):
@@ -22,11 +36,13 @@ class AgentBase(ABC):
         self._running = False
         self._shutdown_requested = False
         self._active_work: set[str] = set()
+        self._work_started_at: dict[str, float] = {}
         self._active_work_drained = asyncio.Event()
         self._active_work_drained.set()
         self._stopped = asyncio.Event()
         self._stopped.set()
         self._shutdown_timeout_seconds = 45
+        configure_service_observability(self.name)
         # OJ EventBus integration
         try:
             from shared.oj_bridge import get_bus
@@ -51,6 +67,7 @@ class AgentBase(ABC):
 
     async def register(self):
         """Register this agent with Perseus via DB, and optionally create a Conway wallet."""
+        record_agent_started(self.name)
         await db.execute(
             """INSERT INTO agent_registry (name, description, status)
                VALUES (%s, %s, 'active')
@@ -81,6 +98,7 @@ class AgentBase(ABC):
                     self.logger.info("ERC-8004 identity active for %s", self.name)
         except Exception as e:
             self.logger.debug(f"Conway wallet setup skipped: {e}")
+            capture_exception(e, service_name=self.name, category="wallet_setup")
 
     async def deregister(self):
         """Mark agent as inactive."""
@@ -96,6 +114,8 @@ class AgentBase(ABC):
         AND forwards to Hermes via A2A for instant alert dispatch.
         """
         full_payload = {"agent": self.name, **(payload or {})}
+        bind_context_from_payload(full_payload)
+        record_event_emitted(self.name, event_type)
         # 1. Postgres (audit trail + dashboard queries)
         await db.emit_event(event_type, full_payload)
         # 2. OJ EventBus (in-process subscribers)
@@ -124,11 +144,18 @@ class AgentBase(ABC):
     def begin_work(self, work_id: str):
         """Track in-flight work so shutdown can wait for it to finish."""
         self._active_work.add(work_id)
+        self._work_started_at[work_id] = time.perf_counter()
+        set_active_work(self.name, len(self._active_work))
         self._active_work_drained.clear()
 
     def finish_work(self, work_id: str):
         """Mark in-flight work as finished."""
         self._active_work.discard(work_id)
+        started_at = self._work_started_at.pop(work_id, None)
+        if started_at is not None:
+            work_kind = work_id.split(":", 1)[0]
+            observe_work_duration(self.name, work_kind, time.perf_counter() - started_at)
+        set_active_work(self.name, len(self._active_work))
         if not self._active_work:
             self._active_work_drained.set()
 
@@ -148,6 +175,7 @@ class AgentBase(ABC):
     async def finalize_shutdown(self):
         """Mark agent inactive and close its DB resources."""
         try:
+            record_agent_shutdown(self.name)
             await self.deregister()
         finally:
             await db.close_pool()
@@ -200,10 +228,13 @@ class AgentBase(ABC):
                RETURNING id""",
             (self.name, task_id),
         )
+        if row is not None:
+            record_task_claimed(self.name)
         return row is not None
 
     async def complete_task(self, task_id: int):
         """Mark a task as completed."""
+        record_task_completed(self.name)
         await db.execute(
             """UPDATE task_queue
                SET status = 'completed', completed_at = NOW(), assigned_agent = %s
@@ -213,6 +244,7 @@ class AgentBase(ABC):
 
     async def fail_task(self, task_id: int, error: str):
         """Mark a task as failed."""
+        record_task_failed(self.name)
         row = await db.fetch_one(
             """UPDATE task_queue
                SET retry_count = COALESCE(retry_count, 0) + 1,

@@ -26,6 +26,7 @@ from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
 logger = logging.getLogger("perseus.titan.training")
 
 TRAINING_DATA_DIR = config.root_dir / "training_data"
+TRAINING_METHOD = "oplora"  # Orthogonal Projection LoRA — prevents catastrophic forgetting
 
 
 async def collect_training_example(
@@ -80,13 +81,25 @@ async def collect_email_outcome(email_seq_id: int, outcome: str):
         "body": email.get("body", ""),
     })
 
-    await collect_training_example(
-        example_type="email_compose",
-        input_text=input_text,
-        output_text=output_text,
-        outcome=outcome,
-        metadata={"email_seq_id": email_seq_id, "client_id": email["client_id"]},
+    result = await fetch_one(
+        """INSERT INTO training_data (example_type, input_text, output_text, outcome, metadata)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+        ("email_compose", input_text, output_text, outcome,
+         json.dumps({"email_seq_id": email_seq_id, "client_id": email["client_id"]})),
     )
+
+    # Schedule delayed outcome re-checks (2.1) so training labels
+    # get corrected when deals close weeks later
+    if result and result.get("id"):
+        try:
+            from titan.memory import create_pending_outcome_checks
+            await create_pending_outcome_checks(
+                training_data_id=result["id"],
+                client_id=email["client_id"],
+                email_seq_id=email_seq_id,
+            )
+        except Exception as e:
+            logger.debug(f"Pending outcome scheduling failed (non-critical): {e}")
 
 
 async def export_training_data(min_examples: int = 100) -> Path | None:
@@ -97,27 +110,35 @@ async def export_training_data(min_examples: int = 100) -> Path | None:
     """
     TRAINING_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 4.5: Rolling 30-day training window — model stays tuned to current market
+    # Old examples still exist in DB for analysis, just not used for training
     examples = await fetch_all(
-        """SELECT example_type, input_text, output_text, outcome
+        """SELECT example_type, input_text, output_text, outcome,
+                EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400 as age_days
            FROM training_data
            WHERE outcome IN ('positive', 'negative')
+           AND created_at > NOW() - INTERVAL '30 days'
            ORDER BY created_at DESC""",
     )
 
     if len(examples) < min_examples:
-        logger.info(f"Only {len(examples)} labeled examples (need {min_examples}). Skipping export.")
+        logger.info(f"Only {len(examples)} labeled examples in 30-day window (need {min_examples}). Skipping export.")
         return None
 
     # Separate positive (good emails) from negative (bad emails)
     positive = [e for e in examples if e["outcome"] == "positive"]
     negative = [e for e in examples if e["outcome"] == "negative"]
 
+    # Recency boost: duplicate examples from last 7 days
+    recent_positive = [e for e in positive if (e.get("age_days") or 30) <= 7]
+    recent_negative = [e for e in negative if (e.get("age_days") or 30) <= 7]
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = TRAINING_DATA_DIR / f"training_{timestamp}.jsonl"
 
     with open(output_path, "w") as f:
-        # Positive examples: train to replicate
-        for ex in positive:
+        # Positive examples: train to replicate (+ recency-boosted duplicates)
+        for ex in positive + recent_positive:
             record = {
                 "instruction": f"Write a cold outreach email that gets replies. Type: {ex['example_type']}. This email resulted in a positive outcome.",
                 "input": ex["input_text"],
@@ -134,8 +155,11 @@ async def export_training_data(min_examples: int = 100) -> Path | None:
             }
             f.write(json.dumps(record) + "\n")
 
-    total = len(positive) + min(len(negative), len(positive))
-    logger.info(f"Exported {total} training examples to {output_path}")
+    total = len(positive) + len(recent_positive) + min(len(negative), len(positive))
+    logger.info(
+        f"Exported {total} training examples to {output_path} "
+        f"(30-day window, {len(recent_positive)} recency-boosted)"
+    )
     return output_path
 
 
@@ -219,6 +243,7 @@ async def run_lora_training():
            VALUES ('lora_training', %s, 0.9)""",
         (json.dumps({
             "timestamp": datetime.now().isoformat(),
+            "method": TRAINING_METHOD,
             "examples": example_count,
             "data_path": str(data_path),
             "adapter_path": str(adapter_path) if adapter_path else None,
@@ -251,6 +276,9 @@ def main():
         load_in_4bit=True,
     )
 
+    # OPLoRA (Orthogonal Projection LoRA) — prevents catastrophic forgetting
+    # between training cycles. use_rslora=True enables rank-stabilized LoRA
+    # with orthogonal initialization, so new training doesn't erase prior learning.
     model = FastLanguageModel.get_peft_model(
         model,
         r=16,
@@ -260,6 +288,7 @@ def main():
         lora_dropout=0,
         bias="none",
         use_gradient_checkpointing="unsloth",
+        use_rslora=True,
     )
 
     dataset = load_dataset("json", data_files=DATA_PATH, split="train")

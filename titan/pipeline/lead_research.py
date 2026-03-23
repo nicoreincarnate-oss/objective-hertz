@@ -18,6 +18,10 @@ from titan.state_machine import transition_lead
 logger = logging.getLogger("perseus.titan.research")
 
 
+class LeadResearchQualityError(ValueError):
+    """Raised when scraped research is too weak to trust."""
+
+
 async def research_leads(batch_size: int = 10):
     """Research all discovered leads that haven't been researched yet."""
 
@@ -55,6 +59,32 @@ async def _research_one(lead: dict):
     research_payload = _normalize_research_payload(raw_research)
     web_info = research_payload["summary"]
     structured_context = _extract_structured_business_context(web_info, lead)
+    quality_assessment = _assess_research_quality(research_payload, structured_context, lead)
+    if not quality_assessment["ok"]:
+        error = LeadResearchQualityError(
+            f"Rejected low-quality research payload for {business_name}: "
+            + ", ".join(quality_assessment["reasons"])
+        )
+        await emit_pipeline_error(
+            "lead_research_quality",
+            error,
+            lead_id=lead_id,
+            context={
+                "business_name": business_name,
+                "quality_score": quality_assessment["quality_score"],
+                "quality_reasons": quality_assessment["reasons"],
+                "summary_excerpt": quality_assessment["summary_excerpt"],
+                "search_result_count": quality_assessment["search_result_count"],
+                "evidence_count": quality_assessment["evidence_count"],
+            },
+        )
+        logger.warning(
+            "Lead %s research rejected by quality gate: score=%s reasons=%s",
+            lead_id,
+            quality_assessment["quality_score"],
+            ", ".join(quality_assessment["reasons"]),
+        )
+        return
     reference_sites = _select_reference_sites(research_payload.get("search_results", []), lead)
     structured_facts_json = json.dumps(structured_context["facts"], ensure_ascii=False)
     structured_graph_json = json.dumps(structured_context["graph"], ensure_ascii=False)
@@ -316,6 +346,132 @@ def _normalize_research_payload(raw_research: str | dict | None) -> dict:
         "summary": str(raw_research or "No additional info found.").strip() or "No additional info found.",
         "search_results": [],
         "website_extract": {},
+    }
+
+
+def _assess_research_quality(
+    research_payload: dict,
+    structured_context: dict,
+    lead: dict | None = None,
+) -> dict[str, object]:
+    """Reject empty, boilerplate, or obviously low-value scrape output."""
+    summary = str(research_payload.get("summary", "") or "").strip()
+    summary_excerpt = summary[:220]
+    normalized = re.sub(r"\s+", " ", summary).strip()
+    lowered = normalized.lower()
+    alpha_count = sum(1 for char in normalized if char.isalpha())
+    words = re.findall(r"[a-zA-Z][a-zA-Z0-9'-]+", normalized)
+    unique_words = {word.lower() for word in words}
+
+    search_results = research_payload.get("search_results", [])
+    if not isinstance(search_results, list):
+        search_results = []
+    website_extract = research_payload.get("website_extract", {})
+    if not isinstance(website_extract, dict):
+        website_extract = {}
+    facts = structured_context.get("facts", {}) if isinstance(structured_context, dict) else {}
+    evidence = facts.get("evidence", []) if isinstance(facts, dict) else []
+    if not isinstance(evidence, list):
+        evidence = []
+
+    placeholder_phrases = (
+        "no additional info found",
+        "needs further research",
+        "coming soon",
+        "under construction",
+        "page not found",
+        "access denied",
+        "javascript required",
+        "enable javascript",
+        "please wait",
+    )
+    noise_markers = (
+        "privacy policy",
+        "terms of service",
+        "cookie policy",
+        "all rights reserved",
+        "login",
+        "sign in",
+        "sign up",
+        "subscribe",
+        "menu",
+        "home",
+        "contact us",
+    )
+
+    descriptive_search_results = 0
+    for item in search_results:
+        if not isinstance(item, dict):
+            continue
+        description = str(item.get("description", "") or "").strip()
+        title = str(item.get("title", "") or "").strip()
+        if len(description) >= 40 or len(title) >= 20:
+            descriptive_search_results += 1
+
+    signal_count = 0
+    for key in ("services", "locations", "signals"):
+        values = facts.get(key, []) if isinstance(facts, dict) else []
+        if isinstance(values, list):
+            signal_count += len([value for value in values if str(value).strip()])
+
+    quality_score = 0
+    reasons: list[str] = []
+
+    if any(phrase in lowered for phrase in placeholder_phrases):
+        reasons.append("placeholder_summary")
+
+    if len(normalized) >= 120:
+        quality_score += 2
+    elif len(normalized) >= 80:
+        quality_score += 1
+    else:
+        reasons.append("summary_too_short")
+
+    if alpha_count < 40:
+        reasons.append("too_little_text")
+    else:
+        quality_score += 1
+
+    if len(unique_words) < 8:
+        reasons.append("low_unique_word_count")
+    else:
+        quality_score += 1
+
+    if descriptive_search_results >= 2:
+        quality_score += 2
+    elif descriptive_search_results:
+        quality_score += 1
+    if signal_count >= 2:
+        quality_score += 1
+    if str(website_extract.get("markdown_excerpt", "") or "").strip():
+        quality_score += 1
+    elif str(website_extract.get("description", "") or "").strip():
+        quality_score += 1
+
+    noise_hits = sum(1 for marker in noise_markers if marker in lowered)
+    if noise_hits >= 3 and signal_count == 0 and descriptive_search_results == 0:
+        reasons.append("navigation_or_legal_boilerplate")
+
+    business_name = str((lead or {}).get("business_name", "") or "").strip().lower()
+    if business_name and business_name in lowered:
+        quality_score += 1
+
+    enough_signal = quality_score >= 4 or (
+        quality_score >= 3 and descriptive_search_results >= 2
+    )
+    hard_fail = any(
+        marker in reasons
+        for marker in ("placeholder_summary", "navigation_or_legal_boilerplate")
+    ) and quality_score < 5
+    ok = enough_signal and not hard_fail
+
+    return {
+        "ok": ok,
+        "quality_score": quality_score,
+        "reasons": reasons or (["passed"] if ok else ["low_signal"]),
+        "summary_excerpt": summary_excerpt,
+        "search_result_count": len(search_results),
+        "evidence_count": len([item for item in evidence if str(item).strip()]),
     }
 
 

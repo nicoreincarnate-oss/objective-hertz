@@ -38,21 +38,34 @@ class A2AClient:
         )
         return self._card
 
-    def send_task(self, input_text: str, **kwargs: Any) -> A2ATask:
+    def send_task(
+        self,
+        input_text: str,
+        *,
+        request_id: str = "",
+        headers: Optional[dict[str, str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> A2ATask:
         """Send a task to the remote agent and return the result."""
         import httpx
-        request = A2ARequest(
-            method="tasks/send",
-            params={
+        request_kwargs: dict[str, Any] = {
+            "method": "tasks/send",
+            "params": {
                 "message": {
                     "role": "user",
                     "parts": [{"text": input_text}],
                 },
+                "metadata": metadata or {},
             },
-        )
+        }
+        if request_id:
+            request_kwargs["request_id"] = request_id
+        request = A2ARequest(**request_kwargs)
         resp = httpx.post(
             f"{self._base_url}/a2a/tasks",
             json=request.to_dict(),
+            headers=headers or {},
             timeout=self._timeout,
         )
         resp.raise_for_status()

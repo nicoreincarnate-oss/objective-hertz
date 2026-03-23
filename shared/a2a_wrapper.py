@@ -22,6 +22,12 @@ from typing import Any, Callable, Awaitable, Dict, List, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from shared.observability import (
+    bind_context_from_payload,
+    clear_observability_context,
+    ensure_trace_context,
+)
+
 logger = logging.getLogger("perseus.a2a")
 
 
@@ -129,6 +135,22 @@ def create_a2a_app(
         if not input_text:
             input_text = params.get("input", "")
 
+        request_meta = params.get("metadata", {}) if isinstance(params.get("metadata", {}), dict) else {}
+        if isinstance(params.get("_meta", {}), dict):
+            request_meta = {
+                **request_meta,
+                **params.get("_meta", {}),
+            }
+        header_trace = request.headers.get("x-trace-id", "").strip()
+        header_correlation = request.headers.get("x-correlation-id", "").strip()
+        header_request = request.headers.get("x-request-id", "").strip() or req_id
+        context = ensure_trace_context(
+            trace_id=str(request_meta.get("trace_id", "") or header_trace),
+            correlation_id=str(request_meta.get("correlation_id", "") or header_correlation),
+            task_id=str(request_meta.get("task_id", "")),
+            request_id=str(request_meta.get("request_id", "") or header_request),
+        )
+
         task_id = uuid.uuid4().hex[:16]
         task = {
             "id": task_id,
@@ -136,9 +158,12 @@ def create_a2a_app(
             "input": input_text,
             "output": "",
             "history": [],
-            "metadata": {},
+            "metadata": {
+                **context,
+            },
         }
         tasks[task_id] = task
+        bind_context_from_payload({"_meta": {**context, "task_id": task_id}})
 
         # Security: scan for prompt injection
         try:
@@ -183,9 +208,12 @@ def create_a2a_app(
                 "duration_seconds": duration,
                 "input_length": len(input_text),
                 "output_length": len(task.get("output", "")),
+                **context,
             })
         except Exception:
             pass
+        finally:
+            clear_observability_context()
 
         # Prune old tasks (keep last 100)
         if len(tasks) > 100:

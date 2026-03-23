@@ -19,6 +19,36 @@ def test_config_exposes_logging_controls():
     assert 'log_to_stdout: bool = _env_bool("LOG_TO_STDOUT", True)' in code
     assert 'log_max_bytes: int = _env_int("LOG_MAX_BYTES", 10485760)' in code
     assert 'log_backup_count: int = _env_int("LOG_BACKUP_COUNT", 5)' in code
+    assert 'metrics_enabled: bool = _env_bool("METRICS_ENABLED", True)' in code
+    assert 'sentry_dsn: str = _env("SENTRY_DSN")' in code
+
+
+def test_dashboard_exposes_metrics_endpoint():
+    code = (ROOT / "hermes/web/app.py").read_text()
+    assert '@app.get("/metrics")' in code
+    assert "render_prometheus_metrics" in code
+
+
+def test_observability_stack_added_to_compose():
+    code = (ROOT / "docker-compose.yaml").read_text()
+    assert "prometheus:" in code
+    assert "grafana:" in code
+
+
+def test_observability_context_helpers_exist():
+    code = (ROOT / "shared/observability.py").read_text()
+    assert "def ensure_trace_context(" in code
+    assert "def enrich_payload_with_context(" in code
+    assert 'contextvars.ContextVar("trace_id"' in code
+
+
+def test_a2a_and_bridge_propagate_trace_context():
+    wrapper = (ROOT / "shared/a2a_wrapper.py").read_text()
+    bridge = (ROOT / "shared/oj_bridge.py").read_text()
+    comms = (ROOT / "shared/comms.py").read_text()
+    assert '"X-Trace-Id"' in bridge
+    assert 'request.headers.get("x-trace-id"' in wrapper
+    assert 'full_payload = enrich_payload_with_context' in comms
 
 
 def test_daemon_startup_disables_stdout_duplication():

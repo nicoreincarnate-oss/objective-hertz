@@ -32,7 +32,7 @@ CLAWDBOT_CARD = AgentCard(
         "browser_task",
         "agent_orchestration",
         "android_automation",
-        "site_verify", "site_verify_batch", "verify_demo_site",
+        "site_verify", "site_verify_batch", "verify_demo_site", "visual_site_review",
         "enrich_lead", "enrich_leads_batch",
         "voice_call",
         "whatsapp_message",
@@ -103,9 +103,40 @@ async def _site_verify_batch(**_) -> dict:
     return await handle_site_verify_batch({})
 
 
-async def _verify_demo_site(url: str = "", business_name: str = "", client_id: int | None = None, **_) -> dict:
+async def _verify_demo_site(
+    url: str = "",
+    business_name: str = "",
+    client_id: int | None = None,
+    site_type: str = "demo",
+    **_,
+) -> dict:
     from clawdbot.daemon import handle_verify_demo_site
-    return await handle_verify_demo_site({"url": url, "business_name": business_name, "client_id": client_id})
+    return await handle_verify_demo_site(
+        {"url": url, "business_name": business_name, "client_id": client_id, "site_type": site_type}
+    )
+
+
+async def _visual_site_review(
+    url: str = "",
+    html: str = "",
+    business_name: str = "",
+    client_id: int | None = None,
+    site_type: str = "demo",
+    context: dict | None = None,
+    **_,
+) -> dict:
+    from clawdbot.daemon import handle_visual_site_review
+
+    return await handle_visual_site_review(
+        {
+            "url": url,
+            "html": html,
+            "business_name": business_name,
+            "client_id": client_id,
+            "site_type": site_type,
+            "context": context or {},
+        }
+    )
 
 
 async def _enrich_lead(client_id: int = 0, **_) -> dict:
@@ -290,6 +321,7 @@ CAPABILITY_HANDLERS = {
     "site_verify": _site_verify,
     "site_verify_batch": _site_verify_batch,
     "verify_demo_site": _verify_demo_site,
+    "visual_site_review": _visual_site_review,
     "enrich_lead": _enrich_lead,
     "enrich_leads_batch": _enrich_leads_batch,
     "voice_call": _voice_call,

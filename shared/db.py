@@ -4,6 +4,7 @@ Async connection pool using psycopg (v3, async-native).
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,6 +12,11 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from shared.config import config
+from shared.observability import (
+    capture_exception,
+    enrich_payload_with_context,
+    observe_db_query,
+)
 
 logger = logging.getLogger("perseus.db")
 
@@ -60,22 +66,63 @@ async def transaction():
 
 async def execute(query: str, params: tuple = ()) -> None:
     """Execute a query (INSERT, UPDATE, DELETE)."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        await conn.execute(query, params)
+        try:
+            await conn.execute(query, params)
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
 
 
 async def fetch_one(query: str, params: tuple = ()) -> dict[str, Any] | None:
     """Fetch a single row."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        cursor = await conn.execute(query, params)
-        return await cursor.fetchone()
+        try:
+            cursor = await conn.execute(query, params)
+            row = await cursor.fetchone()
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
+        return row
 
 
 async def fetch_all(query: str, params: tuple = ()) -> list[dict[str, Any]]:
     """Fetch all rows."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        cursor = await conn.execute(query, params)
-        return await cursor.fetchall()
+        try:
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
+        return rows
 
 
 async def fetch_val(query: str, params: tuple = ()) -> Any:
@@ -101,6 +148,7 @@ async def insert_task(
     collapse into one another.
     """
     import json
+    payload = enrich_payload_with_context(payload)
     if dedupe:
         # Skip if there's already a pending or running task of this type
         existing = await fetch_one(
@@ -123,6 +171,7 @@ async def insert_task(
 async def emit_event(event_type: str, payload: dict[str, Any] | None = None) -> int:
     """Emit an event for Hermes/dashboard. Returns event ID."""
     import json
+    payload = enrich_payload_with_context(payload)
     row = await fetch_one(
         """INSERT INTO events (event_type, payload)
            VALUES (%s, %s) RETURNING id""",

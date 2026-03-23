@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perseus Memory &amp; Learning Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #08080d;
+    color: #c8ccd4;
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 40px 32px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #00d4ff, #7c3aed, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: #6b7280;
+    letter-spacing: 2px;
+  }
+
+  /* Agents Row */
+  .agents-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
+  .agent-box {
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: 1px solid;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 140px;
+    position: relative;
+  }
+  .agent-box .role {
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.6;
+    margin-top: 2px;
+  }
+  .agent-oj { border-color: #f59e0b; color: #f59e0b; background: rgba(245,158,11,0.05); box-shadow: 0 0 20px rgba(245,158,11,0.1); }
+  .agent-titan { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.05); box-shadow: 0 0 20px rgba(0,212,255,0.1); }
+  .agent-hermes { border-color: #a78bfa; color: #a78bfa; background: rgba(167,139,250,0.05); box-shadow: 0 0 20px rgba(167,139,250,0.1); }
+  .agent-claw { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.05); box-shadow: 0 0 20px rgba(52,211,153,0.1); }
+
+  .connector-down {
+    text-align: center;
+    margin: 8px 0 16px;
+    color: #374151;
+    font-size: 20px;
+  }
+
+  /* Memory Layers */
+  .layer {
+    border: 1px solid;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .layer::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.03;
+    border-radius: 12px;
+  }
+  .layer-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .layer-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 1px solid;
+  }
+  .layer-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .layer-desc {
+    font-size: 12px;
+    opacity: 0.5;
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Layer Colors */
+  .layer-magma { border-color: rgba(0,212,255,0.3); }
+  .layer-magma .layer-num { border-color: #00d4ff; color: #00d4ff; }
+  .layer-magma .layer-title { color: #00d4ff; }
+  .layer-magma::before { background: linear-gradient(135deg, #00d4ff, transparent); }
+
+  .layer-qdrant { border-color: rgba(167,139,250,0.3); }
+  .layer-qdrant .layer-num { border-color: #a78bfa; color: #a78bfa; }
+  .layer-qdrant .layer-title { color: #a78bfa; }
+  .layer-qdrant::before { background: linear-gradient(135deg, #a78bfa, transparent); }
+
+  .layer-zep { border-color: rgba(52,211,153,0.3); }
+  .layer-zep .layer-num { border-color: #34d399; color: #34d399; }
+  .layer-zep .layer-title { color: #34d399; }
+  .layer-zep::before { background: linear-gradient(135deg, #34d399, transparent); }
+
+  .layer-pg { border-color: rgba(245,158,11,0.3); }
+  .layer-pg .layer-num { border-color: #f59e0b; color: #f59e0b; }
+  .layer-pg .layer-title { color: #f59e0b; }
+  .layer-pg::before { background: linear-gradient(135deg, #f59e0b, transparent); }
+
+  .layer-fs { border-color: rgba(200,204,212,0.2); }
+  .layer-fs .layer-num { border-color: #9ca3af; color: #9ca3af; }
+  .layer-fs .layer-title { color: #d1d5db; }
+
+  .layer-ollama { border-color: rgba(239,68,68,0.3); }
+  .layer-ollama .layer-num { border-color: #ef4444; color: #ef4444; }
+  .layer-ollama .layer-title { color: #ef4444; }
+  .layer-ollama::before { background: linear-gradient(135deg, #ef4444, transparent); }
+
+  /* Inner items */
+  .layer-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .layer-item {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  /* MAGMA graphs */
+  .magma-graphs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .magma-graph {
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,212,255,0.15);
+    background: rgba(0,212,255,0.03);
+  }
+  .magma-graph .edge-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: #00d4ff;
+  }
+  .magma-graph .edge-desc {
+    font-size: 10px;
+    color: #6b7280;
+    margin-top: 4px;
+  }
+
+  /* Router */
+  .router-box {
+    border: 1px dashed rgba(0,212,255,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .router-label { color: #00d4ff; font-weight: 600; font-size: 12px; grid-column: 1 / -1; margin-bottom: 4px; }
+  .router-q { color: #f59e0b; }
+  .router-a { color: #6b7280; }
+
+  /* Loops Section */
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 40px 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .loops-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .loop-card {
+    border: 1px solid;
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+  }
+  .loop-card h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .loop-freq {
+    font-size: 11px;
+    opacity: 0.5;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 12px;
+  }
+  .loop-steps {
+    list-style: none;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .loop-steps li::before {
+    content: '>';
+    margin-right: 8px;
+    opacity: 0.3;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .loop-realtime { border-color: rgba(0,212,255,0.3); }
+  .loop-realtime h3 { color: #00d4ff; }
+  .loop-daily { border-color: rgba(167,139,250,0.3); }
+  .loop-daily h3 { color: #a78bfa; }
+  .loop-weekly { border-color: rgba(245,158,11,0.3); }
+  .loop-weekly h3 { color: #f59e0b; }
+
+  /* Flow */
+  .flow-section { margin-top: 40px; }
+  .flow-chain {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  .flow-step {
+    display: grid;
+    grid-template-columns: 100px 20px 1fr;
+    align-items: start;
+    padding: 8px 0;
+  }
+  .flow-time {
+    color: #6b7280;
+    text-align: right;
+    padding-right: 8px;
+  }
+  .flow-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 4px;
+    position: relative;
+  }
+  .flow-dot::after {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 4px;
+    width: 2px;
+    height: 30px;
+    background: rgba(255,255,255,0.1);
+  }
+  .flow-step:last-child .flow-dot::after { display: none; }
+  .flow-text { padding-left: 8px; line-height: 1.5; }
+  .flow-text strong { color: #d1d5db; }
+
+  .dot-cyan { background: #00d4ff; box-shadow: 0 0 8px #00d4ff; }
+  .dot-purple { background: #a78bfa; box-shadow: 0 0 8px #a78bfa; }
+  .dot-green { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .dot-orange { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+  .dot-red { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+  .dot-white { background: #d1d5db; box-shadow: 0 0 8px #9ca3af; }
+
+  /* MAGMA comparison */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .compare-box {
+    border-radius: 12px;
+    padding: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .compare-before {
+    border: 1px solid rgba(239,68,68,0.3);
+    background: rgba(239,68,68,0.03);
+  }
+  .compare-before h4 { color: #ef4444; margin-bottom: 8px; }
+  .compare-after {
+    border: 1px solid rgba(52,211,153,0.3);
+    background: rgba(52,211,153,0.03);
+  }
+  .compare-after h4 { color: #34d399; margin-bottom: 8px; }
+  .causal-arrow { color: #f59e0b; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #374151;
+    letter-spacing: 2px;
+  }
+
+  @media (max-width: 900px) {
+    .magma-graphs { grid-template-columns: repeat(2, 1fr); }
+    .loops-grid { grid-template-columns: 1fr; }
+    .agents-row { flex-wrap: wrap; }
+    .compare-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>Perseus Memory &amp; Learning Architecture</h1>
+    <div class="subtitle">6 Stores &middot; 3 Learning Loops &middot; 4 Agents &middot; 1 Causal Graph</div>
+  </div>
+
+  <!-- AGENTS -->
+  <div class="agents-row">
+    <div class="agent-box agent-oj">OpenJarvis<div class="role">Boss / Orchestrator</div></div>
+    <div class="agent-box agent-titan">Titan<div class="role">Revenue Engine</div></div>
+    <div class="agent-box agent-hermes">Hermes<div class="role">Comms &amp; Intel</div></div>
+    <div class="agent-box agent-claw">ClawdBot<div class="role">Builder &amp; Tools</div></div>
+  </div>
+  <div class="connector-down">&#9660; &nbsp; all agents read &amp; write &nbsp; &#9660;</div>
+
+  <!-- LAYER 1: MAGMA -->
+  <div class="layer layer-magma">
+    <div class="layer-header">
+      <div class="layer-num">1</div>
+      <div class="layer-title">MAGMA &mdash; Neo4j</div>
+      <div class="layer-desc">Causal intelligence layer &middot; 4 simultaneous graphs</div>
+    </div>
+    <div class="magma-graphs">
+      <div class="magma-graph">
+        <div class="edge-type">TEMPORAL</div>
+        <div class="edge-desc">"this happened after that"<br>immutable chain</div>
+      </div>
+      <div class="magma-graph">
+        <div class="edge-type">CAUSAL</div>
+        <div class="edge-desc">"this caused that"<br>LLM-inferred async</div>
+      </div>
+      <div class="magma-graph">
+        <div class="edge-type">SEMANTIC</div>
+        <div class="edge-desc">"conceptually similar"<br>cosine &gt; threshold</div>
+      </div>
+      <div class="magma-graph">
+        <div class="edge-type">ENTITY</div>
+        <div class="edge-desc">"same business/industry"<br>shared entity nodes</div>
+      </div>
+    </div>
+    <div class="router-box">
+      <div class="router-label">Intent-Aware Router</div>
+      <div class="router-q">"Why did this fail?"</div><div class="router-a">&rarr; traverse CAUSAL edges</div>
+      <div class="router-q">"What happened Tuesday?"</div><div class="router-a">&rarr; walk TEMPORAL backbone</div>
+      <div class="router-q">"Who are dentist leads?"</div><div class="router-a">&rarr; follow ENTITY links</div>
+      <div class="router-q">"What's similar to this?"</div><div class="router-a">&rarr; Qdrant cosine search</div>
+    </div>
+  </div>
+
+  <!-- LAYER 2: Qdrant -->
+  <div class="layer layer-qdrant">
+    <div class="layer-header">
+      <div class="layer-num">2</div>
+      <div class="layer-title">Qdrant &mdash; via Mem0</div>
+      <div class="layer-desc">Vector embeddings &middot; semantic similarity search</div>
+    </div>
+    <div class="layer-items">
+      <div class="layer-item">store_memory() &rarr; POST /v1/memories/</div>
+      <div class="layer-item">search_memory() &rarr; cosine similarity</div>
+      <div class="layer-item">importance = outcome &times; evidence_weight</div>
+      <div class="layer-item">graphrag consolidation (per-category, groups of 5+ &rarr; 1-3 summaries, weekly)</div>
+    </div>
+  </div>
+
+  <!-- LAYER 3: Zep -->
+  <div class="layer layer-zep">
+    <div class="layer-header">
+      <div class="layer-num">3</div>
+      <div class="layer-title">Zep &mdash; Graphiti</div>
+      <div class="layer-desc">Temporal facts &middot; auto-expiry &middot; freshest wins</div>
+    </div>
+    <div class="layer-items">
+      <div class="layer-item">store_temporal_fact(valid_days=30)</div>
+      <div class="layer-item">search_temporal_facts() &rarr; filter expired</div>
+      <div class="layer-item">Merge priority: Zep &gt; Qdrant on timestamps</div>
+      <div class="layer-item">_filter_stale_qdrant() deconflicts</div>
+    </div>
+  </div>
+
+  <!-- LAYER 4: Postgres -->
+  <div class="layer layer-pg">
+    <div class="layer-header">
+      <div class="layer-num">4</div>
+      <div class="layer-title">Postgres</div>
+      <div class="layer-desc">Structured memory &middot; 9 tables &middot; source of truth</div>
+    </div>
+    <div class="layer-items">
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">titan_learnings</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">titan_rules</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">training_data</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">agent_decisions</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">pending_outcomes</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">email_sequences</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">clients</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">sleep_cycle_log</div>
+      <div class="layer-item" style="border-color:rgba(245,158,11,0.3)">outreach_metrics</div>
+    </div>
+  </div>
+
+  <!-- LAYER 5: Filesystem -->
+  <div class="layer layer-fs">
+    <div class="layer-header">
+      <div class="layer-num">5</div>
+      <div class="layer-title">Filesystem</div>
+      <div class="layer-desc">Soul docs &middot; editable by sleep cycle backprop</div>
+    </div>
+    <div class="layer-items">
+      <div class="layer-item">soul/soul_copy.md &mdash; copywriting personality</div>
+      <div class="layer-item">soul/soul_agent.md &mdash; agent behavior rules</div>
+      <div class="layer-item">Lines 34-42 IMMUTABLE (compliance)</div>
+    </div>
+  </div>
+
+  <!-- LAYER 6: Ollama -->
+  <div class="layer layer-ollama">
+    <div class="layer-header">
+      <div class="layer-num">6</div>
+      <div class="layer-title">Ollama &mdash; Mac Studio</div>
+      <div class="layer-desc">Fine-tuned OPLoRA weights &middot; 30-day rolling window</div>
+    </div>
+    <div class="layer-items">
+      <div class="layer-item">Qwen2.5-14B + OPLoRA adapter (no forgetting)</div>
+      <div class="layer-item">Trained on 500+ labeled email outcomes</div>
+      <div class="layer-item">Recency-boosted: last 7 days duplicated in training</div>
+      <div class="layer-item">Deployed via ollama create + Modelfile (verify adapter merge on first run)</div>
+    </div>
+  </div>
+
+  <!-- 3 LEARNING LOOPS -->
+  <div class="section-title">3 Learning Loops</div>
+  <div class="loops-grid">
+    <div class="loop-card loop-realtime">
+      <h3>Loop 1: Real-Time</h3>
+      <div class="loop-freq">Every interaction</div>
+      <ul class="loop-steps">
+        <li>Email sent &rarr; training_data row</li>
+        <li>Reply received &rarr; classify intent</li>
+        <li>Outcome recorded (positive/negative)</li>
+        <li>Causal attribution: which sentence?</li>
+        <li>Pending outcomes: 7/14/30-day re-check</li>
+        <li>14-day silence &rarr; attribute_silence()</li>
+        <li>prospect_state updated per lead</li>
+        <li>MAGMA: temporal + entity edges</li>
+      </ul>
+    </div>
+    <div class="loop-card loop-daily">
+      <h3>Loop 2: Daily Reflection</h3>
+      <div class="loop-freq">Every night</div>
+      <ul class="loop-steps">
+        <li>Gather 24h metrics + outcomes</li>
+        <li>Claude analyzes: 3-5 insights</li>
+        <li>Contradiction detection vs existing</li>
+        <li>Store &rarr; Postgres + Mem0 + MAGMA</li>
+        <li>If 15%+ metric gain &rarr; extract rule</li>
+        <li>memory_gc(): prune + dedup + flag</li>
+        <li>Confidence decay on stale rules</li>
+        <li>MAGMA causal consolidation (async)</li>
+      </ul>
+    </div>
+    <div class="loop-card loop-weekly">
+      <h3>Loop 3: Sleep Cycle + LoRA</h3>
+      <div class="loop-freq">Nightly debate &middot; Weekly training</div>
+      <ul class="loop-steps">
+        <li>Alpha (Opus): propose 3-5 changes</li>
+        <li>+ MAGMA causal chains as context</li>
+        <li>Beta (Opus): debate with git history</li>
+        <li>Survive &rarr; backprop to soul + config</li>
+        <li>Evaluate rules: deactivate regressions</li>
+        <li>A/B test analysis: n&ge;30 gate</li>
+        <li>If 500+ examples &rarr; OPLoRA training</li>
+        <li>30-day window, recency-boosted</li>
+        <li>Deploy to Ollama &rarr; better emails</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- COMPLETE FLOW: EMAIL TO BETTER EMAIL -->
+  <div class="section-title">Complete Flow: Email &rarr; Better Email</div>
+  <div class="flow-chain">
+    <div class="flow-step">
+      <div class="flow-time">DAY 1</div>
+      <div class="flow-dot dot-cyan"></div>
+      <div class="flow-text"><strong>Email composed</strong><br>soul_copy + rules + learnings injected. prompt_version_hash stored.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">DAY 1-3</div>
+      <div class="flow-dot dot-purple"></div>
+      <div class="flow-text"><strong>Prospect opens/ignores</strong><br>prospect_state tracks opens_without_reply counter.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">DAY 3</div>
+      <div class="flow-dot dot-green"></div>
+      <div class="flow-text"><strong>Reply: "interested"</strong><br>Outcome = positive. Causal attribution: "the Google review line triggered this."</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">DAY 7/14/30</div>
+      <div class="flow-dot dot-purple"></div>
+      <div class="flow-text"><strong>Pending outcome re-checks</strong><br>Lead status: interested &rarr; proposal_sent &rarr; paid. Training label confirmed accurate.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">NIGHTLY</div>
+      <div class="flow-dot dot-orange"></div>
+      <div class="flow-text"><strong>Daily reflection</strong><br>Reply rate up 18%. Rule extracted: "Include Google review reference" (1.8x, n=47).</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">2:00 AM</div>
+      <div class="flow-dot dot-orange"></div>
+      <div class="flow-text"><strong>Sleep cycle</strong><br>Alpha proposes soul_copy edit. Beta approves (n=47, p&lt;0.05). Backprop applies.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">WEEKLY</div>
+      <div class="flow-dot dot-red"></div>
+      <div class="flow-text"><strong>LoRA fine-tuning</strong><br>500+ examples exported (30-day window). OPLoRA on Qwen2.5-14B. Deployed to Ollama.</div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-time">DAY 31+</div>
+      <div class="flow-dot dot-cyan"></div>
+      <div class="flow-text"><strong>Next emails</strong><br>Soul copy + rule + fine-tuned model all encode "reference Google reviews." Loop continues.</div>
+    </div>
+  </div>
+
+  <!-- MAGMA COMPARISON -->
+  <div class="section-title">MAGMA: The Causal Difference</div>
+  <div class="compare-grid">
+    <div class="compare-box compare-before">
+      <h4>WITHOUT MAGMA (flat memory)</h4>
+      Alpha sees:<br>
+      &nbsp;&nbsp;"Reply rate dropped 12% this week"<br>
+      &nbsp;&nbsp;"47 emails sent, 2 replies"<br>
+      &nbsp;&nbsp;"Rule #47 active: descriptive subjects"<br><br>
+      Alpha proposes:<br>
+      &nbsp;&nbsp;<strong>"Experiment with subject lines"</strong><br>
+      <span style="color:#ef4444">(vague, no root cause, might repeat failed idea)</span>
+    </div>
+    <div class="compare-box compare-after">
+      <h4>WITH MAGMA (causal graph)</h4>
+      Alpha sees:<br>
+      &nbsp;&nbsp;[Mar-20] Reply rate dropped 12%<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="causal-arrow">&larr; caused by</span><br>
+      &nbsp;&nbsp;[Mar-19] Subject length: 6&rarr;9 words<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="causal-arrow">&larr; caused by</span><br>
+      &nbsp;&nbsp;[Mar-18] Rule #47 activated<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="causal-arrow">&larr; caused by</span><br>
+      &nbsp;&nbsp;[Mar-17] Scout: competitor uses longer subjects<br><br>
+      Alpha proposes:<br>
+      &nbsp;&nbsp;<strong>"Revert Rule #47"</strong><br>
+      <span style="color:#34d399">(specific, causal, targets root cause)</span>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    PERSEUS / OBJECTIVE HERTZ &mdash; MEMORY ARCHITECTURE v5.0 &mdash; MARCH 2026
+  </div>
+
+</div>
+</body>
+</html>

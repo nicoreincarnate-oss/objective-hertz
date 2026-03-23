@@ -11,9 +11,16 @@ from openjarvis.vassals.registry import heartbeat
 from shared import db
 from shared.agent_base import AgentBase
 from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
 from titan.deliverability import monitor_deliverability
 from titan.expansion import review_revenue_expansion
-from titan.memory import daily_reflection, weekly_strategy_review
+from titan.memory import (
+    check_pending_outcomes,
+    daily_reflection,
+    graphrag_consolidation,
+    re_enrich_active_leads,
+    weekly_strategy_review,
+)
 from titan.pipeline.build_site import build_sites
 from titan.pipeline.close_deal import process_interested_leads
 from titan.pipeline.deploy_site import deploy_sites
@@ -62,6 +69,19 @@ async def _handle_sleep_cycle():
     logger.info(f"Sleep cycle complete: {result}")
 
 
+async def _handle_magma_consolidate():
+    """Run MAGMA causal graph consolidation — infer causal edges from recent events."""
+    try:
+        from shared.magma import process_consolidation_queue
+        count = await process_consolidation_queue(batch_size=10)
+        if count:
+            logger.info(f"MAGMA consolidated {count} nodes")
+    except ImportError:
+        pass  # neo4j driver not installed
+    except Exception as e:
+        logger.debug(f"MAGMA consolidation skipped: {e}")
+
+
 async def _handle_operator_message(payload: dict):
     """Acknowledge an operator note routed from the War Room."""
     message = str(payload.get("message", "")).strip()
@@ -102,6 +122,10 @@ TASK_HANDLERS = {
     "budget_check": _handle_budget_check,
     "morning_briefing": _handle_morning_briefing,
     "titan_operator_message": _handle_operator_message,
+    "check_pending_outcomes": check_pending_outcomes,
+    "graphrag_consolidation": graphrag_consolidation,
+    "re_enrich_leads": re_enrich_active_leads,
+    "magma_consolidate": _handle_magma_consolidate,
 }
 
 
@@ -339,10 +363,16 @@ async def main():
 
     # Handle graceful shutdown
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "titan")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(titan.stop()))
 
-    await titan.start()
+    try:
+        await titan.start()
+    except Exception as exc:
+        capture_exception(exc, service_name="titan", category="main")
+        logger.exception("Titan crashed")
+        raise
 
 
 async def main_with_a2a():
@@ -354,6 +384,7 @@ async def main_with_a2a():
     titan = TitanDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "titan")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(titan.stop()))
 
@@ -363,7 +394,12 @@ async def main_with_a2a():
     server = uvicorn.Server(config)
 
     logger.info("Titan A2A server starting on :%d", a2a_port)
-    await asyncio.gather(titan.start(), server.serve())
+    try:
+        await asyncio.gather(titan.start(), server.serve())
+    except Exception as exc:
+        capture_exception(exc, service_name="titan", category="a2a")
+        logger.exception("Titan A2A runtime crashed")
+        raise
 
 
 if __name__ == "__main__":

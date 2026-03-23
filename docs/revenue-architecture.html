@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perseus Revenue Pipeline Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #08080d;
+    color: #c8ccd4;
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+  .container { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; padding: 40px 32px; }
+
+  /* Header */
+  .header { text-align: center; margin-bottom: 48px; padding-bottom: 32px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase;
+    background: linear-gradient(135deg, #34d399, #f59e0b, #ef4444);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .sub { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #6b7280; letter-spacing: 2px; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Stage cards */
+  .stage {
+    border: 1px solid;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.025;
+    border-radius: 12px;
+  }
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .stage-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; border: 1px solid;
+    flex-shrink: 0;
+  }
+  .stage-title { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; }
+  .stage-file { font-family: 'JetBrains Mono', monospace; font-size: 10px; opacity: 0.4; margin-left: auto; }
+
+  .stage-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .stage-body { grid-template-columns: 1fr; } }
+
+  .info-block { font-size: 12px; line-height: 1.8; }
+  .info-block h4 { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase; }
+  .info-block ul { list-style: none; padding: 0; }
+  .info-block li::before { content: '>'; margin-right: 8px; opacity: 0.3; font-family: 'JetBrains Mono', monospace; }
+
+  .tag {
+    display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    padding: 3px 8px; border-radius: 4px; margin: 2px 4px 2px 0;
+    border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03);
+  }
+
+  /* Colors per stage */
+  .s-discover { border-color: rgba(0,212,255,0.3); }
+  .s-discover .stage-num { border-color: #00d4ff; color: #00d4ff; }
+  .s-discover .stage-title { color: #00d4ff; }
+  .s-discover h4 { color: #00d4ff; }
+  .s-discover::before { background: linear-gradient(135deg, #00d4ff, transparent); }
+
+  .s-research { border-color: rgba(96,165,250,0.3); }
+  .s-research .stage-num { border-color: #60a5fa; color: #60a5fa; }
+  .s-research .stage-title { color: #60a5fa; }
+  .s-research h4 { color: #60a5fa; }
+
+  .s-compose { border-color: rgba(167,139,250,0.3); }
+  .s-compose .stage-num { border-color: #a78bfa; color: #a78bfa; }
+  .s-compose .stage-title { color: #a78bfa; }
+  .s-compose h4 { color: #a78bfa; }
+
+  .s-send { border-color: rgba(192,132,252,0.3); }
+  .s-send .stage-num { border-color: #c084fc; color: #c084fc; }
+  .s-send .stage-title { color: #c084fc; }
+  .s-send h4 { color: #c084fc; }
+
+  .s-follow { border-color: rgba(244,114,182,0.3); }
+  .s-follow .stage-num { border-color: #f472b6; color: #f472b6; }
+  .s-follow .stage-title { color: #f472b6; }
+  .s-follow h4 { color: #f472b6; }
+
+  .s-close { border-color: rgba(245,158,11,0.3); }
+  .s-close .stage-num { border-color: #f59e0b; color: #f59e0b; }
+  .s-close .stage-title { color: #f59e0b; }
+  .s-close h4 { color: #f59e0b; }
+
+  .s-build { border-color: rgba(251,146,60,0.3); }
+  .s-build .stage-num { border-color: #fb923c; color: #fb923c; }
+  .s-build .stage-title { color: #fb923c; }
+  .s-build h4 { color: #fb923c; }
+
+  .s-invoice { border-color: rgba(52,211,153,0.3); }
+  .s-invoice .stage-num { border-color: #34d399; color: #34d399; }
+  .s-invoice .stage-title { color: #34d399; }
+  .s-invoice h4 { color: #34d399; }
+
+  .s-compliance { border-color: rgba(239,68,68,0.3); }
+  .s-compliance .stage-num { border-color: #ef4444; color: #ef4444; }
+  .s-compliance .stage-title { color: #ef4444; }
+  .s-compliance h4 { color: #ef4444; }
+
+  /* Arrow connector */
+  .arrow { text-align: center; color: #374151; font-size: 18px; margin: 4px 0; }
+
+  /* Section titles */
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px; font-weight: 600;
+    margin: 48px 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    letter-spacing: 2px; text-transform: uppercase;
+  }
+
+  /* Funnel table */
+  .funnel-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 20px 0; }
+  .funnel-table th {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    text-align: left; padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: #6b7280; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .funnel-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .funnel-table tr:hover { background: rgba(255,255,255,0.02); }
+  .money { color: #34d399; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .cost { color: #ef4444; font-family: 'JetBrains Mono', monospace; }
+  .pct { color: #f59e0b; font-family: 'JetBrains Mono', monospace; }
+
+  /* Pricing boxes */
+  .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 20px 0; }
+  @media (max-width: 900px) { .pricing-grid { grid-template-columns: 1fr; } }
+  .price-card {
+    border: 1px solid rgba(52,211,153,0.3);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .price-card .amount {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px; font-weight: 700;
+    color: #34d399;
+    margin: 8px 0;
+  }
+  .price-card .label { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #6b7280; }
+  .price-card .desc { font-size: 12px; color: #9ca3af; margin-top: 8px; line-height: 1.6; }
+
+  /* Unit economics */
+  .econ-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px;
+  }
+  .econ-row:last-child { border-bottom: none; }
+  .econ-label { color: #9ca3af; }
+  .econ-bar {
+    flex: 1; margin: 0 16px;
+    height: 6px; background: rgba(255,255,255,0.05);
+    border-radius: 3px; overflow: hidden;
+  }
+  .econ-fill { height: 100%; border-radius: 3px; }
+
+  /* Safety gates */
+  .gates-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 20px 0; }
+  @media (max-width: 900px) { .gates-grid { grid-template-columns: 1fr; } }
+  .gate-card {
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 12px;
+  }
+  .gate-card .gate-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; font-weight: 600; color: #ef4444;
+    margin-bottom: 4px;
+  }
+  .gate-card .gate-where { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6b7280; margin-bottom: 6px; }
+  .gate-card .gate-rule { color: #9ca3af; }
+
+  /* Warmup */
+  .warmup-bar-group { margin: 20px 0; }
+  .warmup-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 11px; }
+  .warmup-label { width: 60px; font-family: 'JetBrains Mono', monospace; color: #6b7280; text-align: right; }
+  .warmup-track { flex: 1; height: 14px; background: rgba(255,255,255,0.03); border-radius: 4px; overflow: hidden; }
+  .warmup-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .warmup-val { width: 50px; font-family: 'JetBrains Mono', monospace; color: #9ca3af; }
+
+  .footer {
+    text-align: center; margin-top: 48px; padding-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: #374151; letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>Perseus Revenue Pipeline</h1>
+    <div class="sub">10 Stages &middot; 6 Safety Gates &middot; 3 Payment Rails &middot; Lead to Cash</div>
+  </div>
+
+  <!-- ═══════════ STAGE 1: DISCOVER ═══════════ -->
+  <div class="stage s-discover">
+    <div class="stage-header">
+      <div class="stage-num">01</div>
+      <div class="stage-title">Lead Discovery</div>
+      <div class="stage-file">titan/pipeline/lead_discovery.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>What Happens</h4>
+        <ul>
+          <li>AI picks discovery source (5 skills + Firecrawl fallback)</li>
+          <li>Searches for businesses without websites</li>
+          <li>Dedup by email or business_name+source</li>
+          <li>Shadow rollout: 10% can test expansion skill</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>External APIs</h4>
+        <div class="tag">Firecrawl POST /search</div>
+        <div class="tag">OpenClaw skills</div>
+        <div class="tag">Apify (if installed)</div>
+        <h4 style="margin-top:10px">Batch &amp; Schedule</h4>
+        <ul>
+          <li>20 leads per run &middot; Every 30 min</li>
+          <li>State: &mdash; &rarr; <span class="mono" style="color:#00d4ff">discovered</span></li>
+          <li>Cost: <span class="money">$0</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 2: RESEARCH ═══════════ -->
+  <div class="stage s-research">
+    <div class="stage-header">
+      <div class="stage-num">02</div>
+      <div class="stage-title">Lead Research</div>
+      <div class="stage-file">titan/pipeline/lead_research.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>What Happens</h4>
+        <ul>
+          <li>Scrape website + Google results + social</li>
+          <li>4 concurrent via semaphore</li>
+          <li>Quality gate: score &ge;4 points or reject</li>
+          <li>Two-pass LLM: fast first, smart if weak or high-score</li>
+          <li>Extract: services, locations, trust signals</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>External APIs</h4>
+        <div class="tag">Firecrawl POST /scrape</div>
+        <div class="tag">ClawdBot A2A: web_scrape</div>
+        <div class="tag">ClawdBot A2A: browser_task</div>
+        <div class="tag">ClawdBot A2A: enrich_lead</div>
+        <h4 style="margin-top:10px">Output</h4>
+        <ul>
+          <li>research_summary, lead_score (0-100), research_facts (JSON)</li>
+          <li>State: discovered &rarr; <span class="mono" style="color:#60a5fa">researched</span></li>
+          <li>Cost: <span class="money">$0</span> (Firecrawl free tier)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 3: COMPOSE ═══════════ -->
+  <div class="stage s-compose">
+    <div class="stage-header">
+      <div class="stage-num">03</div>
+      <div class="stage-title">Email Composition</div>
+      <div class="stage-file">titan/pipeline/email_compose.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>What Happens</h4>
+        <ul>
+          <li>Try 4 installed skills first (cold-email, cold-outreach, etc.)</li>
+          <li>Fallback: Claude generates directly</li>
+          <li>Model: Sonnet for score &ge;80, Haiku for rest</li>
+          <li>Prompt injected with: soul_copy + titan_rules + learnings</li>
+          <li>prompt_version_hash stored for causal tracing</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>Content Validation</h4>
+        <ul>
+          <li style="color:#ef4444">BLOCK: fabricated client counts, fake awards</li>
+          <li style="color:#ef4444">BLOCK: ACT NOW, LIMITED TIME, CLICK HERE</li>
+          <li style="color:#ef4444">BLOCK: subject &gt;80 chars, body &gt;1000 chars</li>
+        </ul>
+        <h4 style="margin-top:10px">Output</h4>
+        <ul>
+          <li>Unique email per lead (&lt;150 words)</li>
+          <li>State: researched &rarr; <span class="mono" style="color:#a78bfa">email_drafted</span></li>
+          <li>Cost: <span class="money">$0.003</span>/email (Haiku)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 4: SEND ═══════════ -->
+  <div class="stage s-send">
+    <div class="stage-header">
+      <div class="stage-num">04</div>
+      <div class="stage-title">Email Send</div>
+      <div class="stage-file">titan/pipeline/email_send.py + compliance.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>What Happens</h4>
+        <ul>
+          <li>Micro-review: 3 AI personas score risk (&ge;70 to pass)</li>
+          <li>Provider bucketing: Gmail 100/d, Outlook 100/d, Other 50/d</li>
+          <li>Compliance gate: unsub check + HMAC link + footer + audit log</li>
+          <li>Send via Instantly.ai campaign</li>
+          <li>Immutable outbound_email_log (audit trail)</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>External APIs</h4>
+        <div class="tag">Instantly POST /campaigns/{id}/leads</div>
+        <div class="tag">Instantly GET /campaigns/{id}/analytics</div>
+        <h4 style="margin-top:10px">Safety Gates</h4>
+        <ul>
+          <li style="color:#ef4444">Unsubscribed leads blocked</li>
+          <li style="color:#ef4444">Dedup: already-sent emails skipped</li>
+          <li style="color:#ef4444">Warmup ramp enforced (10&rarr;600 over 21 days)</li>
+        </ul>
+        <ul>
+          <li>State: email_drafted &rarr; <span class="mono" style="color:#c084fc">email_sent</span></li>
+          <li>Cost: <span class="money">$97/mo</span> Instantly subscription</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 5: FOLLOW-UP ═══════════ -->
+  <div class="stage s-follow">
+    <div class="stage-header">
+      <div class="stage-num">05</div>
+      <div class="stage-title">Follow-Up &amp; Reply Handling</div>
+      <div class="stage-file">titan/pipeline/follow_up.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>Reply Classification</h4>
+        <ul>
+          <li>Layer 1: Deterministic unsub scan (11 languages)</li>
+          <li>Layer 2: LLM classifies: interested / not_interested / question / unsubscribe / OOO</li>
+          <li>Causal attribution: which sentence triggered the reply?</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>Follow-Up Rules</h4>
+        <ul>
+          <li>Max 7 follow-ups per lead</li>
+          <li>Min 3 days between contacts</li>
+          <li>First 3: always send</li>
+          <li>After 3: AI decides if worth continuing</li>
+          <li>Each follow-up: different angle, &lt;80 words</li>
+        </ul>
+        <ul>
+          <li>State: email_sent &rarr; <span class="mono" style="color:#f472b6">interested</span> / replied / lost</li>
+          <li>Cost: <span class="money">$0</span> (included in Instantly)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 6-7: CLOSE ═══════════ -->
+  <div class="stage s-close">
+    <div class="stage-header">
+      <div class="stage-num">06</div>
+      <div class="stage-title">Close Deal &mdash; Demo + Proposal</div>
+      <div class="stage-file">titan/pipeline/close_deal.py + clawdbot/site_builder.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>Demo Site Build</h4>
+        <ul>
+          <li>ClawdBot: 3-5 parallel design agents</li>
+          <li>8 design directions (minimal, editorial, cinematic, etc.)</li>
+          <li>GSAP + ScrollTrigger + Lenis + Three.js + PixiJS</li>
+          <li>Opus reviews all variants, synthesizes best</li>
+          <li>Deploy to v0.dev</li>
+          <li style="color:#ef4444">QA gate: visual critic must pass (fail-closed)</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>Proposal Generation</h4>
+        <ul>
+          <li>Dynamic pricing: $249 / $299 / $349</li>
+          <li>4-agent red-team (Writer &rarr; Attacker &rarr; Optimizer &rarr; Tone Checker)</li>
+          <li>Review mode: first 10 sales need Nico's approval</li>
+          <li>After 10 sales: full autonomy unlocked</li>
+        </ul>
+        <ul>
+          <li>State: interested &rarr; <span class="mono" style="color:#f59e0b">demo_built</span> &rarr; proposal_sent</li>
+          <li>Cost: <span class="money">~$0.06</span>/proposal (red-team)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 8: BUILD ═══════════ -->
+  <div class="stage s-build">
+    <div class="stage-header">
+      <div class="stage-num">07</div>
+      <div class="stage-title">Build Full Site + Deploy</div>
+      <div class="stage-file">titan/pipeline/build_site.py + deploy_site.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>Full Site (5 pages)</h4>
+        <ul>
+          <li>5 parallel design agents (more than demo's 3)</li>
+          <li>Higher quality: more Opus review passes</li>
+          <li>Paid assets: logo + hero (capped at $0.08/site)</li>
+          <li>Authored assets: Rive, Spline, Theatre.js (if provided)</li>
+          <li style="color:#ef4444">QA gate: visual critic must pass before deploy</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>Deployment</h4>
+        <ul>
+          <li>Deploy via v0.dev API</li>
+          <li>HTTP verification: site loads, SSL valid</li>
+          <li>State: closed &rarr; building &rarr; <span class="mono" style="color:#fb923c">deployed</span></li>
+          <li>Cost: <span class="money">$0.08</span> assets + hosting</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&#9660;</div>
+
+  <!-- ═══════════ STAGE 9-10: INVOICE ═══════════ -->
+  <div class="stage s-invoice">
+    <div class="stage-header">
+      <div class="stage-num">08</div>
+      <div class="stage-title">Invoice + Payment Collection</div>
+      <div class="stage-file">titan/pipeline/invoice.py + tools/payment_router.py</div>
+    </div>
+    <div class="stage-body">
+      <div class="info-block">
+        <h4>Invoice Creation</h4>
+        <ul>
+          <li>Route: Stripe (primary) &rarr; Wise (fallback) &rarr; Conway USDC</li>
+          <li>Stripe: POST /v1/payment_links with idempotency key</li>
+          <li>Wise: POST /v1/quotes + /v1/transfers</li>
+          <li>Conway: x402 USDC on Base L2</li>
+          <li>Dedup: SHA-256(email+amount+currency) prevents double-invoice</li>
+        </ul>
+      </div>
+      <div class="info-block">
+        <h4>Payment Verification</h4>
+        <ul>
+          <li>Stripe: poll payment_intents for status=succeeded</li>
+          <li>On payment: deals.status &rarr; paid, clients.status &rarr; paid</li>
+          <li>All prior emails marked as positive training examples</li>
+          <li>sales_completed counter incremented</li>
+          <li>If sales &ge; 10: <span style="color:#34d399">AUTONOMY UNLOCKED</span></li>
+        </ul>
+        <ul>
+          <li>State: deployed &rarr; invoiced &rarr; <span class="money">paid</span></li>
+          <li>Processing: <span class="cost">2.9% + $0.30</span> (Stripe)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ PRICING ═══════════ -->
+  <div class="section-title">Pricing Tiers</div>
+  <div class="pricing-grid">
+    <div class="price-card">
+      <div class="label">BUDGET REGIONS</div>
+      <div class="amount">$249</div>
+      <div class="desc">Mexico, India, Philippines, Colombia, Brazil, Argentina</div>
+    </div>
+    <div class="price-card" style="border-color: rgba(52,211,153,0.6); box-shadow: 0 0 30px rgba(52,211,153,0.1);">
+      <div class="label">STANDARD</div>
+      <div class="amount">$299</div>
+      <div class="desc">Default: Professional 5-page website, mobile responsive, SEO, contact forms</div>
+    </div>
+    <div class="price-card">
+      <div class="label">PREMIUM INDUSTRIES</div>
+      <div class="amount">$349</div>
+      <div class="desc">Dental, legal, medical, clinic, real estate (score &ge;70)</div>
+    </div>
+  </div>
+  <div style="text-align:center; margin: 8px 0 24px; font-size: 12px; color: #6b7280;">
+    <span class="mono">Optional add-ons:</span> Hosting <span class="money">$52/mo</span> &middot; AI Receptionist <span class="money">$398/mo</span> (cost: $79)
+  </div>
+
+  <!-- ═══════════ FUNNEL ═══════════ -->
+  <div class="section-title">Conversion Funnel (per 100 leads)</div>
+  <table class="funnel-table">
+    <thead>
+      <tr><th>Stage</th><th>Count</th><th>Conv %</th><th>Timeline</th><th>Revenue</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Discovered</td><td>100</td><td class="pct">&mdash;</td><td>Day 1</td><td>&mdash;</td></tr>
+      <tr><td>Researched</td><td>85</td><td class="pct">85%</td><td>Day 2</td><td>&mdash;</td></tr>
+      <tr><td>Email drafted</td><td>75</td><td class="pct">88%</td><td>Day 3</td><td>&mdash;</td></tr>
+      <tr><td>Email sent</td><td>70</td><td class="pct">93%</td><td>Day 5</td><td>&mdash;</td></tr>
+      <tr><td>Replies</td><td>5</td><td class="pct">7%</td><td>Day 10-15</td><td>&mdash;</td></tr>
+      <tr><td>Interested</td><td>4</td><td class="pct">80%</td><td>Day 20</td><td>&mdash;</td></tr>
+      <tr><td>Demo built</td><td>4</td><td class="pct">100%</td><td>Day 25</td><td>&mdash;</td></tr>
+      <tr><td>Proposal sent</td><td>4</td><td class="pct">100%</td><td>Day 28</td><td>&mdash;</td></tr>
+      <tr><td>Closed</td><td>2</td><td class="pct">50%</td><td>Day 35</td><td>&mdash;</td></tr>
+      <tr><td>Deployed</td><td>2</td><td class="pct">100%</td><td>Day 45</td><td>&mdash;</td></tr>
+      <tr><td><strong>Paid</strong></td><td><strong>2</strong></td><td class="pct">100%</td><td>Day 50</td><td class="money">$598</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ═══════════ UNIT ECONOMICS ═══════════ -->
+  <div class="section-title">Unit Economics (per deal)</div>
+  <div style="max-width: 600px;">
+    <div class="econ-row">
+      <span class="econ-label">Revenue</span>
+      <div class="econ-bar"><div class="econ-fill" style="width:100%; background:#34d399;"></div></div>
+      <span class="money">$299</span>
+    </div>
+    <div class="econ-row">
+      <span class="econ-label">Stripe fees</span>
+      <div class="econ-bar"><div class="econ-fill" style="width:3.2%; background:#ef4444;"></div></div>
+      <span class="cost">-$9</span>
+    </div>
+    <div class="econ-row">
+      <span class="econ-label">Design assets</span>
+      <div class="econ-bar"><div class="econ-fill" style="width:1.5%; background:#ef4444;"></div></div>
+      <span class="cost">-$4</span>
+    </div>
+    <div class="econ-row">
+      <span class="econ-label">Red-team LLM</span>
+      <div class="econ-bar"><div class="econ-fill" style="width:0.5%; background:#ef4444;"></div></div>
+      <span class="cost">-$0.06</span>
+    </div>
+    <div class="econ-row">
+      <span class="econ-label" style="color:#d1d5db"><strong>Gross profit</strong></span>
+      <div class="econ-bar"><div class="econ-fill" style="width:95.5%; background:linear-gradient(90deg,#34d399,#059669);"></div></div>
+      <span class="money" style="font-size:15px">$286</span>
+    </div>
+  </div>
+
+  <!-- ═══════════ MONTHLY FIXED COSTS ═══════════ -->
+  <div class="section-title">Monthly Fixed Costs</div>
+  <table class="funnel-table">
+    <thead><tr><th>Service</th><th>Cost</th><th>What For</th></tr></thead>
+    <tbody>
+      <tr><td>Instantly.ai</td><td class="cost">$97/mo</td><td>Email sending, warmup, analytics, inbox</td></tr>
+      <tr><td>Claude API (lean)</td><td class="cost">$45-105/mo</td><td>Haiku + Sonnet for compose, research, proposals</td></tr>
+      <tr><td>Domains (2-3)</td><td class="cost">$5/mo</td><td>Sending domains for email warmup</td></tr>
+      <tr><td>Mac Studio electricity</td><td class="cost">$15/mo</td><td>24/7 operation (~50W avg)</td></tr>
+      <tr><td>Docker stack</td><td class="cost">$0</td><td>Postgres, Qdrant, Mem0, Neo4j, N8N — all local</td></tr>
+      <tr><td><strong>Total (lean)</strong></td><td class="cost"><strong>$162-222/mo</strong></td><td>&mdash;</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ═══════════ WARMUP SCHEDULE ═══════════ -->
+  <div class="section-title">Email Warmup Ramp (21 days)</div>
+  <div class="warmup-bar-group">
+    <div class="warmup-row"><div class="warmup-label">Day 1</div><div class="warmup-track"><div class="warmup-fill" style="width:1.7%; background:#00d4ff;"></div></div><div class="warmup-val">10</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 5</div><div class="warmup-track"><div class="warmup-fill" style="width:5%; background:#00d4ff;"></div></div><div class="warmup-val">30</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 7</div><div class="warmup-track"><div class="warmup-fill" style="width:8.3%; background:#60a5fa;"></div></div><div class="warmup-val">50</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 10</div><div class="warmup-track"><div class="warmup-fill" style="width:15%; background:#60a5fa;"></div></div><div class="warmup-val">90</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 14</div><div class="warmup-track"><div class="warmup-fill" style="width:29%; background:#a78bfa;"></div></div><div class="warmup-val">175</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 18</div><div class="warmup-track"><div class="warmup-fill" style="width:50%; background:#f59e0b;"></div></div><div class="warmup-val">300</div></div>
+    <div class="warmup-row"><div class="warmup-label">Day 21</div><div class="warmup-track"><div class="warmup-fill" style="width:100%; background:linear-gradient(90deg,#34d399,#059669);"></div></div><div class="warmup-val">600</div></div>
+  </div>
+  <div style="font-size:11px; color:#6b7280; margin-top:4px;">
+    <span class="mono">Auto-pause triggers:</span> Bounce &ge;5% &middot; Spam &ge;0.1% &middot; Open rate &lt;20% prevents volume increase
+  </div>
+
+  <!-- ═══════════ SAFETY GATES ═══════════ -->
+  <div class="section-title">Safety Gates &amp; Compliance</div>
+  <div class="gates-grid">
+    <div class="gate-card">
+      <div class="gate-name">Research Quality Gate</div>
+      <div class="gate-where">lead_research.py</div>
+      <div class="gate-rule">Score &ge;4 points from scrape quality metrics. Placeholder text, nav-only content, and boilerplate detected and rejected.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Content Validation</div>
+      <div class="gate-where">email_compose.py</div>
+      <div class="gate-rule">Rejects fabricated claims (fake client counts, awards, media mentions), spam triggers (ACT NOW, CLICK HERE), and length violations.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Micro-Review Simulation</div>
+      <div class="gate-where">email_send.py</div>
+      <div class="gate-rule">3 AI personas (skeptical owner, time-starved owner, deliverability guard) must score &ge;70. Below 70 = email not sent.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Compliance Chokepoint</div>
+      <div class="gate-where">compliance.py</div>
+      <div class="gate-rule">ALL outbound email goes through send_to_instantly(). HMAC-signed unsub link, physical address footer, immutable audit log. Dedup prevents double-send on restart.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Demo/Site QA Gate</div>
+      <div class="gate-where">close_deal.py + build_site.py</div>
+      <div class="gate-rule">Visual critic (Playwright screenshots + Claude vision) must pass before proposal or deployment. Fail-closed by default.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Review Mode (First 10)</div>
+      <div class="gate-where">close_deal.py + review_mode.py</div>
+      <div class="gate-rule">First 10 sales require operator approval via Telegram (/approve). After 10: autonomy_unlocked event, review_mode disabled.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Multilingual Unsub Detection</div>
+      <div class="gate-where">follow_up.py</div>
+      <div class="gate-rule">Deterministic keyword scan in 11 languages (EN, ES, FR, DE, PT, IT, NL, JA, KO, ZH) BEFORE LLM classification. Legal safety net.</div>
+    </div>
+    <div class="gate-card">
+      <div class="gate-name">Revenue Expansion ROI Gate</div>
+      <div class="gate-where">expansion.py</div>
+      <div class="gate-rule">New capabilities only adopted if: revenue_gain &gt; cost, ROI &ge;1.5x, shadow rollout beats baseline. Prevents spending on unproven tools.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ STATE MACHINE ═══════════ -->
+  <div class="section-title">Lead State Machine</div>
+  <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 2.2; padding: 16px; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; background: rgba(255,255,255,0.01);">
+    <span style="color:#00d4ff">discovered</span> &rarr;
+    <span style="color:#60a5fa">researched</span> &rarr;
+    <span style="color:#a78bfa">email_drafted</span> &rarr;
+    <span style="color:#c084fc">email_sent</span> &rarr;
+    <span style="color:#f472b6">replied</span> /
+    <span style="color:#f472b6">interested</span> &rarr;
+    <span style="color:#f59e0b">demo_built</span> &rarr;
+    <span style="color:#f59e0b">proposal_sent</span> &rarr;
+    <span style="color:#f59e0b">negotiating</span> &rarr;
+    <span style="color:#fb923c">closed</span> &rarr;
+    <span style="color:#fb923c">building</span> &rarr;
+    <span style="color:#fb923c">deployed</span> &rarr;
+    <span style="color:#34d399">invoiced</span> &rarr;
+    <span style="color:#34d399; font-weight:700">paid</span>
+    <br>
+    <span style="color:#6b7280">Terminal states:</span>
+    <span style="color:#34d399; font-weight:700">paid</span> (success) &middot;
+    <span style="color:#ef4444">lost</span> (any stage) &middot;
+    <span style="color:#ef4444">unsubscribed</span> (legal, permanent)
+    <br>
+    <span style="color:#6b7280">Retry:</span>
+    <span style="color:#f59e0b">unresponsive</span> &rarr; email_drafted (after 30 days)
+  </div>
+
+  <div class="footer">
+    PERSEUS / OBJECTIVE HERTZ &mdash; REVENUE PIPELINE v5.0 &mdash; MARCH 2026
+  </div>
+
+</div>
+</body>
+</html>

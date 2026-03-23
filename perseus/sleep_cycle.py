@@ -35,6 +35,14 @@ async def run_sleep_cycle() -> dict[str, Any]:
     """Execute the full nightly sleep cycle. Called by Titan's task handler."""
     logger.info("=== SLEEP CYCLE STARTING ===")
 
+    # Phase 0: memory garbage collection (clean before optimizing)
+    try:
+        from titan.memory import memory_gc
+        gc_stats = await memory_gc()
+        logger.info(f"Sleep cycle memory GC: {gc_stats}")
+    except Exception as e:
+        logger.warning(f"Sleep cycle memory GC failed (non-critical): {e}")
+
     # Phase A: gather everything
     snapshot = await _gather_system_snapshot()
 
@@ -126,6 +134,37 @@ async def _gather_system_snapshot() -> dict[str, Any]:
     soul_copy = _read_file("soul/soul_copy.md")
     soul_agent = _read_file("soul/soul_agent.md")
 
+    # Recent sleep cycle history (4.1: what was tried, what stuck, what reverted)
+    recent_cycles = await fetch_all(
+        """SELECT cycle_date, applied_changes::text, rolled_back
+           FROM sleep_cycle_log
+           ORDER BY cycle_date DESC LIMIT 7"""
+    )
+
+    # Git history of backprop-touched files
+    import subprocess
+    try:
+        git_log = subprocess.run(
+            ["git", "log", "--oneline", "-7", "--", "soul/", "titan/pipeline/"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout[:2000]
+    except Exception:
+        git_log = ""
+
+    # MAGMA causal subgraph for Alpha/Beta (if enabled)
+    causal_context = ""
+    try:
+        from shared.magma import magma_retrieve
+        from shared.config import config as _cfg
+        if _cfg.memory.magma_enabled:
+            causal_context = await magma_retrieve(
+                "Why did metrics change this week? What caused pipeline errors? "
+                "What rule changes led to what outcomes?",
+                limit=15,
+            )
+    except Exception:
+        causal_context = ""
+
     return {
         "date": date.today().isoformat(),
         "pipeline_state": pipeline,
@@ -138,6 +177,9 @@ async def _gather_system_snapshot() -> dict[str, Any]:
         "agent_self_models": self_models,
         "soul_copy_content": soul_copy[:3000],
         "soul_agent_content": soul_agent[:2000],
+        "recent_cycle_history": [dict(c) for c in recent_cycles] if recent_cycles else [],
+        "recent_git_changes": git_log,
+        "causal_context": causal_context,
     }
 
 
@@ -145,13 +187,21 @@ async def _gather_system_snapshot() -> dict[str, Any]:
 
 async def _run_alpha(snapshot: dict) -> list[dict]:
     """Alpha observes the system and proposes changes."""
+    # MAGMA causal context — gives Alpha reasoning chains, not just flat metrics
+    causal_block = ""
+    if snapshot.get("causal_context"):
+        causal_block = f"""
+CAUSAL REASONING CHAINS (what caused what — use these to propose targeted fixes):
+{snapshot['causal_context'][:3000]}
+"""
+
     prompt = f"""You are Alpha, the system optimizer for Perseus — an autonomous AI revenue system.
 You've observed the full system for the last 24 hours. Your job: find what's broken,
 what's underperforming, and propose specific, data-backed changes.
 
 FULL SYSTEM SNAPSHOT:
 {json.dumps(snapshot, indent=2, default=str)[:12000]}
-
+{causal_block}
 Propose 3-5 specific changes. For each, be precise about:
 1. WHAT to change (exact text, value, or rule)
 2. WHERE (file path, config key, or rule ID)
@@ -192,6 +242,27 @@ async def _run_beta(proposals: list[dict], snapshot: dict) -> list[dict]:
     if not proposals:
         return []
 
+    # 4.1: Inject recent cycle history so Beta can see what was already tried/reverted
+    cycle_history = snapshot.get("recent_cycle_history", [])
+    git_changes = snapshot.get("recent_git_changes", "")
+    history_block = ""
+    if cycle_history:
+        history_lines = []
+        for c in cycle_history[:5]:
+            status = "ROLLED BACK" if c.get("rolled_back") else "kept"
+            changes_preview = str(c.get("applied_changes", ""))[:150]
+            history_lines.append(f"  {c.get('cycle_date', '?')}: {status} — {changes_preview}")
+        history_block = f"""
+RECENT CYCLE HISTORY (what was already tried):
+{chr(10).join(history_lines)}
+
+RECENT GIT CHANGES:
+{git_changes[:1000] if git_changes else 'None'}
+
+Use this history to avoid re-proposing changes already tried and reverted.
+If Alpha proposes something similar to a reverted change, flag it.
+"""
+
     prompt = f"""You are Beta, the devil's advocate for Perseus. Alpha proposed these changes:
 
 PROPOSALS:
@@ -199,7 +270,7 @@ PROPOSALS:
 
 FULL SYSTEM SNAPSHOT:
 {json.dumps(snapshot, indent=2, default=str)[:8000]}
-
+{history_block}
 For EACH proposal, argue the OTHER side:
 - Why could this change HURT the system?
 - Is Alpha over-indexing on one day's data?

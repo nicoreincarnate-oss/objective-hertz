@@ -236,14 +236,76 @@ async def rollback_cycle(cycle_id: int) -> int:
                 )
                 reverted += 1
 
-    if reverted:
+    # ── Cross-store rollback: MAGMA causal edges created during this cycle ──
+    magma_reverted = 0
+    try:
+        from shared.magma import _get_driver
+        driver = _get_driver()
+        if driver:
+            # Find and delete MAGMA nodes + edges ingested during this cycle
+            # Nodes are tagged with metadata containing cycle_id or created
+            # within the cycle's time window
+            cycle_log = await fetch_all(
+                "SELECT created_at FROM sleep_cycle_log WHERE id = %s", (cycle_id,)
+            )
+            if cycle_log:
+                cycle_ts = str(cycle_log[0].get("created_at", ""))
+                if cycle_ts:
+                    with driver.session() as session:
+                        # Delete causal edges inferred during this cycle
+                        result = session.run(
+                            """MATCH ()-[r:CAUSED]->()
+                               WHERE r.inferred_at >= $ts
+                               DELETE r
+                               RETURN count(r) as deleted""",
+                            ts=cycle_ts,
+                        ).single()
+                        magma_reverted = result["deleted"] if result else 0
+    except Exception as e:
+        logger.debug(f"MAGMA rollback failed (non-critical): {e}")
+
+    # ── Cross-store rollback: Mem0 memories stored during reflection ──
+    mem0_reverted = 0
+    try:
+        # Delete titan_learnings created during this cycle (by the reflection
+        # that ran just before it) — they may contain insights that led to
+        # the bad proposals we're reverting
+        reflection_rows = await fetch_all(
+            """SELECT id FROM titan_learnings
+               WHERE category = 'daily_reflection'
+               AND created_at >= (SELECT created_at FROM sleep_cycle_log WHERE id = %s)
+               AND created_at <= (SELECT created_at FROM sleep_cycle_log WHERE id = %s) + INTERVAL '1 hour'""",
+            (cycle_id, cycle_id),
+        )
+        if reflection_rows:
+            for row in reflection_rows:
+                await execute("DELETE FROM titan_learnings WHERE id = %s", (row["id"],))
+                mem0_reverted += 1
+    except Exception as e:
+        logger.debug(f"Learnings rollback failed (non-critical): {e}")
+
+    total_reverted = reverted + magma_reverted + mem0_reverted
+    if total_reverted:
         await execute(
             "UPDATE sleep_cycle_log SET rolled_back = TRUE WHERE id = %s",
             (cycle_id,),
         )
-        logger.info(f"Rolled back {reverted} changes from sleep cycle #{cycle_id}")
+        logger.info(
+            f"Rolled back sleep cycle #{cycle_id}: "
+            f"{reverted} backprop changes, {magma_reverted} MAGMA edges, "
+            f"{mem0_reverted} learnings"
+        )
 
-    return reverted
+        # Emit event so Hermes alerts the operator
+        from shared.db import emit_event
+        await emit_event("sleep_cycle_rolled_back", {
+            "cycle_id": cycle_id,
+            "backprop_reverted": reverted,
+            "magma_edges_reverted": magma_reverted,
+            "learnings_reverted": mem0_reverted,
+        })
+
+    return total_reverted
 
 
 # ── Git integration ───────────────────────────────────────────────

@@ -126,6 +126,10 @@ echo "  Waiting for vassals to come up..."
 sleep 5
 wait_for_http "http://localhost:9000/.well-known/agent.json" "OpenJarvis A2A" 30
 echo "  ✓ OpenJarvis A2A ready on :9000"
+echo "  Metrics    OpenJarvis: http://localhost:9100/metrics"
+echo "  Metrics    Titan:      http://localhost:9101/metrics"
+echo "  Metrics    Hermes:     http://localhost:9102/metrics"
+echo "  Metrics    ClawdBot:   http://localhost:9103/metrics"
 
 # 6. Start dashboard backend
 echo "[6/6] Starting dashboard backend..."
@@ -134,6 +138,7 @@ echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
 wait_for_http "http://localhost:8500/api/health" "Dashboard backend"
 echo "  ✓ Dashboard backend started on :8500 (PID: $(cat $PID_DIR/dashboard.pid))"
+echo "  Metrics    Dashboard:  http://localhost:8500/metrics"
 
 # 9. Start War Room frontend (Next.js)
 FRONTEND_DIR="$ROOT_DIR/hermes/web/frontend"
@@ -170,6 +175,8 @@ if [ -f "$PID_DIR/frontend.pid" ]; then
 echo "  Frontend   PID: $(cat $PID_DIR/frontend.pid)"
 echo "  Dashboard: http://localhost:3000"
 fi
+echo "  Prometheus: http://localhost:9090"
+echo "  Grafana:    http://localhost:3001"
 echo ""
 echo "  Logs: $LOG_DIR/"
 echo "  Stop: ./scripts/stop-perseus.sh"

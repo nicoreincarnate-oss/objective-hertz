@@ -8,6 +8,7 @@ When budget hits alert threshold, auto-downgrades to Ollama.
 When budget is exceeded, only Ollama is available.
 """
 
+import base64
 import logging
 from datetime import date
 
@@ -98,6 +99,59 @@ class LLMClient:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
             return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
 
+    async def generate_with_images(
+        self,
+        prompt: str,
+        *,
+        images: list[bytes],
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+        client_id: int | None = None,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Generate text from a prompt plus one or more images.
+
+        Uses Claude vision-capable models when available. If Claude is unavailable,
+        this raises instead of silently falling back because local Ollama is not
+        configured for image understanding in this runtime.
+        """
+        if model == "auto":
+            model = "smart"
+        if model in ("local", "local-small"):
+            raise RuntimeError("Local multimodal evaluation is not available")
+        if not config.claude.api_key:
+            raise RuntimeError("Claude vision unavailable: ANTHROPIC_API_KEY not configured")
+
+        model = await self._budget_gate(model)
+        if model in ("local", "local-small"):
+            raise RuntimeError("Claude vision downgraded to local model; multimodal evaluation unavailable")
+
+        try:
+            result = await self._claude_generate_with_images(
+                prompt,
+                images,
+                system,
+                model,
+                max_tokens,
+                temperature,
+            )
+            # Images add input cost too; overcount a little rather than undercount.
+            image_token_overhead = len(images) * 2000
+            await self._record_claude_spend(
+                prompt,
+                result,
+                system,
+                model,
+                client_id=client_id,
+                pipeline_stage=pipeline_stage,
+                extra_input_tokens=image_token_overhead,
+            )
+            return result
+        except Exception:
+            raise
+
     async def _budget_gate(self, requested_model: str) -> str:
         """Check budget and downgrade Claude to Ollama if needed."""
         try:
@@ -136,13 +190,14 @@ class LLMClient:
         *,
         client_id: int | None = None,
         pipeline_stage: str = "",
+        extra_input_tokens: float = 0.0,
     ):
         """Estimate and record the cost of a Claude API call, optionally tagged to a lead."""
         try:
             from shared.db import execute
 
             # Rough token estimate: ~4 chars per token
-            input_tokens = (len(prompt) + len(system)) / 4
+            input_tokens = ((len(prompt) + len(system)) / 4) + extra_input_tokens
             output_tokens = len(result) / 4
             total_tokens = input_tokens + output_tokens
 
@@ -204,6 +259,65 @@ class LLMClient:
         if usage:
             self._last_usage = usage  # Cache for more accurate spend recording
 
+        return data["content"][0]["text"]
+
+    async def _claude_generate_with_images(
+        self,
+        prompt: str,
+        images: list[bytes],
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        """Call Claude with image inputs."""
+        if not config.claude.api_key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+
+        if model == "genius":
+            model_id = config.claude.genius_model
+        elif model == "fast":
+            model_id = config.claude.fast_model
+        else:
+            model_id = config.claude.primary_model
+
+        content: list[dict] = []
+        for image in images:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": base64.b64encode(image).decode("utf-8"),
+                    },
+                }
+            )
+        content.append({"type": "text", "text": prompt})
+
+        body = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": content}],
+        }
+        if system:
+            body["system"] = system
+
+        resp = await self._get_http().post(
+            "https://api.anthropic.com/v1/messages",
+            json=body,
+            headers={
+                "x-api-key": config.claude.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usage", {})
+        if usage:
+            self._last_usage = usage
         return data["content"][0]["text"]
 
     async def _ollama_generate(

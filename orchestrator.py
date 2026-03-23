@@ -30,7 +30,10 @@ import threading
 import time
 from pathlib import Path
 
-logger = logging.getLogger("openjarvis.orchestrator")
+from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
+
+logger = setup_logging("orchestrator")
 
 # Vassal A2A endpoints
 VASSAL_CONFIG = {
@@ -304,6 +307,8 @@ class Orchestrator:
                 self._command_loop(),          # Operator commands
                 self._followup_loop(),         # Stale task monitoring
                 self._sleep_cycle_loop(),      # Nightly optimization
+                self._scout_loop(),            # External intelligence
+                self._self_audit_loop(),       # Codebase self-audit
             )
         finally:
             await self._cleanup()
@@ -662,6 +667,74 @@ class Orchestrator:
         except Exception as exc:
             logger.error("Sleep cycle error: %s", exc, exc_info=True)
 
+    # ── Codebase Self-Audit ────────────────────────────────────────────
+
+    async def _self_audit_loop(self):
+        """Run codebase self-audit every 3 hours with multi-agent consensus."""
+        # Initial delay: wait 30 min after startup for system to stabilize
+        await asyncio.sleep(1800)
+
+        while self._running:
+            try:
+                from perseus.self_audit import run_self_audit
+                result = await run_self_audit()
+                logger.info(
+                    "Self-audit: %d findings, %d approved, %d applied",
+                    result.get("total_findings", 0),
+                    result.get("approved", 0),
+                    result.get("applied", 0),
+                )
+            except Exception as exc:
+                logger.warning("Self-audit failed: %s", exc)
+
+            # Wait 3 hours until next cycle
+            wait = 10800  # 3 hours
+            while self._running and wait > 0:
+                chunk = min(wait, 60)
+                await asyncio.sleep(chunk)
+                wait -= chunk
+
+    # ── External Intelligence Scout ────────────────────────────────────
+
+    async def _scout_loop(self):
+        """Run external intelligence scout 2x daily (8 AM and 6 PM)."""
+        while self._running:
+            now = datetime.datetime.now()
+            # Next target: 8:17 AM or 6:43 PM (off-minute to avoid fleet collisions)
+            targets = [
+                now.replace(hour=8, minute=17, second=0, microsecond=0),
+                now.replace(hour=18, minute=43, second=0, microsecond=0),
+            ]
+            # Find next future target
+            future_targets = [t for t in targets if t > now]
+            if not future_targets:
+                # Both passed today — schedule first one tomorrow
+                target = targets[0] + datetime.timedelta(days=1)
+            else:
+                target = future_targets[0]
+
+            wait_seconds = (target - now).total_seconds()
+            is_morning = target.hour < 12
+
+            logger.info("Scout cycle scheduled in %.1f hours (%s)", wait_seconds / 3600,
+                         "morning" if is_morning else "evening")
+
+            while self._running and wait_seconds > 0:
+                sleep_chunk = min(wait_seconds, 60)
+                await asyncio.sleep(sleep_chunk)
+                wait_seconds -= sleep_chunk
+
+            if not self._running:
+                break
+
+            try:
+                from perseus.scout import run_scout_cycle
+                result = await run_scout_cycle(include_tier2=is_morning)
+                logger.info("Scout cycle: %d found, %d new, %d actionable",
+                            result.get("total", 0), result.get("new", 0), result.get("actionable", 0))
+            except Exception as exc:
+                logger.warning("Scout cycle failed: %s", exc)
+
     # ── Shutdown ──────────────────────────────────────────────────────
 
     def _request_shutdown(self):
@@ -714,10 +787,6 @@ class Orchestrator:
 # ── Entry Points ──────────────────────────────────────────────────────
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     orchestrator = Orchestrator()
@@ -725,6 +794,10 @@ def main():
         asyncio.run(orchestrator.start())
     except KeyboardInterrupt:
         logger.info("OpenJarvis stopped")
+    except Exception as exc:
+        capture_exception(exc, service_name="orchestrator", category="main")
+        logger.exception("OpenJarvis crashed")
+        raise
 
 
 async def main_with_a2a():
@@ -732,13 +805,10 @@ async def main_with_a2a():
     import uvicorn
     from shared.a2a_wrapper import AgentCard, create_a2a_app
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     orchestrator = Orchestrator()
+    install_asyncio_exception_handler(asyncio.get_running_loop(), "orchestrator")
 
     card = AgentCard(
         name="openjarvis",
@@ -768,7 +838,12 @@ async def main_with_a2a():
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_running_loop().add_signal_handler(sig, orchestrator._request_shutdown)
 
-    await asyncio.gather(orchestrator.start(), server.serve())
+    try:
+        await asyncio.gather(orchestrator.start(), server.serve())
+    except Exception as exc:
+        capture_exception(exc, service_name="orchestrator", category="a2a")
+        logger.exception("OpenJarvis A2A runtime crashed")
+        raise
 
 
 if __name__ == "__main__":

@@ -7,6 +7,9 @@ volumes:
   qdrant_data:
   n8n_data:
   mem0_data:
+  neo4j_data:
+  prometheus_data:
+  grafana_data:
 
 services:
   postgres:
@@ -75,6 +78,28 @@ services:
       timeout: 5s
       retries: 3
 
+  neo4j:
+    image: neo4j:5-community
+    container_name: perseus-neo4j
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-perseus_graph_2026}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_max__size: 256m
+      NEO4J_dbms_memory_pagecache_size: 128m
+    volumes:
+      - neo4j_data:/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
   # CrewAI removed — replaced by Perseus/Titan/Hermes native daemons
 
   n8n:
@@ -100,3 +125,38 @@ services:
       retries: 3
 
   # Pinchtab removed — not needed in new architecture
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: objective-hertz-prometheus
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 256m
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: objective-hertz-grafana
+    restart: unless-stopped
+    networks: [perseus-net]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-objective_hertz_2026}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    mem_limit: 256m

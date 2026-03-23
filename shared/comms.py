@@ -22,6 +22,7 @@ import uuid
 from typing import Any
 
 from shared import db
+from shared.observability import enrich_payload_with_context
 
 logger = logging.getLogger("perseus.comms")
 
@@ -47,6 +48,7 @@ async def request_task(
     full_payload = payload or {}
     if request_id:
         full_payload["request_id"] = request_id
+    full_payload = enrich_payload_with_context(full_payload, request_id=request_id)
 
     # Try A2A dispatch first (dynamic routing → static fallback)
     if _USE_A2A:
@@ -86,6 +88,7 @@ async def request_task_result(
     Via DB: inserts task, polls events table for task_result event.
     """
     full_payload = payload or {}
+    full_payload = enrich_payload_with_context(full_payload)
 
     # Try A2A direct call (synchronous request-response)
     if _USE_A2A:
@@ -105,6 +108,7 @@ async def request_task_result(
     # Fallback: DB insert + poll
     request_id = uuid.uuid4().hex
     full_payload["request_id"] = request_id
+    full_payload = enrich_payload_with_context(full_payload, request_id=request_id)
     task_id = await db.insert_task(task_type, full_payload, priority, dedupe=False)
     if task_id is None:
         return None
@@ -158,6 +162,7 @@ async def broadcast(event_type: str, payload: dict[str, Any] | None = None, send
     Hermes will also pick this up for Telegram alerts.
     """
     full_payload = {"sender": sender, **(payload or {})}
+    full_payload = enrich_payload_with_context(full_payload)
     await db.emit_event(event_type, full_payload)
 
 
@@ -181,9 +186,9 @@ async def store_learning(
     Categories: discovery, email, sales, pricing, industry, delivery, system
     """
     await db.execute(
-        """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event)
-           VALUES (%s, %s, %s, %s, %s)""",
-        (category, insight, confidence, source_lead_id, source_agent),
+        """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event, writer_agent)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (category, insight, confidence, source_lead_id, source_agent, source_agent or "unknown"),
     )
 
 

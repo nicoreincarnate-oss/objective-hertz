@@ -14,6 +14,7 @@ from shared import db
 from shared.agent_base import AgentBase
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
 
 logger = setup_logging("hermes")
 
@@ -209,10 +210,16 @@ async def main():
     hermes = HermesDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "hermes")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(hermes.stop()))
 
-    await hermes.start()
+    try:
+        await hermes.start()
+    except Exception as exc:
+        capture_exception(exc, service_name="hermes", category="main")
+        logger.exception("Hermes crashed")
+        raise
 
 
 async def main_with_a2a():
@@ -223,6 +230,7 @@ async def main_with_a2a():
     hermes = HermesDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "hermes")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(hermes.stop()))
 
@@ -232,7 +240,12 @@ async def main_with_a2a():
     server = _uvicorn.Server(uvi_config)
 
     logger.info("Hermes A2A server starting on :%d", a2a_port)
-    await asyncio.gather(hermes.start(), server.serve())
+    try:
+        await asyncio.gather(hermes.start(), server.serve())
+    except Exception as exc:
+        capture_exception(exc, service_name="hermes", category="a2a")
+        logger.exception("Hermes A2A runtime crashed")
+        raise
 
 
 if __name__ == "__main__":

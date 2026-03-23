@@ -172,3 +172,61 @@ async def test_research_one_stores_design_reference_packet_in_research_facts():
     assert stored_facts["reference_sites"][0]["url"] == "https://studio.example"
     assert "split hero" in stored_facts["reference_patterns"]
     assert stored_facts["design_positioning"] == "premium editorial clinic"
+
+
+@pytest.mark.asyncio
+async def test_research_one_rejects_placeholder_scrape_data_before_transition():
+    module = load_module()
+    module.execute = AsyncMock()
+    module.transition_lead = AsyncMock()
+    module.emit_pipeline_error = AsyncMock()
+    module._generate_research_data = AsyncMock()
+
+    async def fake_scrape(_lead):
+        return {
+            "summary": "No additional info found.",
+            "search_results": [],
+            "website_extract": {},
+        }
+
+    module._scrape_business_info = fake_scrape
+
+    lead = {
+        "id": 21,
+        "business_name": "Ghost Plumbing",
+        "email": "hello@example.com",
+        "industry": "home services",
+        "website_url": "https://example.com",
+        "city": "Austin",
+        "country": "US",
+    }
+
+    await module._research_one(lead)
+
+    module._generate_research_data.assert_not_called()
+    module.execute.assert_not_called()
+    module.transition_lead.assert_not_called()
+    module.emit_pipeline_error.assert_awaited_once()
+    event_args = module.emit_pipeline_error.await_args
+    assert event_args.args[0] == "lead_research_quality"
+    assert event_args.kwargs["lead_id"] == 21
+    assert "placeholder_summary" in event_args.kwargs["context"]["quality_reasons"]
+
+
+def test_quality_gate_flags_navigation_boilerplate_as_low_value():
+    module = load_module()
+
+    payload = {
+        "summary": (
+            "Home\nMenu\nLogin\nPrivacy Policy\nTerms of Service\n"
+            "Cookie Policy\nContact Us\nAll rights reserved."
+        ),
+        "search_results": [],
+        "website_extract": {},
+    }
+    structured = module._extract_structured_business_context(payload["summary"], {"business_name": "Example"})
+
+    assessment = module._assess_research_quality(payload, structured, {"business_name": "Example"})
+
+    assert assessment["ok"] is False
+    assert "navigation_or_legal_boilerplate" in assessment["reasons"]

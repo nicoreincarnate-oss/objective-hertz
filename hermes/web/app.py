@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,8 +24,13 @@ from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
 from shared.db import emit_event, fetch_all, fetch_val, get_config, insert_task
+from shared.observability import (
+    configure_service_observability,
+    prometheus_content_type,
+    render_prometheus_metrics,
+)
 
-_PUBLIC_PATHS = {"/api/health"}  # health check stays unauthenticated for monitoring
+_PUBLIC_PATHS = {"/api/health", "/metrics"}  # health and metrics stay unauthenticated
 
 
 def _get_dashboard_secret() -> str:
@@ -36,6 +41,7 @@ def _get_dashboard_secret() -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize DB pool on startup, close on shutdown."""
+    configure_service_observability("hermes-web", start_metrics_server_for_service=False)
     await db.init_pool()
     yield
     await db.close_pool()
@@ -292,3 +298,12 @@ async def api_health():
             "total_leads": int(total_leads),
         },
     })
+
+
+@app.get("/metrics")
+async def api_metrics():
+    """Prometheus metrics for the Hermes dashboard process."""
+    return PlainTextResponse(
+        render_prometheus_metrics().decode("utf-8"),
+        media_type=prometheus_content_type(),
+    )

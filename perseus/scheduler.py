@@ -45,6 +45,11 @@ SCHEDULES = [
     # ClawdBot tasks
     Schedule("site_verify", 3600, "Verify deployed sites are live", skippable=True, pipeline_stage="delivery"),
     Schedule("enrich_leads", 1800, "Enrich leads missing data", skippable=True, pipeline_stage="top_of_funnel"),
+    # Memory & learning (Phase 2-4)
+    Schedule("check_pending_outcomes", 3600, "Re-check lead outcomes for training accuracy", skippable=True, pipeline_stage="learning"),
+    Schedule("graphrag_consolidation", 604800, "Weekly memory consolidation", skippable=False),
+    Schedule("re_enrich_leads", 86400, "Re-enrich active leads with fresh data", skippable=True, pipeline_stage="top_of_funnel"),
+    Schedule("magma_consolidate", 1800, "MAGMA causal graph consolidation", skippable=True, pipeline_stage="learning"),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}

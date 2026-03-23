@@ -11,6 +11,7 @@ from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.memory import format_rules_for_prompt, get_relevant_learnings
 from titan.state_machine import transition_lead
+from titan.memory import attribute_reply_cause
 from titan.training import collect_email_outcome, collect_training_example
 
 logger = logging.getLogger("perseus.titan.follow_up")
@@ -143,6 +144,24 @@ async def _process_reply(reply: dict) -> bool:
     else:
         # Question or unclear — needs follow-up
         await transition_lead(lead["id"], "replied")
+
+    # Causal credit assignment (2.2): analyze which sentence caused the reply
+    if outcome in ("positive", "negative") and email_seq:
+        try:
+            orig_email = await fetch_one(
+                "SELECT subject, body FROM email_sequences WHERE id = %s",
+                (email_seq["id"],),
+            )
+            if orig_email and orig_email.get("body"):
+                original_text = f"Subject: {orig_email.get('subject', '')}\n\n{orig_email['body']}"
+                await attribute_reply_cause(
+                    original_email=original_text,
+                    reply_body=reply.get("body", "")[:1000],
+                    outcome=outcome,
+                    client_id=lead["id"],
+                )
+        except Exception as e:
+            logger.debug(f"Causal attribution skipped for lead {lead['id']}: {e}")
 
     return True
 

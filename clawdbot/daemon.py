@@ -23,6 +23,7 @@ from shared.agent_base import AgentBase
 from shared.comms import record_decision
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
 from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 
 logger = setup_logging("clawdbot")
@@ -823,8 +824,32 @@ class ClawdBotDaemon(AgentBase):
                     })
                 await self.complete_task(task["id"])
                 logger.debug(f"Task {task['id']} ({task_type}) completed")
+
+                # Cross-agent learning (3.3): feed skill outcomes to Titan's rules
+                try:
+                    from shared.comms import store_learning
+                    result_summary = str(result)[:200] if result else "ok"
+                    await store_learning(
+                        category="skill_performance",
+                        insight=f"Task '{task_type}' succeeded: {result_summary}",
+                        confidence=0.7,
+                    )
+                except Exception:
+                    pass  # Non-critical — don't fail the task over learning storage
+
             except Exception as e:
                 await self.fail_task(task["id"], str(e))
+
+                # Cross-agent learning (3.3): record failures too
+                try:
+                    from shared.comms import store_learning
+                    await store_learning(
+                        category="skill_performance",
+                        insight=f"Task '{task_type}' failed: {str(e)[:200]}",
+                        confidence=0.4,
+                    )
+                except Exception:
+                    pass
                 request_id = ""
                 if isinstance(task.get("payload"), str):
                     try:
@@ -1461,56 +1486,74 @@ async def handle_enrich_leads_batch(payload: dict):
 
 
 async def handle_verify_demo_site(payload: dict):
-    """Verify a demo site is good enough to send to a prospect."""
+    """Verify a site is good enough to send to a prospect or deploy to a client."""
     url = payload.get("url", "")
     business_name = payload.get("business_name", "")
     client_id = payload.get("client_id")
+    site_type = payload.get("site_type", "demo")
 
     if not url:
         return {"passed": False, "reason": "no_url"}
 
-    import httpx
-
-    # Step 1: Check it loads
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return {"passed": False, "reason": f"http_{resp.status_code}", "url": url}
-
-            html = resp.text
-            content_length = len(html)
-
-            # Step 2: Basic content checks
-            checks = {
-                "loads": True,
-                "has_content": content_length > 1000,
-                "has_business_name": business_name.lower() in html.lower() if business_name else True,
-                "not_error_page": "404" not in html[:500] and "error" not in html[:200].lower(),
-            }
-
-            passed = all(checks.values())
-
-            result = {
-                "passed": passed,
+        result = await handle_visual_site_review(
+            {
                 "url": url,
-                "checks": checks,
-                "content_length": content_length,
+                "business_name": business_name,
                 "client_id": client_id,
+                "site_type": site_type,
             }
-
-            if not passed:
-                failed = [k for k, v in checks.items() if not v]
-                result["reason"] = f"failed_checks: {', '.join(failed)}"
-                logger.warning(f"Demo site QA failed for {url}: {failed}")
-                await db.emit_event("demo_qa_failed", result)
-            else:
-                logger.info(f"Demo site QA passed for {url}")
-
-            return result
+        )
+        event_name = "full_site_qa_failed" if site_type == "full" else "demo_qa_failed"
+        if not result.get("passed"):
+            logger.warning(f"{site_type.title()} site QA failed for {url}: {result.get('reason', 'unknown')}")
+            await db.emit_event(event_name, result)
+        else:
+            logger.info(f"{site_type.title()} site QA passed for {url}")
+        return result
 
     except Exception as e:
         return {"passed": False, "reason": f"error: {str(e)[:200]}", "url": url}
+
+
+async def handle_visual_site_review(payload: dict):
+    """Critique a site visually using rendered screenshots plus markup heuristics."""
+    from clawdbot.site_quality import evaluate_site_experience
+
+    url = payload.get("url", "")
+    html = payload.get("html", "")
+    business_name = payload.get("business_name", "")
+    client_id = payload.get("client_id")
+    site_type = payload.get("site_type", "demo")
+    context = payload.get("context", {})
+
+    result = await evaluate_site_experience(
+        html=html,
+        url=url,
+        business_name=business_name,
+        site_type=site_type,
+        context=context,
+    )
+
+    full_result = {
+        **result,
+        "url": url,
+        "client_id": client_id,
+        "business_name": business_name,
+    }
+    await db.emit_event(
+        "site_visual_review_completed",
+        {
+            "client_id": client_id,
+            "business_name": business_name,
+            "site_type": site_type,
+            "passed": full_result.get("passed", False),
+            "reason": full_result.get("reason", ""),
+            "visual_score": full_result.get("visual_review", {}).get("score"),
+            "url": url,
+        },
+    )
+    return full_result
 
 
 # ── Capability Mapping Helpers ─────────────────────────────────────
@@ -1800,10 +1843,16 @@ async def main():
     bot = ClawdBotDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "clawdbot")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.stop()))
 
-    await bot.start()
+    try:
+        await bot.start()
+    except Exception as exc:
+        capture_exception(exc, service_name="clawdbot", category="main")
+        logger.exception("ClawdBot crashed")
+        raise
 
 
 async def main_with_a2a():
@@ -1815,6 +1864,7 @@ async def main_with_a2a():
     bot = ClawdBotDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "clawdbot")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.stop()))
 
@@ -1824,7 +1874,12 @@ async def main_with_a2a():
     server = _uvicorn.Server(uvi_config)
 
     logger.info("ClawdBot A2A server starting on :%d", a2a_port)
-    await asyncio.gather(bot.start(), server.serve())
+    try:
+        await asyncio.gather(bot.start(), server.serve())
+    except Exception as exc:
+        capture_exception(exc, service_name="clawdbot", category="a2a")
+        logger.exception("ClawdBot A2A runtime crashed")
+        raise
 
 
 if __name__ == "__main__":
