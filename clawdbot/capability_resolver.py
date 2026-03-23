@@ -463,8 +463,8 @@ async def _check_spend_gate(capability: str, estimated_monthly_cost: float) -> b
         return True
 
     except Exception as e:
-        logger.debug(f"Spend gate check failed (allowing): {e}")
-        return True  # Fail open
+        logger.warning(f"Spend gate check failed (blocking): {e}")
+        return False  # Fail closed — budget check required
 
 
 async def is_already_resolved(capability: str) -> bool:

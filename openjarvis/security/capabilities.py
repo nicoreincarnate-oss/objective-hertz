@@ -57,7 +57,7 @@ class CapabilityPolicy:
         self,
         *,
         policy_path: Optional[str] = None,
-        default_deny: bool = False,
+        default_deny: bool = True,
     ) -> None:
         self._policies: Dict[str, AgentPolicy] = {}
         self._default_deny = default_deny

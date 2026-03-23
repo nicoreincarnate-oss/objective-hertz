@@ -127,7 +127,7 @@ class ShellExecTool(BaseTool):
 
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        if True:
+        if _rust is not None:
             try:
                 output = _rust.ShellExecTool().execute(command, working_dir)
                 return ToolResult(

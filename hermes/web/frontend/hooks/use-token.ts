@@ -11,9 +11,6 @@ export function useToken() {
     const urlParams = new URLSearchParams(window.location.search)
     const urlToken = urlParams.get('token')
     
-    console.log('[v0] URL search:', window.location.search)
-    console.log('[v0] URL token found:', urlToken)
-    
     if (urlToken) {
       setToken(urlToken)
       // Store in sessionStorage for persistence during session
@@ -21,7 +18,6 @@ export function useToken() {
     } else {
       // Try to get from sessionStorage
       const storedToken = sessionStorage.getItem('perseus_token')
-      console.log('[v0] Session token found:', storedToken)
       if (storedToken) {
         setToken(storedToken)
       }

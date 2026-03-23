@@ -30,17 +30,24 @@ CLAWDBOT_CARD = AgentCard(
         "skill_execute", "skill_list", "skill_find",
         "web_scrape", "scrape_company",
         "browser_task",
+        "agent_orchestration",
+        "android_automation",
         "site_verify", "site_verify_batch", "verify_demo_site",
         "enrich_lead", "enrich_leads_batch",
+        "voice_call",
+        "whatsapp_message",
         "image_generation",
         "notebooklm",
         "n8n_workflow",
         "safety_vet",
         "capability_list", "capability_resolve",
+        "capability_runtime_status",
         "operator_message",
         "recommend",
         "infra_health",
         "health_check",
+        "events_recent",
+        "event_relay",
     ],
 )
 
@@ -74,6 +81,16 @@ async def _scrape_company(company_url: str = "", business_name: str = "", **_) -
 async def _browser_task(description: str = "", url: str = "", **_) -> dict:
     from clawdbot.daemon import handle_browser_task
     return await handle_browser_task({"description": description, "url": url})
+
+
+async def _agent_orchestration(objective: str = "", **kwargs) -> dict:
+    from clawdbot.daemon import handle_agent_orchestration
+    return await handle_agent_orchestration({"objective": objective, **kwargs})
+
+
+async def _android_automation(action: str = "status", **kwargs) -> dict:
+    from clawdbot.daemon import handle_android_automation
+    return await handle_android_automation({"action": action, **kwargs})
 
 
 async def _site_verify(url: str = "", client_id: int | None = None, **_) -> dict:
@@ -138,6 +155,15 @@ async def _capability_resolve(capability: str = "", context: dict | None = None,
     return await resolve_capability(capability, context or {})
 
 
+async def _capability_runtime_status(**_) -> dict:
+    from shared.db import get_config
+
+    return {
+        "runtime_capabilities": await get_config("clawdbot_capability_runtime", {}),
+        "agent_mesh": await get_config("clawdbot_agent_mesh", []),
+    }
+
+
 async def _operator_message(message: str = "", **_) -> dict:
     from clawdbot.daemon import handle_operator_message
     return await handle_operator_message({"message": message})
@@ -189,6 +215,16 @@ async def _infra_health(**_) -> dict:
     return results
 
 
+async def _voice_call(to: str = "", **kwargs) -> dict:
+    from clawdbot.daemon import handle_voice_call
+    return await handle_voice_call({"to": to, **kwargs})
+
+
+async def _whatsapp_message(message: str = "", to: str = "", **kwargs) -> dict:
+    from clawdbot.daemon import handle_whatsapp_message
+    return await handle_whatsapp_message({"message": message, "to": to, **kwargs})
+
+
 async def _health_check(**_) -> dict:
     skills = list_installed_skills()
     return {"status": "running", "agent": "clawdbot", "skills_count": len(skills)}
@@ -200,7 +236,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     from shared.db import fetch_val
 
     skills = list_installed_skills()
-    skill_names = [s[0] for s in skills[:20]] if skills else []
+    skill_names = [s["name"] for s in skills[:20]] if skills else []
 
     # Check infra health
     infra = await fetch_val(
@@ -220,6 +256,27 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "clawdbot"}
 
 
+async def _events_recent(limit: int = 20, **_) -> list:
+    """Return recent events for this agent."""
+    rows = await db.fetch_all(
+        "SELECT event_type, payload, created_at FROM events ORDER BY created_at DESC LIMIT %s",
+        (limit,),
+    )
+    return [dict(r) for r in rows]
+
+
+async def _event_relay(type: str = "", payload: dict = None, source: str = "", **_) -> dict:
+    """Accept a relayed event from OpenJarvis and store it."""
+    if not type:
+        return {"error": "event type is required"}
+    await db.emit_event(f"relayed_{type}", {
+        "source": source,
+        "original_type": type,
+        **(payload or {}),
+    })
+    return {"status": "relayed", "type": type, "source": source}
+
+
 CAPABILITY_HANDLERS = {
     "ask": _ask,
     "skill_execute": _skill_execute,
@@ -228,21 +285,28 @@ CAPABILITY_HANDLERS = {
     "web_scrape": _web_scrape,
     "scrape_company": _scrape_company,
     "browser_task": _browser_task,
+    "agent_orchestration": _agent_orchestration,
+    "android_automation": _android_automation,
     "site_verify": _site_verify,
     "site_verify_batch": _site_verify_batch,
     "verify_demo_site": _verify_demo_site,
     "enrich_lead": _enrich_lead,
     "enrich_leads_batch": _enrich_leads_batch,
+    "voice_call": _voice_call,
+    "whatsapp_message": _whatsapp_message,
     "image_generation": _image_generation,
     "notebooklm": _notebooklm,
     "n8n_workflow": _n8n_workflow,
     "safety_vet": _safety_vet,
     "capability_list": _capability_list,
     "capability_resolve": _capability_resolve,
+    "capability_runtime_status": _capability_runtime_status,
     "operator_message": _operator_message,
     "recommend": _recommend,
     "infra_health": _infra_health,
     "health_check": _health_check,
+    "events_recent": _events_recent,
+    "event_relay": _event_relay,
 }
 
 
@@ -274,6 +338,12 @@ async def handle_a2a(input_text: str) -> str:
         urls = re.findall(r'https?://\S+', text)
         url = urls[0] if urls else ""
         result = await _web_scrape(url=url)
+    elif "android" in lower or "adb" in lower:
+        result = await _android_automation()
+    elif "voice" in lower or "call" in lower:
+        result = {"error": "Specify a structured voice_call request with a target number."}
+    elif "agent" in lower and ("mesh" in lower or "orchestrat" in lower):
+        result = await _agent_orchestration()
     elif "verify" in lower and "site" in lower:
         import re
         urls = re.findall(r'https?://\S+', text)

@@ -19,6 +19,9 @@ from typing import Any
 
 import httpx
 
+from conway.wallet import AgentWallet
+from conway.x402_client import X402Client
+
 logger = logging.getLogger("conway.cloud")
 
 DEFAULT_API_URL = "https://api.conway.tech"
@@ -45,31 +48,73 @@ class ConwayCloudClient:
         self,
         api_key: str | None = None,
         base_url: str | None = None,
+        wallet: AgentWallet | None = None,
+        facilitator_url: str | None = None,
     ):
         self._api_key = api_key or os.environ.get("CONWAY_API_KEY", "")
         self._base_url = (base_url or os.environ.get("CONWAY_API_URL", DEFAULT_API_URL)).rstrip("/")
+        self._wallet = wallet
+        self._x402 = X402Client(
+            facilitator_url or os.environ.get("X402_FACILITATOR_URL", ""),
+        ) if wallet is not None else None
 
     @property
     def available(self) -> bool:
-        return bool(self._api_key)
+        return bool(self._api_key or self._wallet)
 
     def _headers(self) -> dict[str, str]:
+        if not self._api_key:
+            return {
+                "Content-Type": "application/json",
+            }
         return {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
 
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Make a Conway Cloud request with optional x402 fallback."""
+        url = path if path.startswith("http://") or path.startswith("https://") else f"{self._base_url}{path}"
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(
+                method,
+                url,
+                headers=self._headers(),
+                json=json_body,
+            )
+
+            if resp.status_code == 402 and self._wallet and self._x402:
+                paid = await self._x402.pay_and_request(
+                    url,
+                    self._wallet,
+                    method=method,
+                    body=json_body,
+                )
+                status = int(paid.get("status", 0) or 0)
+                if 200 <= status < 300:
+                    return paid.get("data", {}) or {}
+                raise RuntimeError(
+                    paid.get("error") or f"x402 payment request failed with status {status}"
+                )
+
+            resp.raise_for_status()
+            if not resp.content:
+                return {}
+            return resp.json()
+
     async def get_credits(self) -> Decimal:
         """Get current Conway Cloud credit balance."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{self._base_url}/v1/credits",
-                    headers=self._headers(),
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return Decimal(str(data.get("balance", 0)))
+            data = await self._request_json("GET", "/v1/credits", timeout=10.0)
+            return Decimal(str(data.get("balance", 0)))
         except Exception as e:
             logger.error(f"Failed to get credits: {e}")
             return Decimal("0")
@@ -82,28 +127,26 @@ class ConwayCloudClient:
     ) -> ComputeInstance | None:
         """Provision a compute instance."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self._base_url}/v1/compute/provision",
-                    headers=self._headers(),
-                    json={
-                        "gpu_type": gpu_type,
-                        "duration_hours": duration_hours,
-                        "image": image,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return ComputeInstance(
-                    instance_id=data["instance_id"],
-                    provider="conway",
-                    gpu_type=gpu_type,
-                    price_per_hour=Decimal(str(data.get("price_per_hour", 0))),
-                    status="active",
-                    ssh_host=data.get("ssh_host", ""),
-                    ssh_port=data.get("ssh_port", 22),
-                    metadata=data,
-                )
+            data = await self._request_json(
+                "POST",
+                "/v1/compute/provision",
+                json_body={
+                    "gpu_type": gpu_type,
+                    "duration_hours": duration_hours,
+                    "image": image,
+                },
+                timeout=30.0,
+            )
+            return ComputeInstance(
+                instance_id=data["instance_id"],
+                provider="conway",
+                gpu_type=gpu_type,
+                price_per_hour=Decimal(str(data.get("price_per_hour", 0))),
+                status="active",
+                ssh_host=data.get("ssh_host", ""),
+                ssh_port=data.get("ssh_port", 22),
+                metadata=data,
+            )
         except Exception as e:
             logger.error(f"Failed to provision compute: {e}")
             return None
@@ -111,14 +154,13 @@ class ConwayCloudClient:
     async def release_compute(self, instance_id: str) -> bool:
         """Release a rented compute instance."""
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    f"{self._base_url}/v1/compute/release",
-                    headers=self._headers(),
-                    json={"instance_id": instance_id},
-                )
-                resp.raise_for_status()
-                return True
+            await self._request_json(
+                "POST",
+                "/v1/compute/release",
+                json_body={"instance_id": instance_id},
+                timeout=15.0,
+            )
+            return True
         except Exception as e:
             logger.error(f"Failed to release compute {instance_id}: {e}")
             return False
@@ -126,26 +168,21 @@ class ConwayCloudClient:
     async def list_compute(self) -> list[ComputeInstance]:
         """List all active compute instances."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{self._base_url}/v1/compute",
-                    headers=self._headers(),
-                )
-                resp.raise_for_status()
-                instances = []
-                for item in resp.json().get("instances", []):
-                    instances.append(
-                        ComputeInstance(
-                            instance_id=item["instance_id"],
-                            provider="conway",
-                            gpu_type=item.get("gpu_type", ""),
-                            price_per_hour=Decimal(str(item.get("price_per_hour", 0))),
-                            status=item.get("status", "unknown"),
-                            ssh_host=item.get("ssh_host", ""),
-                            ssh_port=item.get("ssh_port", 22),
-                        )
+            data = await self._request_json("GET", "/v1/compute", timeout=10.0)
+            instances = []
+            for item in data.get("instances", []):
+                instances.append(
+                    ComputeInstance(
+                        instance_id=item["instance_id"],
+                        provider="conway",
+                        gpu_type=item.get("gpu_type", ""),
+                        price_per_hour=Decimal(str(item.get("price_per_hour", 0))),
+                        status=item.get("status", "unknown"),
+                        ssh_host=item.get("ssh_host", ""),
+                        ssh_port=item.get("ssh_port", 22),
                     )
-                return instances
+                )
+            return instances
         except Exception as e:
             logger.error(f"Failed to list compute: {e}")
             return []
@@ -159,20 +196,18 @@ class ConwayCloudClient:
     ) -> str:
         """Request inference from a frontier model via Conway Cloud."""
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self._base_url}/v1/inference",
-                    headers=self._headers(),
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "max_tokens": max_tokens,
-                        "temperature": temperature,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return data.get("content", "")
+            data = await self._request_json(
+                "POST",
+                "/v1/inference",
+                json_body={
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+                timeout=60.0,
+            )
+            return data.get("content", "")
         except Exception as e:
             logger.error(f"Conway inference failed: {e}")
             return ""
@@ -180,14 +215,12 @@ class ConwayCloudClient:
     async def register_domain(self, domain: str) -> dict[str, Any]:
         """Register a domain via Conway Cloud."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self._base_url}/v1/domains/register",
-                    headers=self._headers(),
-                    json={"domain": domain},
-                )
-                resp.raise_for_status()
-                return resp.json()
+            return await self._request_json(
+                "POST",
+                "/v1/domains/register",
+                json_body={"domain": domain},
+                timeout=30.0,
+            )
         except Exception as e:
             logger.error(f"Domain registration failed: {e}")
             return {"error": str(e)}

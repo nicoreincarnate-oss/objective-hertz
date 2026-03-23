@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -60,6 +61,7 @@ class DecisionAudit:
     ) -> None:
         self._db_path = db_path
         self._bus = bus
+        self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_CREATE_TABLE)
@@ -74,21 +76,22 @@ class DecisionAudit:
     ) -> int:
         """Record an autonomous decision. Returns decision ID."""
         now = time.time()
-        cursor = self._conn.execute(
-            "INSERT INTO agent_decisions "
-            "(agent, decision_type, context_json, decision_json, reasoning, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                agent,
-                decision_type,
-                json.dumps(context, default=str),
-                json.dumps(decision, default=str),
-                reasoning,
-                now,
-            ),
-        )
-        self._conn.commit()
-        decision_id = cursor.lastrowid
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO agent_decisions "
+                "(agent, decision_type, context_json, decision_json, reasoning, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    agent,
+                    decision_type,
+                    json.dumps(context, default=str),
+                    json.dumps(decision, default=str),
+                    reasoning,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            decision_id = cursor.lastrowid
 
         if self._bus:
             self._bus.publish(EventType.DECISION_RECORDED, {
@@ -111,11 +114,12 @@ class DecisionAudit:
     ) -> None:
         """Update a decision with its observed outcome."""
         now = time.time()
-        self._conn.execute(
-            "UPDATE agent_decisions SET outcome_json = ?, outcome_at = ? WHERE id = ?",
-            (json.dumps(outcome, default=str), now, decision_id),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE agent_decisions SET outcome_json = ?, outcome_at = ? WHERE id = ?",
+                (json.dumps(outcome, default=str), now, decision_id),
+            )
+            self._conn.commit()
 
     def get_recent(
         self,

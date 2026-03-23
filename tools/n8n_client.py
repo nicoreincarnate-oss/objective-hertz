@@ -77,8 +77,11 @@ async def trigger_workflow(
 async def list_workflows() -> list[dict[str, Any]]:
     """List active N8N workflows (requires API access)."""
     import os
-    user = os.getenv("N8N_USER", "perseus")
-    password = os.getenv("N8N_PASSWORD", "perseus_n8n_2026")
+    user = os.getenv("N8N_USER", "")
+    password = os.getenv("N8N_PASSWORD", "")
+    if not user or not password:
+        logger.warning("N8N_USER / N8N_PASSWORD not set — cannot list workflows")
+        return []
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

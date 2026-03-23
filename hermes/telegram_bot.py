@@ -4,6 +4,7 @@ Commands, alerts, morning briefings.
 """
 
 import hmac
+import json
 import logging
 import os
 
@@ -280,7 +281,7 @@ async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     from shared.db import execute
     await execute(
         "INSERT INTO events (event_type, payload) VALUES (%s, %s)",
-        ("operator_message", f'{{"text": "{text[:500]}", "source": "telegram"}}'),
+        ("operator_message", json.dumps({"text": text[:500], "source": "telegram"})),
     )
 
     # Forward to OpenJarvis as a boss command

@@ -18,21 +18,33 @@ from conway.wallet import AgentWallet
 
 logger = logging.getLogger("conway.registry")
 
-# ERC-8004 registry contract on Base mainnet
-# This address should be updated to the actual deployed contract
-REGISTRY_CONTRACT = os.environ.get(
-    "ERC8004_REGISTRY_ADDRESS",
-    "0x0000000000000000000000000000000000000000",  # Placeholder
-)
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
+def _registry_contract() -> str:
+    """Resolve the configured ERC-8004 registry contract address lazily."""
+    configured = os.environ.get("ERC8004_REGISTRY_ADDRESS", "").strip()
+    if configured:
+        return configured
+    try:
+        from shared.config import config
+
+        configured = str(config.conway.erc8004_registry or "").strip()
+        if configured:
+            return configured
+    except Exception:
+        pass
+    return ZERO_ADDRESS
 
 
 class AgentRegistry8004:
     """Register and discover agents on Base via ERC-8004."""
 
-    def __init__(self, rpc_url: str | None = None):
+    def __init__(self, rpc_url: str | None = None, contract_address: str | None = None):
         self._rpc_url = rpc_url or os.environ.get(
             "BASE_RPC_URL", "https://mainnet.base.org"
         )
+        self._contract_address = (contract_address or _registry_contract()).strip() or ZERO_ADDRESS
 
     async def register(
         self,
@@ -45,7 +57,8 @@ class AgentRegistry8004:
         agent_card should contain: name, description, capabilities, url
         Returns transaction hash or empty string on failure.
         """
-        if REGISTRY_CONTRACT == "0x0000000000000000000000000000000000000000":
+        contract_address = self._contract_address or _registry_contract()
+        if contract_address == ZERO_ADDRESS:
             logger.warning(
                 "ERC-8004 registry address not configured. "
                 "Set ERC8004_REGISTRY_ADDRESS env var."
@@ -102,7 +115,7 @@ class AgentRegistry8004:
                     "nonce": nonce,
                     "gasPrice": gas_price,
                     "gas": 200000,
-                    "to": REGISTRY_CONTRACT,
+                    "to": contract_address,
                     "value": 0,
                     "data": bytes.fromhex(tx_data[2:] if tx_data.startswith("0x") else tx_data),
                     "chainId": 8453,
@@ -139,7 +152,8 @@ class AgentRegistry8004:
 
     async def lookup(self, address: str) -> dict[str, Any] | None:
         """Look up an agent's card by their address."""
-        if REGISTRY_CONTRACT == "0x0000000000000000000000000000000000000000":
+        contract_address = self._contract_address or _registry_contract()
+        if contract_address == ZERO_ADDRESS:
             return None
 
         try:
@@ -155,7 +169,7 @@ class AgentRegistry8004:
                         "jsonrpc": "2.0",
                         "method": "eth_call",
                         "params": [
-                            {"to": REGISTRY_CONTRACT, "data": data},
+                            {"to": contract_address, "data": data},
                             "latest",
                         ],
                         "id": 1,

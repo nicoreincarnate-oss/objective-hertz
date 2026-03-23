@@ -259,7 +259,7 @@ async def is_agent_alive(agent_name: str, max_age_seconds: int = 120) -> bool:
     row = await db.fetch_one(
         """SELECT last_heartbeat FROM agent_registry
            WHERE name = %s AND status = 'active'
-           AND last_heartbeat > NOW() - INTERVAL '%s seconds'""",
+           AND last_heartbeat > NOW() - make_interval(secs => %s)""",
         (agent_name, max_age_seconds),
     )
     return row is not None
@@ -321,7 +321,7 @@ async def get_pending_recommendations(
         """SELECT id, payload, created_at FROM events
            WHERE event_type = 'agent_recommendation'
            AND payload::jsonb->>'to' = %s
-           AND created_at > NOW() - INTERVAL '%s minutes'
+           AND created_at > NOW() - make_interval(mins => %s)
            ORDER BY created_at DESC LIMIT %s""",
         (target_agent, since_minutes, limit),
     )

@@ -235,8 +235,8 @@ class AuditLogger:
         # Map EventType to SecurityEventType
         mapping = {
             EventType.SECURITY_SCAN: SecurityEventType.SECRET_DETECTED,
-            EventType.SECURITY_ALERT: SecurityEventType.SECRET_DETECTED,
-            EventType.SECURITY_BLOCK: SecurityEventType.SECRET_DETECTED,
+            EventType.SECURITY_ALERT: SecurityEventType.PII_DETECTED,
+            EventType.SECURITY_BLOCK: SecurityEventType.TOOL_BLOCKED,
         }
         event_type = mapping.get(event.event_type, SecurityEventType.SECRET_DETECTED)
 

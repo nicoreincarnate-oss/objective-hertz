@@ -45,7 +45,7 @@ wait_for_http() {
 }
 
 echo "═══════════════════════════════════════"
-echo "  PERSEUS — Starting Hermes + Workers"
+echo "  OPENJARVIS — Starting The Boss"
 echo "═══════════════════════════════════════"
 
 # 1. Start Docker services
@@ -114,30 +114,21 @@ if ! hermes gateway start > /dev/null 2>&1; then
 fi
 echo "  ✓ Hermes gateway running"
 
-# 5. Start Perseus daemon
-echo "[5/8] Starting Perseus (master)..."
+# 5. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
+echo "[5/6] Starting OpenJarvis Orchestrator (boss)..."
 cd "$ROOT_DIR"
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m perseus.daemon > /dev/null 2>&1 &
-echo $! > "$PID_DIR/perseus.pid"
-wait_for_pid "$(cat "$PID_DIR/perseus.pid")" "Perseus"
-echo "  ✓ Perseus started (PID: $(cat $PID_DIR/perseus.pid))"
+LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
+echo $! > "$PID_DIR/orchestrator.pid"
+wait_for_pid "$(cat "$PID_DIR/orchestrator.pid")" "OpenJarvis"
+echo "  ✓ OpenJarvis started (PID: $(cat $PID_DIR/orchestrator.pid))"
+echo "  OpenJarvis will spawn Titan, Hermes, and ClawdBot as vassals."
+echo "  Waiting for vassals to come up..."
+sleep 5
+wait_for_http "http://localhost:9000/.well-known/agent.json" "OpenJarvis A2A" 30
+echo "  ✓ OpenJarvis A2A ready on :9000"
 
-# 6. Start Titan daemon
-echo "[6/8] Starting Titan (pipeline)..."
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m titan.daemon > /dev/null 2>&1 &
-echo $! > "$PID_DIR/titan.pid"
-wait_for_pid "$(cat "$PID_DIR/titan.pid")" "Titan"
-echo "  ✓ Titan started (PID: $(cat $PID_DIR/titan.pid))"
-
-# 7. Start ClawdBot daemon
-echo "[7/8] Starting ClawdBot (skills + browser)..."
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m clawdbot.daemon > /dev/null 2>&1 &
-echo $! > "$PID_DIR/clawdbot.pid"
-wait_for_pid "$(cat "$PID_DIR/clawdbot.pid")" "ClawdBot"
-echo "  ✓ ClawdBot started (PID: $(cat $PID_DIR/clawdbot.pid))"
-
-# 8. Start dashboard backend
-echo "[8/8] Starting dashboard backend..."
+# 6. Start dashboard backend
+echo "[6/6] Starting dashboard backend..."
 LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
 echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
@@ -167,15 +158,16 @@ fi
 
 echo ""
 echo "═══════════════════════════════════════"
-echo "  PERSEUS IS LIVE — HERMES + 5 LOCAL SERVICES"
+echo "  OPENJARVIS IS LIVE — THE BOSS + VASSALS"
 echo "═══════════════════════════════════════"
-echo "  Hermes   Gateway: launchd service"
-echo "  Perseus  PID: $(cat $PID_DIR/perseus.pid)"
-echo "  Titan    PID: $(cat $PID_DIR/titan.pid)"
-echo "  ClawdBot PID: $(cat $PID_DIR/clawdbot.pid)"
-echo "  Dashboard PID: $(cat $PID_DIR/dashboard.pid)"
+echo "  Hermes     Gateway: launchd service"
+echo "  OpenJarvis PID: $(cat $PID_DIR/orchestrator.pid) (port 9000)"
+echo "  Titan      managed by OpenJarvis (port 9001)"
+echo "  Hermes     managed by OpenJarvis (port 9002)"
+echo "  ClawdBot   managed by OpenJarvis (port 9003)"
+echo "  Dashboard  PID: $(cat $PID_DIR/dashboard.pid)"
 if [ -f "$PID_DIR/frontend.pid" ]; then
-echo "  Frontend PID: $(cat $PID_DIR/frontend.pid)"
+echo "  Frontend   PID: $(cat $PID_DIR/frontend.pid)"
 echo "  Dashboard: http://localhost:3000"
 fi
 echo ""

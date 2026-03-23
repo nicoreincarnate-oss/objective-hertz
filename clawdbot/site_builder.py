@@ -15,6 +15,7 @@ import os
 import re
 from typing import Any
 
+from clawdbot.design_sources import _extract_research_facts
 from shared.comms import record_decision
 from shared.db import emit_event
 from shared.llm_client import llm
@@ -337,21 +338,6 @@ Return JSON:
         pass
 
     return strategy
-
-
-def _extract_research_facts(lead: dict) -> dict[str, Any]:
-    """Read design-related fields from research_facts if available."""
-    raw = lead.get("research_facts")
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            return {}
-    return {}
 
 
 def _resolve_design_sources(lead: dict) -> dict[str, Any]:

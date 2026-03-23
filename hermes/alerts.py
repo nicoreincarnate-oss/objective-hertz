@@ -1,8 +1,10 @@
-"""
-Hermes alert dispatcher — sends Telegram notifications for important events.
-"""
+"""Hermes alert dispatcher — sends operator notifications via channel backends."""
 
+from __future__ import annotations
+
+import asyncio
 import logging
+import os
 
 import httpx
 
@@ -11,9 +13,12 @@ from shared.db import execute, fetch_all
 
 logger = logging.getLogger("perseus.hermes.alerts")
 
+_CHANNEL_BACKEND = None
+_CHANNEL_BACKEND_KEY = None
+
 
 async def dispatch_alerts():
-    """Check for unacknowledged events and send Telegram alerts.
+    """Check for unacknowledged events and send operator alerts.
 
     This is the FALLBACK poll loop. Primary delivery is via A2A push
     through dispatch_alert_for_event().
@@ -28,21 +33,24 @@ async def dispatch_alerts():
         try:
             # Morning briefing is special — triggers the full briefing function
             if event.get("event_type") == "morning_briefing":
-                await send_morning_briefing()
+                sent = await send_morning_briefing()
             else:
                 message = _format_event(event)
+                sent = False
                 if message:
-                    await _send_telegram(message)
-            await execute(
-                "UPDATE events SET acknowledged = TRUE WHERE id = %s",
-                (event["id"],),
-            )
+                    delivery = await send_operator_message(message)
+                    sent = bool(delivery.get("sent"))
+            if sent:
+                await execute(
+                    "UPDATE events SET acknowledged = TRUE WHERE id = %s",
+                    (event["id"],),
+                )
         except Exception as e:
             logger.error(f"Alert dispatch failed for event {event['id']}: {e}")
 
 
 async def dispatch_alert_for_event(event: dict) -> bool:
-    """Dispatch a single event as a Telegram alert (called via A2A push).
+    """Dispatch a single event as an operator alert (called via A2A push).
 
     This is the PRIMARY delivery path — events arrive instantly via A2A
     instead of waiting for the poll cycle.
@@ -59,14 +67,13 @@ async def dispatch_alert_for_event(event: dict) -> bool:
 
     try:
         if event_type == "morning_briefing":
-            await send_morning_briefing()
-            return True
+            return await send_morning_briefing()
 
         formatted = {"event_type": event_type, "payload": event}
         message = _format_event(formatted)
         if message:
-            await _send_telegram(message)
-            return True
+            delivery = await send_operator_message(message)
+            return bool(delivery.get("sent"))
     except Exception as e:
         logger.error(f"A2A alert dispatch failed for {event_type}: {e}")
 
@@ -74,7 +81,7 @@ async def dispatch_alert_for_event(event: dict) -> bool:
 
 
 def _format_event(event: dict) -> str:
-    """Format an event into a Telegram message."""
+    """Format an event into an operator-facing message."""
     etype = event.get("event_type", "")
     payload = event.get("payload", {})
 
@@ -184,24 +191,177 @@ def _format_event(event: dict) -> str:
     return f"*[Perseus]* {etype}: {str(payload)[:200]}"
 
 
-async def _send_telegram(message: str):
+def _get_channel_backend():
+    """Resolve and cache the configured OpenJarvis channel backend."""
+    global _CHANNEL_BACKEND, _CHANNEL_BACKEND_KEY
+
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.system import SystemBuilder
+        from shared.oj_bridge import get_bus
+
+        oj_config = load_config()
+        channel_key = (oj_config.channel.default_channel or "").strip()
+        if not oj_config.channel.enabled or not channel_key:
+            return None, oj_config, ""
+
+        if _CHANNEL_BACKEND is None or _CHANNEL_BACKEND_KEY != channel_key:
+            builder = SystemBuilder()
+            _CHANNEL_BACKEND = builder._resolve_channel(oj_config, get_bus())
+            _CHANNEL_BACKEND_KEY = channel_key
+
+        if _CHANNEL_BACKEND is not None:
+            try:
+                _CHANNEL_BACKEND.connect()
+            except Exception:
+                logger.debug("Channel connect failed for %s", channel_key, exc_info=True)
+
+        return _CHANNEL_BACKEND, oj_config, channel_key
+    except Exception:
+        logger.debug("Failed to resolve OpenJarvis channel backend", exc_info=True)
+        return None, None, ""
+
+
+def _resolve_channel_target(channel_key: str, oj_config, explicit_target: str = "") -> str:
+    """Resolve the target chat/room/address for the configured channel."""
+    if explicit_target:
+        return explicit_target
+
+    generic = os.environ.get("OPENJARVIS_CHANNEL_TARGET", "").strip()
+    if generic:
+        return generic
+
+    env_map = {
+        "discord": ("DISCORD_CHANNEL_ID", "DISCORD_DEFAULT_CHANNEL"),
+        "slack": ("SLACK_CHANNEL_ID", "SLACK_DEFAULT_CHANNEL"),
+        "email": ("EMAIL_TO", "EMAIL_RECIPIENT"),
+        "whatsapp": ("WHATSAPP_TO",),
+        "signal": ("SIGNAL_TO", "SIGNAL_RECIPIENT"),
+        "google_chat": ("GOOGLE_CHAT_SPACE",),
+        "irc": ("IRC_CHANNEL",),
+        "webchat": ("WEBCHAT_SESSION_ID",),
+        "teams": ("TEAMS_CHANNEL_ID", "TEAMS_CONVERSATION_ID"),
+        "matrix": ("MATRIX_ROOM_ID", "MATRIX_DEFAULT_ROOM"),
+        "mattermost": ("MATTERMOST_CHANNEL_ID", "MATTERMOST_DEFAULT_CHANNEL"),
+        "feishu": ("FEISHU_CHAT_ID",),
+        "bluebubbles": ("BLUEBUBBLES_CHAT_GUID",),
+        "whatsapp_baileys": ("WHATSAPP_TO",),
+        "webhook": ("WEBHOOK_TARGET",),
+    }
+    for env_name in env_map.get(channel_key, ()):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+
+    if channel_key == "telegram":
+        shared_chat_id = str(getattr(config.telegram, "chat_id", "") or "").strip()
+        if shared_chat_id:
+            return shared_chat_id
+        allowed = getattr(getattr(oj_config, "channel", None), "telegram", None)
+        allowed_ids = str(getattr(allowed, "allowed_chat_ids", "") or "").strip()
+        if allowed_ids:
+            return allowed_ids.split(",")[0].strip()
+
+    if channel_key == "email":
+        email_cfg = getattr(getattr(oj_config, "channel", None), "email", None)
+        username = str(getattr(email_cfg, "username", "") or "").strip()
+        if username:
+            return username
+
+    if channel_key in {"google_chat", "webhook", "webchat"}:
+        return channel_key
+
+    return ""
+
+
+async def send_operator_message(
+    message: str,
+    *,
+    target: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    allow_telegram_fallback: bool = True,
+) -> dict:
+    """Send a Hermes operator message via the configured OpenJarvis channel."""
+    backend, oj_config, channel_key = _get_channel_backend()
+    if backend is not None and channel_key:
+        resolved_target = _resolve_channel_target(channel_key, oj_config, target)
+        if resolved_target:
+            try:
+                ok = await asyncio.to_thread(
+                    backend.send,
+                    resolved_target,
+                    message,
+                    conversation_id=conversation_id,
+                    metadata=metadata or {},
+                )
+            except Exception:
+                logger.warning(
+                    "Configured channel delivery failed for %s",
+                    channel_key,
+                    exc_info=True,
+                )
+                ok = False
+            if ok:
+                return {
+                    "sent": True,
+                    "channel": channel_key,
+                    "target": resolved_target,
+                    "fallback": False,
+                }
+            logger.warning(
+                "Configured channel %s could not deliver Hermes message to %s",
+                channel_key,
+                resolved_target or "<default>",
+            )
+        else:
+            logger.warning(
+                "No default target configured for Hermes channel backend %s",
+                channel_key,
+            )
+
+    if allow_telegram_fallback:
+        ok = await _send_telegram(message)
+        if ok:
+            return {
+                "sent": True,
+                "channel": "telegram",
+                "target": str(getattr(config.telegram, "chat_id", "") or "").strip(),
+                "fallback": True,
+            }
+
+    return {
+        "sent": False,
+        "channel": channel_key or "none",
+        "target": target,
+        "fallback": bool(channel_key),
+    }
+
+
+async def _send_telegram(message: str) -> bool:
     """Send a message to Nico via Telegram."""
     if not config.telegram.bot_token or not config.telegram.chat_id:
         logger.warning("Telegram not configured, skipping alert")
-        return
+        return False
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"https://api.telegram.org/bot{config.telegram.bot_token}/sendMessage",
-            json={
-                "chat_id": config.telegram.chat_id,
-                "text": message,
-                "parse_mode": "Markdown",
-            },
-        )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{config.telegram.bot_token}/sendMessage",
+                json={
+                    "chat_id": config.telegram.chat_id,
+                    "text": message,
+                    "parse_mode": "Markdown",
+                },
+            )
+            resp.raise_for_status()
+        return True
+    except Exception as exc:
+        logger.error("Telegram send failed: %s", exc)
+        return False
 
 
-async def send_morning_briefing():
+async def send_morning_briefing() -> bool:
     """Send the daily morning briefing to Nico."""
     from shared.db import fetch_val
 
@@ -254,5 +414,12 @@ async def send_morning_briefing():
     except Exception:
         pass  # NotebookLM is a nice-to-have, not critical
 
-    await _send_telegram(message)
-    logger.info("Morning briefing sent")
+    delivery = await send_operator_message(message)
+    if delivery.get("sent"):
+        logger.info(
+            "Morning briefing sent via %s",
+            delivery.get("channel", "unknown"),
+        )
+        return True
+    logger.warning("Morning briefing delivery failed")
+    return False

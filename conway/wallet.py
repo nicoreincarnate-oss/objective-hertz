@@ -190,7 +190,7 @@ class WalletManager:
             """INSERT INTO conway_wallets (agent_name, chain, public_address, keystore_ref)
                VALUES (%s, %s, %s, %s)
                ON CONFLICT (agent_name) DO NOTHING""",
-            ("base", agent_name, wallet.address, f"{agent_name}.json"),
+            (agent_name, "base", wallet.address, f"{agent_name}.json"),
         )
 
         logger.info(f"Created wallet for {agent_name}: {wallet.address}")
@@ -230,10 +230,8 @@ class WalletManager:
             address = acct.address
             private_key = acct.key.hex()
 
-            # Save keystore (encrypted with agent name as password — operator
-            # should rotate to a proper password in production)
             keystore_path = self._keystore_dir / f"{agent_name}.json"
-            encrypted = Account.encrypt(private_key, agent_name)
+            encrypted = Account.encrypt(private_key, _get_keystore_password())
             keystore_path.write_text(json.dumps(encrypted))
 
             return AgentWallet(agent_name, address, private_key)
@@ -256,11 +254,22 @@ class WalletManager:
                 return self._create_new_wallet(agent_name)
 
             encrypted = json.loads(keystore_path.read_text())
-            private_key = Account.decrypt(encrypted, agent_name)
+            private_key = Account.decrypt(encrypted, _get_keystore_password())
             return AgentWallet(agent_name, address, private_key.hex())
         except ImportError:
             logger.error("eth_account not installed")
             raise
+
+
+def _get_keystore_password() -> str:
+    """Get keystore encryption password from env. Never fall back to a guessable default."""
+    pw = os.environ.get("CONWAY_KEYSTORE_PASSWORD", "")
+    if not pw:
+        raise RuntimeError(
+            "CONWAY_KEYSTORE_PASSWORD env var is required for wallet operations. "
+            "Set a strong password to encrypt agent keystores."
+        )
+    return pw
 
 
 def _get_rpc_url() -> str:

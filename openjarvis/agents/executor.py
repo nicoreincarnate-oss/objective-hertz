@@ -24,6 +24,15 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 
 
+def _normalize_tool_names(raw: Any) -> list[str]:
+    """Normalize tool config into a clean list of tool names."""
+    if isinstance(raw, str):
+        return [name.strip() for name in raw.split(",") if name.strip()]
+    if isinstance(raw, list):
+        return [name.strip() for name in raw if isinstance(name, str) and name.strip()]
+    return []
+
+
 class AgentExecutor:
     """Executes a single tick for a managed agent.
 
@@ -212,9 +221,18 @@ class AgentExecutor:
                     build_routing_context,
                 )
 
+                available_models = config.get("available_models") or []
+                if not available_models:
+                    try:
+                        available_models = list(self._system.engine.list_models())
+                    except Exception:
+                        available_models = []
+                if not available_models:
+                    available_models = [model]
+
                 policy = RouterPolicyRegistry.create(
                     router_policy_key,
-                    available_models=[model],
+                    available_models=available_models,
                 )
                 instruction = config.get("instruction", "")
                 ctx = build_routing_context(instruction)
@@ -224,13 +242,89 @@ class AgentExecutor:
             except Exception:
                 pass  # Fall back to configured model
 
+        # Build runtime tool set from agent config. Without this, managed
+        # agents are effectively tool-blind even though the framework
+        # exposes a large registered tool surface.
+        tool_names = _normalize_tool_names(config.get("tools"))
+        agent_tools = []
+        if tool_names and self._system:
+            try:
+                agent_tools = self._system._build_tools(tool_names)
+            except Exception:
+                logger.warning(
+                    "Failed to build tools for agent %s: %s",
+                    agent.get("id", ""),
+                    tool_names,
+                    exc_info=True,
+                )
+
+        agent_kwargs: dict[str, Any] = {
+            "system_prompt": config.get("system_prompt"),
+            "bus": self._bus,
+            "max_turns": config.get("max_turns", 10),
+            "temperature": config.get(
+                "temperature",
+                getattr(self._system, "config", None).intelligence.temperature
+                if self._system and getattr(self._system, "config", None)
+                else 0.7,
+            ),
+            "max_tokens": config.get(
+                "max_tokens",
+                getattr(self._system, "config", None).intelligence.max_tokens
+                if self._system and getattr(self._system, "config", None)
+                else 1024,
+            ),
+        }
+        if getattr(agent_cls, "accepts_tools", False):
+            agent_kwargs["tools"] = agent_tools
+        if self._system and getattr(self._system, "capability_policy", None) is not None:
+            agent_kwargs["capability_policy"] = self._system.capability_policy
+        if config.get("operator_id"):
+            agent_kwargs["operator_id"] = config["operator_id"]
+        if self._system:
+            if getattr(self._system, "session_store", None) is not None:
+                agent_kwargs["session_store"] = self._system.session_store
+            if getattr(self._system, "memory_backend", None) is not None:
+                agent_kwargs["memory_backend"] = self._system.memory_backend
+
         # Construct agent instance (BaseAgent requires engine, model as positional args)
-        agent_instance = agent_cls(
-            engine,
-            model,
-            system_prompt=config.get("system_prompt"),
-            tools=[],
-        )
+        constructor_variants = [
+            dict(agent_kwargs),
+            {
+                k: v for k, v in agent_kwargs.items()
+                if k != "system_prompt"
+            },
+            {
+                k: v for k, v in agent_kwargs.items()
+                if k not in (
+                    "system_prompt",
+                    "capability_policy",
+                    "session_store",
+                    "memory_backend",
+                    "operator_id",
+                )
+            },
+            {
+                k: v for k, v in agent_kwargs.items()
+                if k not in (
+                    "tools",
+                    "system_prompt",
+                    "capability_policy",
+                    "session_store",
+                    "memory_backend",
+                    "operator_id",
+                )
+            },
+        ]
+        last_error: TypeError | None = None
+        for kwargs_variant in constructor_variants:
+            try:
+                agent_instance = agent_cls(engine, model, **kwargs_variant)
+                break
+            except TypeError as exc:
+                last_error = exc
+        else:
+            raise last_error or TypeError("Could not construct agent instance")
 
         # Build input from instruction + summary_memory + pending messages
         instruction = config.get("instruction", "")

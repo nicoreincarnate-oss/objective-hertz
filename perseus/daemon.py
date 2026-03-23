@@ -1,7 +1,9 @@
 """
-Perseus Master Daemon — The brain that coordinates everything.
-Runs 24/7. Reads pipeline state, decides priorities, monitors health, enforces budget.
-Not a cron scheduler — an orchestrator that thinks.
+Perseus Master Daemon — LEGACY. Replaced by OpenJarvis orchestrator.
+
+This daemon is kept for backward compatibility but will refuse to start
+if the OpenJarvis orchestrator is already running on port 9000.
+Use `python orchestrator.py` instead.
 """
 
 import asyncio
@@ -350,8 +352,32 @@ def _decide_priorities(state: dict) -> dict:
     }
 
 
+def _openjarvis_is_running() -> bool:
+    """Check if OpenJarvis orchestrator is already running on port 9000."""
+    import os
+    import socket
+    port = int(os.environ.get("ORCHESTRATOR_A2A_PORT", "9000"))
+    try:
+        with socket.create_connection(("localhost", port), timeout=2):
+            return True
+    except (ConnectionRefusedError, OSError, socket.timeout):
+        return False
+
+
 async def main():
-    """Entry point for Perseus daemon."""
+    """Entry point for Perseus daemon (LEGACY)."""
+    if _openjarvis_is_running():
+        logger.error(
+            "OpenJarvis orchestrator is already running on port 9000. "
+            "Perseus daemon refuses to start — OpenJarvis is the boss now. "
+            "Use `python orchestrator.py` instead."
+        )
+        return
+
+    logger.warning(
+        "Starting Perseus daemon in LEGACY mode. "
+        "Consider migrating to `python orchestrator.py` (OpenJarvis)."
+    )
     perseus = PerseusDaemon()
 
     loop = asyncio.get_event_loop()

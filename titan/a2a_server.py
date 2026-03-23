@@ -40,6 +40,7 @@ TITAN_CARD = AgentCard(
         "decisions_query", "memory_search", "memory_store",
         "config_get", "config_set",
         "task_dispatch", "health_check",
+        "events_recent", "event_relay",
         "deliverability_check", "daily_reflection",
         "morning_briefing",
     ],
@@ -192,9 +193,8 @@ async def _run_sync_analytics(**_) -> dict:
 
 
 async def _run_deliverability_check(**_) -> dict:
-    from titan.deliverability import DeliverabilityMonitor
-    monitor = DeliverabilityMonitor()
-    await monitor.check_domain_health()
+    from titan.deliverability import monitor_deliverability
+    await monitor_deliverability()
     return {"checked": True}
 
 
@@ -234,6 +234,27 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "titan"}
 
 
+async def _events_recent(limit: int = 20, **_) -> list:
+    """Return recent events for this agent."""
+    rows = await db.fetch_all(
+        "SELECT event_type, payload, created_at FROM events ORDER BY created_at DESC LIMIT %s",
+        (limit,),
+    )
+    return [dict(r) for r in rows]
+
+
+async def _event_relay(type: str = "", payload: dict = None, source: str = "", **_) -> dict:
+    """Accept a relayed event from OpenJarvis and store it."""
+    if not type:
+        return {"error": "event type is required"}
+    await db.emit_event(f"relayed_{type}", {
+        "source": source,
+        "original_type": type,
+        **(payload or {}),
+    })
+    return {"status": "relayed", "type": type, "source": source}
+
+
 CAPABILITY_HANDLERS = {
     "ask": _ask,
     "pipeline_status": _pipeline_status,
@@ -260,6 +281,8 @@ CAPABILITY_HANDLERS = {
     "config_set": _config_set,
     "task_dispatch": _dispatch_task,
     "health_check": _health_check,
+    "events_recent": _events_recent,
+    "event_relay": _event_relay,
     "deliverability_check": _run_deliverability_check,
     "daily_reflection": _run_daily_reflection,
     "morning_briefing": lambda **p: _dispatch_task("morning_briefing", p),

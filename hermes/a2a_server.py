@@ -17,7 +17,7 @@ logger = logging.getLogger("perseus.hermes.a2a")
 HERMES_CARD = AgentCard(
     name="hermes",
     description=(
-        "Communications gateway — Telegram bot, alert dispatcher, operator interface, "
+        "Communications gateway — multi-channel alerts, operator interface, "
         "morning briefings, and dashboard backend. The voice of the system."
     ),
     url="http://localhost:9002",
@@ -39,60 +39,135 @@ HERMES_CARD = AgentCard(
 
 # ── Capability handlers ───────────────────────────────────────────────
 
-async def _message_send(text: str = "", **_) -> dict:
-    """Send a message to the operator via Telegram and store as event."""
+async def _message_send(
+    text: str = "",
+    channel: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    **_,
+) -> dict:
+    """Send a message to the operator via the configured OpenJarvis channel."""
     if not text:
         return {"error": "text is required"}
     await db.emit_event("operator_notification", {"message": text, "sender": "openjarvis"})
-    # Actually deliver via Telegram
     try:
-        from hermes.alerts import _send_telegram
-        await _send_telegram(f"*[Message]* {text}")
+        from hermes.alerts import send_operator_message
+
+        delivery = await send_operator_message(
+            f"*[Message]* {text}",
+            target=channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
+        delivery["message"] = text[:200]
+        return delivery
     except Exception as exc:
-        logger.warning("Telegram delivery failed for message_send: %s", exc)
-    return {"sent": True, "channel": "telegram", "message": text[:200]}
+        logger.warning("Channel delivery failed for message_send: %s", exc)
+        return {"sent": False, "channel": channel or "unknown", "message": text[:200]}
 
 
-async def _message_broadcast(text: str = "", **_) -> dict:
+async def _message_broadcast(
+    text: str = "",
+    channel: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    **_,
+) -> dict:
     """Broadcast a message to all channels."""
     await db.emit_event("broadcast", {"message": text, "sender": "openjarvis"})
-    # Deliver broadcast via Telegram as well
     try:
-        from hermes.alerts import _send_telegram
-        await _send_telegram(f"*[Broadcast]* {text}")
+        from hermes.alerts import send_operator_message
+
+        delivery = await send_operator_message(
+            f"*[Broadcast]* {text}",
+            target=channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
+        delivery["broadcast"] = True
+        delivery["message"] = text[:200]
+        return delivery
     except Exception as exc:
-        logger.warning("Telegram delivery failed for broadcast: %s", exc)
-    return {"broadcast": True, "message": text[:200]}
+        logger.warning("Channel delivery failed for broadcast: %s", exc)
+        return {"broadcast": True, "sent": False, "message": text[:200]}
 
 
-async def _alert_urgent(text: str = "", **_) -> dict:
+async def _alert_urgent(
+    text: str = "",
+    channel: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    **_,
+) -> dict:
     await db.emit_event("urgent_alert", {"message": text, "sender": "openjarvis"})
     try:
-        from hermes.alerts import _send_telegram
-        await _send_telegram(f"\U0001f6a8 *[URGENT]* {text}")
+        from hermes.alerts import send_operator_message
+
+        delivery = await send_operator_message(
+            f"\U0001f6a8 *[URGENT]* {text}",
+            target=channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
+        delivery["alerted"] = delivery.get("sent", False)
+        delivery["level"] = "urgent"
+        delivery["message"] = text[:200]
+        return delivery
     except Exception as exc:
-        logger.warning("Telegram delivery failed for urgent alert: %s", exc)
-    return {"alerted": True, "level": "urgent", "message": text[:200]}
+        logger.warning("Channel delivery failed for urgent alert: %s", exc)
+        return {"alerted": False, "level": "urgent", "message": text[:200]}
 
 
-async def _alert_warning(text: str = "", **_) -> dict:
+async def _alert_warning(
+    text: str = "",
+    channel: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    **_,
+) -> dict:
     await db.emit_event("warning_alert", {"message": text, "sender": "openjarvis"})
     try:
-        from hermes.alerts import _send_telegram
-        await _send_telegram(f"\u26a0\ufe0f *[WARNING]* {text}")
+        from hermes.alerts import send_operator_message
+
+        delivery = await send_operator_message(
+            f"\u26a0\ufe0f *[WARNING]* {text}",
+            target=channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
+        delivery["alerted"] = delivery.get("sent", False)
+        delivery["level"] = "warning"
+        delivery["message"] = text[:200]
+        return delivery
     except Exception as exc:
-        logger.warning("Telegram delivery failed for warning alert: %s", exc)
-    return {"alerted": True, "level": "warning", "message": text[:200]}
+        logger.warning("Channel delivery failed for warning alert: %s", exc)
+        return {"alerted": False, "level": "warning", "message": text[:200]}
 
 
-async def _alert_info(text: str = "", **_) -> dict:
+async def _alert_info(
+    text: str = "",
+    channel: str = "",
+    conversation_id: str = "",
+    metadata: dict | None = None,
+    **_,
+) -> dict:
     await db.emit_event("info_alert", {"message": text, "sender": "openjarvis"})
     try:
-        from hermes.alerts import _send_telegram
-        await _send_telegram(f"\u2139\ufe0f *[INFO]* {text}")
+        from hermes.alerts import send_operator_message
+
+        delivery = await send_operator_message(
+            f"\u2139\ufe0f *[INFO]* {text}",
+            target=channel,
+            conversation_id=conversation_id,
+            metadata=metadata,
+        )
+        delivery["alerted"] = delivery.get("sent", False)
+        delivery["level"] = "info"
+        delivery["message"] = text[:200]
+        return delivery
     except Exception as exc:
-        logger.warning("Telegram delivery failed for info alert: %s", exc)
-    return {"alerted": True, "level": "info", "message": text[:200]}
+        logger.warning("Channel delivery failed for info alert: %s", exc)
+        return {"alerted": False, "level": "info", "message": text[:200]}
 
 
 async def _briefing_generate(**_) -> dict:

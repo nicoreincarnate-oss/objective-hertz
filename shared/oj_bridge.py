@@ -104,7 +104,12 @@ def get_agent_manager():
     global _agent_manager
     if _agent_manager is None:
         from openjarvis.agents.manager import AgentManager
-        db_path = str(_DATA_DIR / "agents.sqlite")
+        try:
+            from openjarvis.core.config import load_config
+
+            db_path = load_config().agent_manager.db_path
+        except Exception:
+            db_path = str(_DATA_DIR / "agents.sqlite")
         _agent_manager = AgentManager(db_path)
         logger.info("OJ AgentManager initialized at %s", db_path)
     return _agent_manager

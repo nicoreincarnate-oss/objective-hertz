@@ -24,9 +24,8 @@ def test_config_exposes_logging_controls():
 def test_daemon_startup_disables_stdout_duplication():
     start_code = (ROOT / "scripts/start-perseus.sh").read_text()
     assert "LOG_TO_STDOUT=0" in start_code
-    assert "nohup python3 -m perseus.daemon" in start_code
-    assert "nohup python3 -m titan.daemon" in start_code
-    assert "nohup python3 -m clawdbot.daemon" in start_code
+    # OpenJarvis orchestrator replaces Perseus daemon; vassals managed by supervisor
+    assert "nohup python3 orchestrator.py" in start_code
     assert "python3 -m uvicorn hermes.web.app:app" in start_code
 
     for plist_name in [

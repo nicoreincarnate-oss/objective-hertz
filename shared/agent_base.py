@@ -63,10 +63,22 @@ class AgentBase(ABC):
         try:
             from shared.config import config
             if config.conway.enabled:
-                from conway.wallet import WalletManager
-                wm = WalletManager(config.conway.keystore_path)
-                wallet = await wm.get_or_create_wallet(self.name)
-                self.logger.info(f"Conway wallet: {wallet.address}")
+                from conway.runtime import ensure_agent_runtime
+
+                conway_state = await ensure_agent_runtime(
+                    self.name,
+                    agent_card={
+                        "name": self.name,
+                        "description": self.description,
+                    },
+                )
+                wallet_address = conway_state.get("wallet_address", "")
+                if wallet_address:
+                    self.logger.info("Conway wallet: %s", wallet_address)
+                if conway_state.get("api_key_provisioned"):
+                    self.logger.info("Conway Cloud identity provisioned for %s", self.name)
+                if conway_state.get("erc8004_registered"):
+                    self.logger.info("ERC-8004 identity active for %s", self.name)
         except Exception as e:
             self.logger.debug(f"Conway wallet setup skipped: {e}")
 

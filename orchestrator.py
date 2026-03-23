@@ -1,13 +1,16 @@
-"""OpenJarvis Orchestrator — THE system brain. Replaces Perseus entirely.
+"""OpenJarvis Orchestrator — THE system brain.
 
-Responsibilities:
-- Boots the OJ runtime (EventBus, TraceStore, AgentManager, AuditLogger)
-- Runs the revenue pipeline via WorkflowEngine on a schedule
-- Strategic priority allocation (absorbed from Perseus)
-- Monitors agent health via A2A endpoints
-- Enforces budget (fiat + Conway crypto)
-- Monitors Conway survival tiers
-- Does NOT execute pipeline stages (Titan owns execution)
+OpenJarvis is the boss. All strategic decisions, vassal lifecycle,
+observability, and self-optimization flow through here.
+
+Architecture:
+- VassalSupervisor  → spawns & monitors Titan/Hermes/ClawdBot
+- VassalDiscovery   → discovers A2A capabilities dynamically
+- PerseusScheduler  → strategic brain (assess, prioritize, budget, health, dispatch)
+- EventRelay        → bidirectional event bridge between boss and vassals
+
+NO direct imports from Titan/Hermes/ClawdBot pipeline code.
+All vassal interaction goes through A2A.
 
 Usage:
     python orchestrator.py
@@ -16,304 +19,453 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import os
+import re
 import signal
 import sys
+import threading
 import time
+from pathlib import Path
 
 logger = logging.getLogger("openjarvis.orchestrator")
 
+# Vassal A2A endpoints
+VASSAL_CONFIG = {
+    "titan": {"url": f"http://localhost:{os.environ.get('TITAN_A2A_PORT', '9001')}"},
+    "hermes": {"url": f"http://localhost:{os.environ.get('HERMES_A2A_PORT', '9002')}"},
+    "clawdbot": {"url": f"http://localhost:{os.environ.get('CLAWDBOT_A2A_PORT', '9003')}"},
+}
+
+PRODUCTION_TOOL_NAMES = [
+    "think",
+    "web_search",
+    "file_read",
+    "shell_exec",
+    "memory_store",
+    "memory_retrieve",
+    "memory_search",
+    "channel_send",
+    "channel_list",
+    "channel_status",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_extract",
+    "browser_screenshot",
+]
+
+FRAMEWORK_AGENT_SPECS = [
+    {
+        "name": "openjarvis-boss-reasoner",
+        "agent_type": "orchestrator",
+        "config": {
+            "instruction": (
+                "Act as OpenJarvis's strategic reasoning core. Investigate system issues, "
+                "inspect runtime state, and produce actionable recommendations for the boss."
+            ),
+            "tools": [
+                "think", "file_read", "shell_exec", "memory_store",
+                "memory_retrieve", "memory_search", "channel_status",
+            ],
+            "schedule_type": "interval",
+            "schedule_value": 600,
+            "router_policy": "heuristic",
+            "learning_enabled": True,
+            "learning_schedule": "every_20_ticks",
+            "max_turns": 12,
+            "temperature": 0.2,
+        },
+    },
+    {
+        "name": "openjarvis-react-investigator",
+        "agent_type": "native_react",
+        "config": {
+            "instruction": (
+                "Use ReAct to inspect logs, search for failures, and gather concrete evidence "
+                "about runtime regressions before escalation."
+            ),
+            "tools": [
+                "think", "file_read", "shell_exec", "memory_store",
+                "memory_retrieve", "memory_search",
+            ],
+            "schedule_type": "interval",
+            "schedule_value": 900,
+            "router_policy": "heuristic",
+            "learning_enabled": True,
+            "learning_schedule": "every_20_ticks",
+            "max_turns": 10,
+            "temperature": 0.2,
+        },
+    },
+    {
+        "name": "openjarvis-runtime-monitor",
+        "agent_type": "monitor_operative",
+        "config": {
+            "instruction": (
+                "Monitor OpenJarvis runtime health, tool failures, scheduler drift, and agent "
+                "activity. Persist state between ticks and escalate actionable anomalies."
+            ),
+            "tools": [
+                "think", "memory_store", "memory_retrieve", "memory_search",
+                "shell_exec", "file_read", "channel_status",
+            ],
+            "schedule_type": "interval",
+            "schedule_value": 300,
+            "router_policy": "heuristic",
+            "learning_enabled": True,
+            "learning_schedule": "every_20_ticks",
+            "timeout_seconds": 120,
+            "max_stall_retries": 3,
+            "max_turns": 15,
+            "temperature": 0.2,
+            "memory_extraction": "structured_json",
+            "observation_compression": "summarize",
+            "retrieval_strategy": "hybrid_with_self_eval",
+            "task_decomposition": "phased",
+        },
+    },
+]
+
 
 class Orchestrator:
-    """The sole orchestrator — boss of Titan, Hermes, and ClawdBot."""
+    """OpenJarvis — the sole orchestrator and boss of all vassals."""
 
     def __init__(self):
         self._running = False
-        self._pipeline_interval = int(os.environ.get("PIPELINE_INTERVAL", "300"))  # 5 min
-        self._health_interval = int(os.environ.get("HEALTH_INTERVAL", "60"))  # 1 min
-        self._budget_interval = int(os.environ.get("BUDGET_INTERVAL", "120"))  # 2 min
-        self._strategic_interval = 60  # 60s strategic tick (from Perseus)
-        self._last_run: dict[str, float] = {}
+        self._supervisor = None
+        self._discovery = None
+        self._scheduler = None
+        self._relay = None
+        self._oj_system = None
+        self._operator_manager = None
+        self._learning_handler = None
+        self._loop_tasks: list[asyncio.Task] = []
+
+    # ── A2A Handler ───────────────────────────────────────────────────
+
+    async def handle_a2a(self, input_text: str) -> str:
+        """Handle incoming A2A requests from other agents."""
+        try:
+            req = json.loads(input_text)
+        except (ValueError, TypeError):
+            req = {"capability": "ask", "params": {"question": input_text}}
+
+        capability = req.get("capability", "ask")
+        params = req.get("params", {})
+
+        if capability == "health_check":
+            return json.dumps({
+                "status": "running" if self._running else "stopped",
+                "agent": "openjarvis",
+            })
+
+        if capability == "operator_command":
+            text = params.get("text", params.get("description", ""))
+            if text:
+                await self._handle_command(text)
+                return json.dumps({"status": "accepted", "command": text[:100]})
+            return json.dumps({"error": "text is required"})
+
+        if capability == "pipeline_state":
+            from shared.pipeline import assess_pipeline_state
+            state = await assess_pipeline_state()
+            return json.dumps(state, default=str)
+
+        if capability == "vassal_status":
+            if self._supervisor:
+                return json.dumps(self._supervisor.status(), default=str)
+            return json.dumps({"error": "supervisor not initialized"})
+
+        if capability == "vassal_restart":
+            name = params.get("name", "")
+            if name and self._supervisor:
+                ok = await self._supervisor.restart(name)
+                return json.dumps({"restarted": ok, "vassal": name})
+            return json.dumps({"error": "name required or supervisor not ready"})
+
+        if capability == "scheduler_status":
+            if self._scheduler:
+                return json.dumps(self._scheduler.status(), default=str)
+            return json.dumps({"error": "scheduler not initialized"})
+
+        if capability == "budget_report":
+            try:
+                from tools.budget_guard import get_budget_report
+                report = await get_budget_report()
+                return json.dumps(report, default=str)
+            except Exception as exc:
+                return json.dumps({"error": str(exc)})
+
+        if capability == "sleep_cycle_trigger":
+            asyncio.create_task(self._run_sleep_cycle())
+            return json.dumps({"status": "sleep cycle triggered"})
+
+        if capability == "ask":
+            question = params.get("question", input_text)
+            return json.dumps({
+                "answer": f"OpenJarvis received: {question[:200]}",
+                "agent": "openjarvis",
+            })
+
+        return json.dumps({"error": f"Unknown capability: {capability}"})
+
+    # ── Startup ───────────────────────────────────────────────────────
 
     async def start(self):
-        """Start the orchestrator."""
+        """Start OpenJarvis — the boss boots up."""
         self._running = True
-        logger.info("OpenJarvis Orchestrator starting — I am the boss now.")
+        logger.info("=" * 60)
+        logger.info("  OPENJARVIS — THE BOSS IS STARTING")
+        logger.info("=" * 60)
 
-        # Boot OJ runtime
+        # 1. Boot OJ runtime
         from shared.oj_bridge import (
             get_bus,
             get_trace_store,
             get_agent_manager,
             get_audit_logger,
         )
-        get_bus()
+        bus = get_bus()
         get_trace_store()
         get_agent_manager()
         get_audit_logger()
 
-        # Initialize DB
         from shared.db import init_pool
         await init_pool()
-
         logger.info("OJ runtime initialized")
+
+        # Boot the full OpenJarvis framework so production actually uses
+        # managed agents, tools, operators, routing, and learning hooks.
+        await self._bootstrap_openjarvis_framework(bus)
+
+        # 2. Start vassals (with port-probe reconciliation)
+        project_dir = os.path.dirname(os.path.abspath(__file__))
+        from openjarvis.vassals.supervisor import VassalSupervisor
+        self._supervisor = VassalSupervisor(bus, project_dir)
+        self._supervisor.register_defaults(project_dir)
+        await self._probe_and_start_vassals()
+        logger.info("Vassal supervisor ready")
+
+        # Wait for A2A servers to come up
+        await asyncio.sleep(3)
+
+        # 3. Discover capabilities
+        from openjarvis.vassals.discovery import VassalDiscovery
+        self._discovery = VassalDiscovery(bus, config=VASSAL_CONFIG)
+        self._discovery.discover_all()
+        total_caps = sum(len(v.capabilities) for v in self._discovery.vassals.values())
+        logger.info("Discovered %d capabilities across %d vassals",
+                     total_caps, len(self._discovery.vassals))
+
+        # 4. Wire EventRelay
+        from openjarvis.vassals.event_relay import EventRelay
+        self._relay = EventRelay(bus, self._discovery)
+        logger.info("EventRelay wired")
+
+        # 5. Start PerseusScheduler — THE strategic brain
+        from openjarvis.vassals.perseus_scheduler import PerseusScheduler, PerseusConfig
+
+        sched_config = PerseusConfig(
+            tick_interval=int(os.environ.get("SCHEDULER_TICK_INTERVAL", "60")),
+            budget_monthly_cap=float(os.environ.get("BUDGET_MONTHLY_CAP", "800")),
+        )
+
+        budget_guard = None
+        try:
+            from tools.budget_guard import BudgetGuard
+            budget_guard = BudgetGuard()
+        except Exception:
+            pass
+
+        self._scheduler = PerseusScheduler(
+            bus=bus,
+            vassal_discovery=self._discovery,
+            config=sched_config,
+            budget_guard=budget_guard,
+        )
+        logger.info("PerseusScheduler configured (tick=%ds)", sched_config.tick_interval)
 
         # Register signal handlers
         for sig in (signal.SIGTERM, signal.SIGINT):
-            asyncio.get_running_loop().add_signal_handler(sig, self._shutdown)
+            asyncio.get_running_loop().add_signal_handler(sig, self._request_shutdown)
 
-        # Run concurrent loops — the boss runs everything
-        loops = [
-            self._pipeline_loop(),
-            self._health_loop(),
-            self._budget_loop(),
-            self._strategic_loop(),
-            self._command_loop(),      # Listen for operator commands
-            self._followup_loop(),     # Monitor agent progress
-        ]
+        # 6. Run everything concurrently
+        logger.info("=" * 60)
+        logger.info("  OPENJARVIS IS LIVE — ALL SYSTEMS GO")
+        logger.info("=" * 60)
 
-        # Add Conway survival monitoring if enabled
-        from shared.config import config
-        if config.conway.enabled:
-            loops.append(self._conway_survival_loop())
-
-        await asyncio.gather(*loops)
-
-    def _shutdown(self):
-        logger.info("Shutdown signal received")
-        self._running = False
-
-    async def _pipeline_loop(self):
-        """Run the revenue pipeline on interval."""
-        while self._running:
-            # Check for agent recommendations
-            try:
-                from shared.comms import get_pending_recommendations
-                recs = await get_pending_recommendations("perseus", since_minutes=30, limit=5)
-                for rec in recs:
-                    payload = rec.get("payload", {})
-                    if isinstance(payload, str):
-                        import json
-                        payload = json.loads(payload)
-                    logger.info(f"Recommendation from {payload.get('from', '?')}: {payload.get('topic', '')}")
-            except Exception:
-                pass
-
-            try:
-                from titan.workflow_pipeline import run_pipeline
-                logger.info("Starting pipeline cycle...")
-                result = run_pipeline()
-                if not result.success:
-                    from shared.oj_bridge import call_agent
-                    call_agent("hermes", "alert_warning", {
-                        "text": f"Pipeline cycle had failures: {[s.node_id for s in result.steps if not s.success]}",
-                    })
-            except Exception as exc:
-                logger.error("Pipeline cycle error: %s", exc, exc_info=True)
-                try:
-                    from shared.oj_bridge import call_agent
-                    call_agent("hermes", "alert_urgent", {
-                        "text": f"Pipeline cycle crashed: {exc}",
-                    })
-                except Exception:
-                    pass
-
-            await asyncio.sleep(self._pipeline_interval)
-
-    async def _health_loop(self):
-        """Check agent health via A2A endpoints."""
-        while self._running:
-            try:
-                from shared.oj_bridge import call_agent, AGENT_URLS
-
-                statuses = {}
-                for agent_name in AGENT_URLS:
-                    result = call_agent(agent_name, "health_check")
-                    status = result.get("status", "unknown")
-                    statuses[agent_name] = status
-                    if status not in ("running", "ok"):
-                        logger.warning("Agent %s health: %s", agent_name, status)
-
-                # Publish health to EventBus
-                from shared.oj_bridge import get_bus
-                from openjarvis.core.events import EventType
-                get_bus().publish(EventType.A2A_REMOTE_EVENT, {
-                    "event_type": "health_report",
-                    "agents": statuses,
-                })
-
-            except Exception as exc:
-                logger.error("Health check error: %s", exc)
-
-            await asyncio.sleep(self._health_interval)
-
-    async def _budget_loop(self):
-        """Enforce budget limits."""
-        while self._running:
-            try:
-                from tools.budget_guard import BudgetGuard
-                guard = BudgetGuard()
-                budget = await guard.check_budget()
-
-                if budget.get("exceeded"):
-                    logger.warning("Budget exceeded — pausing agents")
-                    from shared import db
-                    await db.set_config("titan_paused", True)
-                    await db.set_config("clawdbot_paused", True)
-
-                    from shared.oj_bridge import call_agent
-                    call_agent("hermes", "alert_urgent", {
-                        "text": f"Budget exceeded: ${budget.get('total_spent', 0):.0f}/${budget.get('cap', 800)}",
-                    })
-
-                elif budget.get("percent_used", 0) >= 80:
-                    from shared.oj_bridge import call_agent
-                    call_agent("hermes", "alert_warning", {
-                        "text": f"Budget at {budget.get('percent_used', 0):.0f}%",
-                    })
-
-            except Exception as exc:
-                logger.error("Budget check error: %s", exc)
-
-            await asyncio.sleep(self._budget_interval)
-
-    async def _strategic_loop(self):
-        """Strategic priority allocation — the boss decides what the team works on.
-
-        Deterministic rules as baseline, with LLM override when pipeline is stuck.
-        """
-        self._prev_states: list[dict] = []
-
-        while self._running:
-            try:
-                from shared.db import execute as db_execute, insert_task
-                from shared.pipeline import assess_pipeline_state
-
-                state = await assess_pipeline_state()
-                priorities = _decide_priorities(state)
-
-                # Detect stuck pipeline: same state for 3+ cycles
-                self._prev_states.append(state)
-                if len(self._prev_states) > 5:
-                    self._prev_states = self._prev_states[-5:]
-
-                if self._is_stuck():
-                    logger.warning("Pipeline appears stuck — asking LLM for new strategy")
-                    llm_override = await self._llm_strategic_override(state, priorities)
-                    if llm_override:
-                        priorities = llm_override
-
-                # Record decision
-                try:
-                    await db_execute(
-                        """INSERT INTO agent_decisions (agent, decision_type, context, decision, reasoning)
-                           VALUES (%s, 'priority_allocation', %s, %s, %s)""",
-                        ("orchestrator", json.dumps(state),
-                         json.dumps(priorities), priorities.get("reasoning", "")),
-                    )
-                except Exception:
-                    pass
-
-                # Schedule prioritized tasks
-                now = time.time()
-                for task_name in priorities.get("schedule", []):
-                    elapsed = now - self._last_run.get(task_name, 0)
-                    if elapsed < 30:
-                        continue
-                    self._last_run[task_name] = now
-                    task_id = await insert_task(
-                        task_name,
-                        {"scheduled": True, "priority_reason": priorities.get("reasoning", "")},
-                    )
-                    if task_id:
-                        logger.info(f"Scheduled: {task_name} — {priorities.get('reasoning', '')[:80]}")
-
-            except Exception as exc:
-                logger.debug(f"Strategic tick: {exc}")
-
-            await asyncio.sleep(self._strategic_interval)
-
-    def _is_stuck(self) -> bool:
-        """Check if pipeline state hasn't changed meaningfully in 3+ cycles."""
-        if len(self._prev_states) < 3:
-            return False
-        # Compare last 3 states — if key metrics are identical, we're stuck
-        keys = ("hot_leads", "ready_to_close", "ready_to_deliver", "ready_to_invoice")
-        recent = self._prev_states[-3:]
-        first = {k: recent[0].get(k, 0) for k in keys}
-        return all({k: s.get(k, 0) for k in keys} == first for s in recent[1:])
-
-    async def _llm_strategic_override(self, state: dict, current: dict) -> dict | None:
-        """Ask LLM for a new strategy when deterministic rules aren't working."""
         try:
-            from shared.llm_client import llm
-            from shared.comms import get_pending_recommendations
+            await asyncio.gather(
+                self._scheduler.start(),       # Strategic brain
+                self._relay.start_polling(),   # Event bridge
+                self._command_loop(),          # Operator commands
+                self._followup_loop(),         # Stale task monitoring
+                self._sleep_cycle_loop(),      # Nightly optimization
+            )
+        finally:
+            await self._cleanup()
 
-            recs = await get_pending_recommendations("orchestrator", since_minutes=60, limit=5)
-            rec_text = "\n".join(
-                f"- {r.get('payload', {}).get('topic', '?')}: {str(r.get('payload', {}).get('message', ''))[:100]}"
-                for r in recs
-            ) or "None"
+    # ── Vassal Management ─────────────────────────────────────────────
 
-            response = await llm.generate(
-                f"You are OpenJarvis, the boss. Your revenue pipeline is stuck.\n\n"
-                f"Pipeline state: {json.dumps(state)}\n"
-                f"Current plan: {json.dumps(current)}\n"
-                f"Agent recommendations:\n{rec_text}\n\n"
-                f"This state hasn't changed in 3+ cycles. What should we do differently?\n"
-                f"Return JSON: {{\"schedule\": [\"task1\", \"task2\"], \"reasoning\": \"why\"}}",
-                tier="smart", max_tokens=400, temperature=0.3)
+    async def _probe_and_start_vassals(self):
+        """Probe A2A ports and adopt already-running vassals, spawn the rest."""
+        from openjarvis.a2a.client import A2AClient
 
-            # Parse LLM response
-            import re
-            match = re.search(r'\{[^}]+\}', response)
-            if match:
-                override = json.loads(match.group())
-                if "schedule" in override:
-                    logger.info(f"LLM strategic override: {override.get('reasoning', '')[:100]}")
-                    return override
-        except Exception as e:
-            logger.debug(f"LLM strategic override failed: {e}")
-        return None
-
-    async def _conway_survival_loop(self):
-        """Monitor agent survival tiers (Conway economic system)."""
-        while self._running:
+        for name, vassal in self._supervisor._vassals.items():
+            # Try to reach an existing process on the port
             try:
-                from conway.wallet import WalletManager
-                from conway.ledger import EconomicLedger
-                from conway.survival import SurvivalMonitor
+                client = A2AClient(
+                    f"http://localhost:{vassal.a2a_port}", timeout=2.0,
+                )
+                client.discover()
+                vassal.status = "running"
+                logger.info("Adopted already-running vassal %s on port %d",
+                            name, vassal.a2a_port)
+            except Exception:
+                # Not running — spawn it
+                ok = await self._supervisor.start(name)
+                if ok:
+                    logger.info("Spawned vassal %s (pid=%s)", name, vassal.pid)
+                else:
+                    logger.error("Failed to spawn vassal %s", name)
 
-                wm = WalletManager()
-                ledger = EconomicLedger()
-                monitor = SurvivalMonitor(wm, ledger)
+        # Start crash monitor
+        self._supervisor._monitor_task = asyncio.create_task(
+            self._supervisor._monitor_loop()
+        )
 
-                results = await monitor.check_all_agents()
-                for r in results:
-                    if r.get("changed"):
-                        logger.warning(
-                            f"Conway tier change: {r['agent']} → {r['tier']} "
-                            f"(balance: ${r['balance']:.2f})"
-                        )
+    async def _bootstrap_openjarvis_framework(self, bus):
+        """Boot the full OpenJarvis system layer inside production."""
+        try:
+            from openjarvis.core.events import EventType
+            from openjarvis.operators.manager import OperatorManager
+            from openjarvis.system import SystemBuilder
+
+            builder = (
+                SystemBuilder()
+                .event_bus(bus)
+                .agent("orchestrator")
+                .tools(PRODUCTION_TOOL_NAMES)
+                .scheduler(True)
+                .workflow(True)
+                .sessions(True)
+            )
+            self._oj_system = builder.build()
+            if self._oj_system.scheduler is not None:
+                self._oj_system.scheduler._system = self._oj_system
+                self._oj_system.scheduler.start()
+
+            self._ensure_framework_agents()
+
+            self._operator_manager = OperatorManager(self._oj_system)
+            self._oj_system.operator_manager = self._operator_manager
+            ops_dir = Path(__file__).resolve().parent / "openjarvis" / "operators" / "data"
+            manifests = self._operator_manager.discover(ops_dir)
+            active_ops = self._activate_builtin_operators()
+
+            self._learning_handler = self._make_learning_handler()
+            bus.subscribe(EventType.AGENT_LEARNING_STARTED, self._learning_handler)
+
+            logger.info(
+                "OpenJarvis framework active: tools=%d managed_agents=%d operators=%d active_operators=%d",
+                len(getattr(self._oj_system, "tools", []) or []),
+                len(self._oj_system.agent_manager.list_agents()) if self._oj_system.agent_manager else 0,
+                len(manifests),
+                len(active_ops),
+            )
+        except Exception as exc:
+            logger.warning("OpenJarvis framework bootstrap failed: %s", exc, exc_info=True)
+
+    def _ensure_framework_agents(self):
+        """Create and schedule baseline managed OpenJarvis agents."""
+        if not self._oj_system or not self._oj_system.agent_manager:
+            return
+
+        manager = self._oj_system.agent_manager
+        scheduler = self._oj_system.agent_scheduler
+        existing = {agent["name"]: agent for agent in manager.list_agents()}
+
+        for spec in FRAMEWORK_AGENT_SPECS:
+            desired_config = dict(spec["config"])
+            current = existing.get(spec["name"])
+            if current is None:
+                current = manager.create_agent(
+                    name=spec["name"],
+                    agent_type=spec["agent_type"],
+                    config=desired_config,
+                )
+                logger.info(
+                    "Created managed OpenJarvis agent %s (%s)",
+                    spec["name"], spec["agent_type"],
+                )
+            else:
+                merged_config = dict(desired_config)
+                merged_config.update(current.get("config", {}))
+                manager.update_agent(
+                    current["id"],
+                    agent_type=spec["agent_type"],
+                    config=merged_config,
+                )
+                current = manager.get_agent(current["id"])
+
+            if scheduler and current:
+                cfg = current.get("config", {})
+                if cfg.get("schedule_type") in ("cron", "interval"):
+                    if current["id"] not in scheduler.registered_agents:
+                        scheduler.register_agent(current["id"])
+
+        if scheduler and not scheduler.is_running:
+            scheduler.start()
+
+    def _activate_builtin_operators(self):
+        """Activate a safe default set of built-in operators."""
+        if not self._operator_manager:
+            return []
+
+        raw = os.environ.get("OPENJARVIS_BUILTIN_OPERATORS", "system_monitor")
+        operator_ids = [name.strip() for name in raw.split(",") if name.strip()]
+        active = []
+        for operator_id in operator_ids:
+            manifest = self._operator_manager.get_manifest(operator_id)
+            if manifest is None:
+                continue
+            try:
+                self._operator_manager.activate(operator_id)
+                active.append(operator_id)
             except Exception as exc:
-                logger.debug(f"Conway survival check: {exc}")
+                logger.warning("Failed to activate operator %s: %s", operator_id, exc)
+        return active
 
-            await asyncio.sleep(120)  # Check every 2 min
+    def _make_learning_handler(self):
+        """Create a bus callback that runs learning for managed agents."""
+        def _handle_learning(event):
+            orchestrator = getattr(self._oj_system, "_learning_orchestrator", None) if self._oj_system else None
+            agent_id = getattr(event, "data", {}).get("agent_id", "")
+            if orchestrator is None or not agent_id:
+                return
 
+            def _run():
+                try:
+                    result = orchestrator.run(agent_id=agent_id)
+                    logger.info("Learning run for %s: %s", agent_id, result.get("status", "ok"))
+                except Exception as exc:
+                    logger.warning("Learning run failed for %s: %s", agent_id, exc)
+
+            threading.Thread(target=_run, daemon=True, name=f"oj-learning-{agent_id[:6]}").start()
+
+        return _handle_learning
+
+    # ── Operator Command Loop (boss-specific) ─────────────────────────
 
     async def _command_loop(self):
-        """Listen for operator commands and decompose into agent work.
-
-        The boss receives high-level instructions and turns them into
-        specific tasks for the team.
-        """
+        """Listen for operator commands and decompose into agent work."""
         while self._running:
             try:
                 from shared.db import fetch_all, execute as db_execute
 
-                # Check for unprocessed operator commands
                 commands = await fetch_all(
                     """SELECT id, payload FROM task_queue
                        WHERE task_type = 'operator_command'
@@ -332,12 +484,10 @@ class Orchestrator:
                             (task_id,))
                         continue
 
-                    # Claim the command
                     await db_execute(
                         "UPDATE task_queue SET status = 'running' WHERE id = %s",
                         (task_id,))
 
-                    # Boss decomposes command into agent tasks
                     await self._handle_command(text)
 
                     await db_execute(
@@ -345,17 +495,17 @@ class Orchestrator:
                         (task_id,))
 
             except Exception as exc:
-                logger.debug(f"Command loop: {exc}")
+                logger.warning("Command loop: %s", exc)
 
-            await asyncio.sleep(10)  # Check every 10s — commands are urgent
+            await asyncio.sleep(10)
 
     async def _handle_command(self, command: str):
-        """The boss decomposes a high-level command into agent tasks."""
+        """Decompose a high-level operator command into agent tasks via LLM."""
         from shared.llm_client import llm
         from shared.comms import delegate_task
         from shared.db import execute as db_execute
 
-        logger.info(f"Boss received command: {command[:100]}")
+        logger.info("Boss received command: %s", command[:100])
 
         try:
             plan = await llm.generate(
@@ -374,22 +524,20 @@ class Orchestrator:
                 f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes\", \"task_type\": \"...\", "
                 f"\"description\": \"...\", \"priority\": 1}}], "
                 f"\"reasoning\": \"why this plan\"}}",
-                tier="genius", max_tokens=800, temperature=0.3)
+                tier="genius", max_tokens=800, temperature=0.3,
+            )
 
-            # Parse response
-            import re
             match = re.search(r'\{[\s\S]*\}', plan)
             if not match:
-                logger.error(f"Boss couldn't parse plan from LLM: {plan[:200]}")
+                logger.error("Boss couldn't parse plan from LLM: %s", plan[:200])
                 return
 
             parsed = json.loads(match.group())
             tasks = parsed.get("tasks", [])
             reasoning = parsed.get("reasoning", "")
 
-            logger.info(f"Boss plan: {len(tasks)} tasks — {reasoning[:100]}")
+            logger.info("Boss plan: %d tasks — %s", len(tasks), reasoning[:100])
 
-            # Dispatch tasks to agents
             for task in tasks:
                 agent = task.get("agent", "")
                 task_type = task.get("task_type", "")
@@ -397,34 +545,39 @@ class Orchestrator:
                 priority = task.get("priority", 3)
 
                 if agent and task_type:
-                    await delegate_task("orchestrator", agent, task_type,
+                    await delegate_task(
+                        "openjarvis", agent, task_type,
                         {"description": description, "boss_command": command[:200]},
-                        priority=priority)
-                    logger.info(f"Boss → {agent}: {task_type} (p{priority}) — {description[:80]}")
+                        priority=priority,
+                    )
+                    logger.info("Boss -> %s: %s (p%d) — %s",
+                                agent, task_type, priority, description[:80])
 
-            # Record the command execution
             await db_execute(
                 """INSERT INTO agent_decisions (agent, decision_type, context, decision, reasoning)
                    VALUES (%s, 'boss_command', %s, %s, %s)""",
-                ("orchestrator", json.dumps({"command": command}),
+                ("openjarvis", json.dumps({"command": command}),
                  json.dumps({"tasks": tasks}),
                  f"Decomposed into {len(tasks)} tasks: {reasoning[:200]}"),
             )
 
-        except Exception as e:
-            logger.error(f"Boss command handling failed: {e}")
-            # At minimum, alert Hermes that the command couldn't be processed
+        except Exception as exc:
+            logger.error("Boss command handling failed: %s", exc)
             from shared.comms import send_alert
-            await send_alert(f"Boss couldn't process command: {command[:100]}. Error: {e}", sender="orchestrator")
+            await send_alert(
+                f"Boss couldn't process command: {command[:100]}. Error: {exc}",
+                sender="openjarvis",
+            )
+
+    # ── Followup Loop (boss-specific) ─────────────────────────────────
 
     async def _followup_loop(self):
-        """Boss monitors team progress and intervenes when needed."""
+        """Monitor team progress and intervene when needed."""
         while self._running:
             try:
                 from shared.db import fetch_all, fetch_val
                 from shared.comms import ask_agent, send_alert
 
-                # Check for stale tasks (assigned but not completed in 10+ minutes)
                 stale = await fetch_all(
                     """SELECT id, task_type, assigned_agent, created_at FROM task_queue
                        WHERE status = 'running'
@@ -434,112 +587,192 @@ class Orchestrator:
                 for task in stale or []:
                     agent = task.get("assigned_agent", "unknown")
                     task_type = task.get("task_type", "unknown")
-                    logger.warning(f"Boss: task '{task_type}' assigned to {agent} is stale (10+ min)")
+                    logger.warning("Boss: task '%s' assigned to %s is stale (10+ min)",
+                                   task_type, agent)
 
-                    # Ask the agent what's happening
-                    response = await ask_agent("orchestrator", agent,
-                        f"You have task '{task_type}' running for 10+ minutes. What's the status? Are you stuck?",
-                        timeout=10)
+                    response = await ask_agent(
+                        "openjarvis", agent,
+                        f"You have task '{task_type}' running for 10+ minutes. Status?",
+                        timeout=10,
+                    )
                     if response:
-                        logger.info(f"Boss followup — {agent} says: {response.get('answer', '')[:150]}")
+                        logger.info("Boss followup — %s says: %s",
+                                    agent, response.get("answer", "")[:150])
 
-                # Check for agents that haven't completed any tasks recently
                 for agent_name in ("titan", "clawdbot", "hermes"):
-                    recent_completions = await fetch_val(
+                    recent = await fetch_val(
                         """SELECT COUNT(*) FROM task_queue
                            WHERE assigned_agent = %s AND status = 'completed'
                            AND created_at > NOW() - INTERVAL '30 minutes'""",
                         (agent_name,),
                     ) or 0
-                    if recent_completions == 0:
-                        # Check if they're alive
+                    if recent == 0:
                         from shared.comms import is_agent_alive
                         alive = await is_agent_alive(agent_name, max_age_seconds=120)
                         if not alive:
-                            logger.error(f"Boss: {agent_name} appears down — no completions, no heartbeat")
+                            logger.error("Boss: %s appears down", agent_name)
                             await send_alert(
-                                f"Agent {agent_name} may be down. No task completions in 30min, no heartbeat.",
-                                sender="orchestrator")
+                                f"Agent {agent_name} may be down. No completions in 30min.",
+                                sender="openjarvis",
+                            )
 
             except Exception as exc:
-                logger.debug(f"Followup loop: {exc}")
+                logger.warning("Followup loop: %s", exc)
 
-            await asyncio.sleep(300)  # Check every 5 minutes
+            await asyncio.sleep(300)
+
+    # ── Nightly Sleep Cycle ───────────────────────────────────────────
+
+    async def _sleep_cycle_loop(self):
+        """Run nightly self-optimization at ~2 AM."""
+        while self._running:
+            now = datetime.datetime.now()
+            target = now.replace(hour=2, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += datetime.timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            logger.info("Sleep cycle scheduled in %.0f hours", wait_seconds / 3600)
+
+            # Sleep until target (check running flag periodically)
+            while self._running and wait_seconds > 0:
+                sleep_chunk = min(wait_seconds, 60)
+                await asyncio.sleep(sleep_chunk)
+                wait_seconds -= sleep_chunk
+
+            if not self._running:
+                break
+
+            await self._run_sleep_cycle()
+
+    async def _run_sleep_cycle(self):
+        """Execute the nightly Alpha/Beta self-optimization cycle."""
+        logger.info("Starting nightly sleep cycle...")
+        try:
+            from openjarvis.vassals.sleep_cycle import run_sleep_cycle
+            await run_sleep_cycle()
+            logger.info("Sleep cycle completed")
+
+            # Also evaluate cell division after sleep cycle
+            from openjarvis.vassals.cell_division import evaluate_division_need
+            from shared.pipeline import assess_pipeline_state
+            state = await assess_pipeline_state()
+            cycle_id = datetime.datetime.now().strftime("%Y-%m-%d")
+            await evaluate_division_need(state, cycle_id)
+
+        except Exception as exc:
+            logger.error("Sleep cycle error: %s", exc, exc_info=True)
+
+    # ── Shutdown ──────────────────────────────────────────────────────
+
+    def _request_shutdown(self):
+        """Signal handler — request graceful shutdown."""
+        logger.info("Shutdown signal received — stopping OpenJarvis...")
+        self._running = False
+        # Stop managed components
+        if self._scheduler:
+            asyncio.ensure_future(self._scheduler.stop())
+        if self._relay:
+            asyncio.ensure_future(self._relay.stop())
+
+    async def _cleanup(self):
+        """Graceful cleanup on shutdown."""
+        logger.info("Cleaning up...")
+
+        # Stop vassals
+        if self._supervisor:
+            try:
+                await asyncio.wait_for(self._supervisor.stop_all(), timeout=15.0)
+                logger.info("All vassals stopped")
+            except asyncio.TimeoutError:
+                logger.warning("Vassal shutdown timed out")
+
+        # Close DB pool
+        try:
+            from shared.db import close_pool
+            await close_pool()
+            logger.info("DB pool closed")
+        except Exception:
+            pass
+
+        if self._oj_system is not None:
+            try:
+                if self._learning_handler is not None:
+                    from openjarvis.core.events import EventType
+
+                    self._oj_system.bus.unsubscribe(
+                        EventType.AGENT_LEARNING_STARTED,
+                        self._learning_handler,
+                    )
+                self._oj_system.close()
+                logger.info("OpenJarvis system closed")
+            except Exception:
+                logger.warning("OpenJarvis system cleanup failed", exc_info=True)
+
+        logger.info("OpenJarvis shutdown complete")
 
 
-# ── Strategic priority logic (from Perseus, deterministic) ─────
-
-def _decide_priorities(state: dict) -> dict:
-    """
-    Deterministic priority logic — no LLM call, just pipeline math.
-    Rule: always prioritize revenue-closest work first.
-    """
-    schedule_now: list[str] = []
-    skip_now: list[str] = []
-    reasons: list[str] = []
-
-    hot = state.get("hot_leads", 0)
-    ready_close = state.get("ready_to_close", 0)
-    ready_deliver = state.get("ready_to_deliver", 0)
-    ready_invoice = state.get("ready_to_invoice", 0)
-    outreach = state.get("outreach_active", 0)
-
-    # Priority 1: Invoices waiting → money on the table
-    if ready_invoice > 0:
-        schedule_now.append("process_invoices")
-        reasons.append(f"{ready_invoice} leads ready to invoice")
-
-    # Priority 2: Sites to build → unblock invoicing
-    if ready_deliver > 0:
-        schedule_now.append("build_sites")
-        schedule_now.append("site_verify")
-        reasons.append(f"{ready_deliver} sites to build")
-
-    # Priority 3: Hot leads → close before they cool
-    if hot > 0 or ready_close > 0:
-        schedule_now.append("close_interested")
-        schedule_now.append("follow_up_check")
-        reasons.append(f"{hot} hot leads, {ready_close} ready to close")
-
-    # Priority 4: Active outreach needs analytics + follow-ups
-    if outreach > 0:
-        schedule_now.append("sync_analytics")
-        schedule_now.append("email_send")
-        schedule_now.append("email_compose")
-        schedule_now.append("follow_up_check")
-
-    # Priority 5: Top of funnel — only if not overwhelmed downstream
-    if hot <= 3 and ready_deliver <= 2:
-        schedule_now.append("lead_discovery")
-        schedule_now.append("lead_research")
-        schedule_now.append("enrich_leads")
-    else:
-        skip_now.extend(["lead_discovery", "lead_research", "enrich_leads"])
-        reasons.append(f"Skipping discovery: {hot} hot + {ready_deliver} to deliver")
-
-    # Deduplicate preserving order
-    seen: set[str] = set()
-    deduped = [n for n in schedule_now if n not in seen and not seen.add(n)]
-
-    reasoning = "; ".join(reasons) if reasons else "Normal pipeline flow"
-    return {"schedule": deduped, "skip": skip_now, "reasoning": reasoning}
-
+# ── Entry Points ──────────────────────────────────────────────────────
 
 def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-
-    # Add project root to path
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     orchestrator = Orchestrator()
     try:
         asyncio.run(orchestrator.start())
     except KeyboardInterrupt:
-        logger.info("Orchestrator stopped")
+        logger.info("OpenJarvis stopped")
+
+
+async def main_with_a2a():
+    """Entry point for Orchestrator + A2A server."""
+    import uvicorn
+    from shared.a2a_wrapper import AgentCard, create_a2a_app
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    )
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+    orchestrator = Orchestrator()
+
+    card = AgentCard(
+        name="openjarvis",
+        description=(
+            "OpenJarvis — THE boss. Strategic allocation, vassal lifecycle, "
+            "pipeline orchestration, budget enforcement, self-optimization."
+        ),
+        capabilities=[
+            "health_check", "operator_command", "pipeline_state",
+            "vassal_status", "vassal_restart", "scheduler_status",
+            "budget_report", "sleep_cycle_trigger", "ask",
+        ],
+    )
+    a2a_app = create_a2a_app(
+        agent_card=card,
+        handler=orchestrator.handle_a2a,
+    )
+
+    a2a_port = int(os.environ.get("ORCHESTRATOR_A2A_PORT", "9000"))
+    uvi_config = uvicorn.Config(
+        a2a_app, host="0.0.0.0", port=a2a_port, log_level="warning",
+    )
+    server = uvicorn.Server(uvi_config)
+
+    logger.info("OpenJarvis A2A server starting on :%d", a2a_port)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        asyncio.get_running_loop().add_signal_handler(sig, orchestrator._request_shutdown)
+
+    await asyncio.gather(orchestrator.start(), server.serve())
 
 
 if __name__ == "__main__":
-    main()
+    if os.environ.get("ORCHESTRATOR_A2A", "1") == "1":
+        asyncio.run(main_with_a2a())
+    else:
+        main()

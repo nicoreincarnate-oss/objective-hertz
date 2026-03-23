@@ -11,7 +11,11 @@ ClawdBot is the hands of Perseus:
 
 import asyncio
 import json
+import os
 import signal
+import shutil
+import time
+from pathlib import Path
 
 from openjarvis.vassals.registry import heartbeat
 from shared import db
@@ -23,6 +27,219 @@ from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 
 logger = setup_logging("clawdbot")
 
+CORE_BOOTSTRAP_CAPABILITIES = ("browser", "scraper", "web_search")
+CLAWDBOT_AGENT_MESH_SPECS = (
+    {
+        "name": "clawdbot-agent-orchestrator",
+        "agent_type": "orchestrator",
+        "config": {
+            "tools": ["web_search", "browser", "shell_exec", "file_write", "code_execute"],
+            "max_turns": 8,
+            "temperature": 0.1,
+            "max_tokens": 1400,
+            "owner": "clawdbot",
+            "role": "task-decomposer",
+        },
+    },
+    {
+        "name": "clawdbot-agent-network",
+        "agent_type": "react",
+        "config": {
+            "tools": ["web_search", "browser", "shell_exec"],
+            "max_turns": 6,
+            "temperature": 0.2,
+            "max_tokens": 1100,
+            "owner": "clawdbot",
+            "role": "parallel-worker",
+        },
+    },
+    {
+        "name": "clawdbot-agent-monitor",
+        "agent_type": "monitor_operative",
+        "config": {
+            "tools": ["web_search", "shell_exec"],
+            "max_turns": 5,
+            "temperature": 0.0,
+            "max_tokens": 900,
+            "owner": "clawdbot",
+            "role": "runtime-monitor",
+        },
+    },
+)
+
+_CHANNEL_BACKEND = None
+_CHANNEL_BACKEND_KEY = None
+
+
+def _env_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _has_telnyx_voice_config() -> bool:
+    return all(
+        os.environ.get(name, "").strip()
+        for name in ("TELNYX_API_KEY", "TELNYX_CONNECTION_ID", "TELNYX_FROM_NUMBER")
+    )
+
+
+def _has_twilio_voice_config() -> bool:
+    return all(
+        os.environ.get(name, "").strip()
+        for name in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER")
+    )
+
+
+def _has_android_runtime() -> bool:
+    return shutil.which("adb") is not None
+
+
+def _default_android_serial(payload: dict | None = None) -> str:
+    payload = payload or {}
+    return (
+        str(payload.get("serial", "") or "").strip()
+        or os.environ.get("ADB_SERIAL", "").strip()
+        or os.environ.get("ANDROID_SERIAL", "").strip()
+    )
+
+
+def _resolve_voice_provider(requested: str = "") -> str:
+    requested = requested.strip().lower()
+    if requested in {"telnyx", "twilio"}:
+        return requested
+    if _has_telnyx_voice_config():
+        return "telnyx"
+    if _has_twilio_voice_config():
+        return "twilio"
+    return ""
+
+
+def _whatsapp_channel_enabled() -> bool:
+    if _env_enabled("CLAWDBOT_ENABLE_WHATSAPP"):
+        return True
+    if os.environ.get("WHATSAPP_ACCESS_TOKEN", "").strip() and os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "").strip():
+        return True
+    if os.environ.get("WHATSAPP_TO", "").strip():
+        return True
+    try:
+        from openjarvis.core.config import load_config
+
+        oj_config = load_config()
+        key = (oj_config.channel.default_channel or "").strip()
+        return bool(oj_config.channel.enabled and key in {"whatsapp", "whatsapp_baileys"})
+    except Exception:
+        return False
+
+
+def _agent_mesh_entries() -> list[dict]:
+    from shared.oj_bridge import get_agent_manager
+
+    manager = get_agent_manager()
+    existing = {agent["name"]: agent for agent in manager.list_agents()}
+    mesh: list[dict] = []
+
+    for spec in CLAWDBOT_AGENT_MESH_SPECS:
+        current = existing.get(spec["name"])
+        desired_config = dict(spec["config"])
+        if current is None:
+            current = manager.create_agent(
+                name=spec["name"],
+                agent_type=spec["agent_type"],
+                config=desired_config,
+            )
+        else:
+            merged = dict(desired_config)
+            merged.update(current.get("config", {}))
+            current = manager.update_agent(
+                current["id"],
+                agent_type=spec["agent_type"],
+                config=merged,
+            )
+
+        mesh.append(
+            {
+                "id": current["id"],
+                "name": current["name"],
+                "agent_type": current["agent_type"],
+                "status": current["status"],
+            }
+        )
+
+    return mesh
+
+
+def _get_channel_backend(channel_override: str = ""):
+    global _CHANNEL_BACKEND, _CHANNEL_BACKEND_KEY
+
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.system import SystemBuilder
+        from shared.oj_bridge import get_bus
+
+        oj_config = load_config()
+        channel_key = (channel_override or oj_config.channel.default_channel or "").strip()
+        if not oj_config.channel.enabled or channel_key not in {"whatsapp", "whatsapp_baileys"}:
+            return None, oj_config, ""
+
+        if _CHANNEL_BACKEND is None or _CHANNEL_BACKEND_KEY != channel_key:
+            original = oj_config.channel.default_channel
+            oj_config.channel.default_channel = channel_key
+            try:
+                builder = SystemBuilder()
+                _CHANNEL_BACKEND = builder._resolve_channel(oj_config, get_bus())
+                _CHANNEL_BACKEND_KEY = channel_key
+            finally:
+                oj_config.channel.default_channel = original
+
+        if _CHANNEL_BACKEND is not None:
+            try:
+                _CHANNEL_BACKEND.connect()
+            except Exception:
+                logger.debug("ClawdBot channel connect failed for %s", channel_key, exc_info=True)
+
+        return _CHANNEL_BACKEND, oj_config, channel_key
+    except Exception:
+        logger.debug("ClawdBot failed to resolve WhatsApp channel backend", exc_info=True)
+        return None, None, ""
+
+
+def _resolve_whatsapp_target(channel_key: str, explicit_target: str = "") -> str:
+    if explicit_target:
+        return explicit_target
+    generic = os.environ.get("OPENJARVIS_CHANNEL_TARGET", "").strip()
+    if generic:
+        return generic
+    if channel_key in {"whatsapp", "whatsapp_baileys"}:
+        return os.environ.get("WHATSAPP_TO", "").strip()
+    return ""
+
+
+async def _run_adb_command(
+    adb_args: list[str],
+    *,
+    serial: str = "",
+    input_bytes: bytes | None = None,
+) -> tuple[bytes, str]:
+    adb_binary = shutil.which("adb")
+    if adb_binary is None:
+        raise RuntimeError("adb is not installed or not on PATH")
+
+    cmd = [adb_binary]
+    if serial:
+        cmd.extend(["-s", serial])
+    cmd.extend(adb_args)
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE if input_bytes is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(input_bytes)
+    stderr_text = (stderr or b"").decode(errors="ignore")
+    if proc.returncode != 0:
+        raise RuntimeError(stderr_text[:240] or f"adb exited with {proc.returncode}")
+    return stdout or b"", stderr_text
+
 
 class ClawdBotDaemon(AgentBase):
     name = "clawdbot"
@@ -32,6 +249,10 @@ class ClawdBotDaemon(AgentBase):
         super().__init__()
         self._running = False
         self._cycle_interval = 15  # Check for tasks every 15 seconds
+        self._capability_refresh_interval = 900
+        self._last_capability_refresh = 0.0
+        self._runtime_capabilities: dict[str, dict] = {}
+        self._agent_mesh: list[dict] = []
 
     async def start(self):
         """Start ClawdBot's main loop."""
@@ -39,6 +260,7 @@ class ClawdBotDaemon(AgentBase):
         await db.init_pool()
         await self.requeue_stale_tasks()
         await self.register()
+        await self._bootstrap_runtime_capabilities(force=True)
         self._stopped.clear()
         self._running = True
 
@@ -89,7 +311,91 @@ class ClawdBotDaemon(AgentBase):
             "agent": self.name,
             "status": "running" if self._running else "stopped",
             "skills_available": len(skills),
+            "managed_agents": len(self._agent_mesh),
+            "runtime_capabilities": self._runtime_capabilities,
         }
+
+    async def _bootstrap_runtime_capabilities(self, *, force: bool = False):
+        now = time.time()
+        if not force and now - self._last_capability_refresh < self._capability_refresh_interval:
+            return
+
+        self._last_capability_refresh = now
+        await self._ensure_agent_mesh()
+        await self._resolve_bootstrap_capabilities()
+
+    async def _ensure_agent_mesh(self):
+        try:
+            self._agent_mesh = _agent_mesh_entries()
+            await db.set_config("clawdbot_agent_mesh", self._agent_mesh)
+        except Exception as exc:
+            logger.warning("Failed to ensure ClawdBot agent mesh: %s", exc)
+
+    def _desired_bootstrap_capabilities(self) -> list[str]:
+        desired = list(CORE_BOOTSTRAP_CAPABILITIES)
+        if _env_enabled("CLAWDBOT_ENABLE_VOICE") or _has_telnyx_voice_config() or _has_twilio_voice_config():
+            desired.extend(["voice_call", "sms_outreach"])
+        if _env_enabled("CLAWDBOT_ENABLE_ANDROID") or _has_android_runtime():
+            desired.append("android_automation")
+        if _whatsapp_channel_enabled():
+            desired.append("whatsapp")
+        return list(dict.fromkeys(desired))
+
+    async def _resolve_bootstrap_capabilities(self):
+        from clawdbot.capability_resolver import is_already_resolved, resolve_capability
+
+        runtime: dict[str, dict] = {}
+        for capability in self._desired_bootstrap_capabilities():
+            configured = capability in CORE_BOOTSTRAP_CAPABILITIES or capability in {
+                "voice_call",
+                "sms_outreach",
+                "android_automation",
+                "whatsapp",
+            }
+            state = {
+                "capability": capability,
+                "configured": configured,
+                "resolved": False,
+                "method": "",
+            }
+            try:
+                if await is_already_resolved(capability):
+                    state["resolved"] = True
+                    state["method"] = "already_available"
+                else:
+                    result = await resolve_capability(capability, {"trigger": "runtime_bootstrap"})
+                    state["resolved"] = bool(result.get("resolved"))
+                    state["method"] = result.get("method", "")
+                    if result.get("details"):
+                        state["details"] = result["details"][:200]
+            except Exception as exc:
+                state["error"] = str(exc)[:200]
+            runtime[capability] = state
+
+        mesh_ready = bool(self._agent_mesh)
+        runtime["agent_orchestrator"] = {
+            "capability": "agent_orchestrator",
+            "configured": True,
+            "resolved": mesh_ready,
+            "method": "managed_agent_mesh" if mesh_ready else "unavailable",
+            "managed_agents": [agent["name"] for agent in self._agent_mesh],
+        }
+        runtime["agent_network"] = {
+            "capability": "agent_network",
+            "configured": True,
+            "resolved": mesh_ready,
+            "method": "managed_agent_mesh" if mesh_ready else "unavailable",
+            "managed_agents": [agent["name"] for agent in self._agent_mesh],
+        }
+        runtime["swarm_orchestrator"] = {
+            "capability": "swarm_orchestrator",
+            "configured": True,
+            "resolved": mesh_ready,
+            "method": "managed_agent_mesh" if mesh_ready else "unavailable",
+            "managed_agents": [agent["name"] for agent in self._agent_mesh],
+        }
+        self._runtime_capabilities.update(runtime)
+        await db.set_config("clawdbot_capability_runtime", self._runtime_capabilities)
 
     async def _execute_with_brain(self, task_type: str, payload: dict, default_handler) -> dict | None:
         """Route task through Opus brain if complex, or directly to handler if simple."""
@@ -207,6 +513,7 @@ class ClawdBotDaemon(AgentBase):
 
             # Always run proactive scan after reactive work
             await self._proactive_scan()
+            await self._bootstrap_runtime_capabilities()
 
         except Exception as e:
             logger.debug(f"Think loop error (non-critical): {e}")
@@ -315,15 +622,15 @@ class ClawdBotDaemon(AgentBase):
             their_context = response.get("answer", "no response") if response else "agent unreachable"
 
             # Step 2: Ask Opus brain what to do with both sides of context
-            from shared.skill_loader import list_installed_skills
-            skills = list_installed_skills()
-            skill_names = [s[0] for s in skills[:20]] if skills else []
+            from clawdbot.brain import _inventory
+            tools_inventory = _inventory()
+            skill_names = [s["name"] for s in tools_inventory.get("skills", [])[:15]]
             decision = await decide_approach(
                 f"Problem: {problem}\n"
                 f"{target_agent} says: {their_context}\n"
-                f"Available skills: {', '.join(skill_names[:15])}\n"
+                f"Available skills: {', '.join(skill_names)}\n"
                 f"What should I do to fix this?",
-                available_tools=skill_names)
+                available_tools=tools_inventory)
 
             approach = decision.get("approach", "ask_operator")
             tool_name = decision.get("tool_name", "")
@@ -733,6 +1040,286 @@ async def handle_browser_task(payload: dict):
             return await handle_web_scrape(payload)
 
     raise ValueError("No browser skill available and could not be resolved")
+
+
+async def handle_agent_orchestration(payload: dict):
+    """Activate and use ClawdBot's OpenJarvis agent mesh."""
+    objective = str(payload.get("objective", "") or "").strip()
+    manager = None
+    try:
+        from shared.oj_bridge import get_agent_manager
+
+        manager = get_agent_manager()
+    except Exception as exc:
+        raise RuntimeError(f"OpenJarvis agent manager unavailable: {exc}") from exc
+
+    mesh = _agent_mesh_entries()
+    await db.set_config("clawdbot_agent_mesh", mesh)
+
+    if not objective:
+        return {
+            "status": "ready",
+            "agents": mesh,
+        }
+
+    orchestrator_agent = next((agent for agent in mesh if agent["name"] == "clawdbot-agent-orchestrator"), None)
+    worker_agent = next((agent for agent in mesh if agent["name"] == "clawdbot-agent-network"), None)
+
+    created_tasks = []
+    if orchestrator_agent:
+        created_tasks.append(
+            manager.create_task(
+                orchestrator_agent["id"],
+                f"Decompose and coordinate: {objective}",
+            )
+        )
+    if worker_agent:
+        created_tasks.append(
+            manager.create_task(
+                worker_agent["id"],
+                f"Execute delegated work for: {objective}",
+            )
+        )
+
+    await db.emit_event("agent_mesh_task_created", {
+        "objective": objective,
+        "task_count": len(created_tasks),
+        "request_id": payload.get("request_id", ""),
+    })
+    return {
+        "status": "delegated",
+        "objective": objective,
+        "agents": mesh,
+        "tasks": created_tasks,
+    }
+
+
+async def handle_android_automation(payload: dict):
+    """Run basic DroidClaw-style Android actions through ADB."""
+    from clawdbot.capability_resolver import is_already_resolved, resolve_capability
+
+    action = str(payload.get("action", "status") or "status").strip().lower()
+    serial = _default_android_serial(payload)
+    if not await is_already_resolved("android_automation"):
+        await resolve_capability("android_automation", {"trigger": "android_automation", "action": action})
+
+    if not _has_android_runtime():
+        return await handle_service_signup({
+            "service": "android_adb",
+            "url": "https://developer.android.com/tools/adb",
+            "purpose": "ClawdBot Android automation requires an ADB bridge or adbutils runtime.",
+        })
+
+    if action == "status":
+        stdout, _ = await _run_adb_command(["devices"], serial="")
+        lines = stdout.decode(errors="ignore").splitlines()
+        devices = []
+        for line in lines[1:]:
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[1] == "device":
+                devices.append(parts[0])
+        selected = serial or (devices[0] if devices else "")
+        return {
+            "status": "ready" if devices else "no_device",
+            "devices": devices,
+            "selected_serial": selected,
+        }
+
+    if not serial:
+        raise ValueError("android serial is required for action '%s'" % action)
+
+    if action == "tap":
+        x = int(payload.get("x", 0))
+        y = int(payload.get("y", 0))
+        await _run_adb_command(["shell", "input", "tap", str(x), str(y)], serial=serial)
+        result = {"status": "ok", "action": action, "serial": serial, "x": x, "y": y}
+    elif action == "text":
+        text = str(payload.get("text", "") or "").strip()
+        if not text:
+            raise ValueError("text is required for android text input")
+        escaped = text.replace(" ", "%s")
+        await _run_adb_command(["shell", "input", "text", escaped], serial=serial)
+        result = {"status": "ok", "action": action, "serial": serial, "text": text}
+    elif action == "swipe":
+        x1 = int(payload.get("x1", 0))
+        y1 = int(payload.get("y1", 0))
+        x2 = int(payload.get("x2", 0))
+        y2 = int(payload.get("y2", 0))
+        duration_ms = int(payload.get("duration_ms", 300))
+        await _run_adb_command(
+            ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
+            serial=serial,
+        )
+        result = {
+            "status": "ok",
+            "action": action,
+            "serial": serial,
+            "from": [x1, y1],
+            "to": [x2, y2],
+            "duration_ms": duration_ms,
+        }
+    elif action == "keyevent":
+        keycode = str(payload.get("keycode", "") or "").strip()
+        if not keycode:
+            raise ValueError("keycode is required for android keyevent")
+        await _run_adb_command(["shell", "input", "keyevent", keycode], serial=serial)
+        result = {"status": "ok", "action": action, "serial": serial, "keycode": keycode}
+    elif action == "app_start":
+        package = str(payload.get("package", "") or "").strip()
+        activity = str(payload.get("activity", "") or "").strip()
+        if not package:
+            raise ValueError("package is required for app_start")
+        component = f"{package}/{activity}" if activity else package
+        await _run_adb_command(["shell", "am", "start", "-n", component], serial=serial)
+        result = {"status": "ok", "action": action, "serial": serial, "component": component}
+    elif action == "screenshot":
+        output_path = str(payload.get("output_path", "") or "").strip()
+        if not output_path:
+            output_path = str(Path("/tmp") / f"clawdbot-android-{int(time.time())}.png")
+        image_bytes, _ = await _run_adb_command(["exec-out", "screencap", "-p"], serial=serial)
+        Path(output_path).write_bytes(image_bytes)
+        result = {"status": "ok", "action": action, "serial": serial, "output_path": output_path}
+    else:
+        raise ValueError(f"unsupported android action: {action}")
+
+    await db.emit_event("android_automation_result", {
+        **result,
+        "request_id": payload.get("request_id", ""),
+    })
+    return result
+
+
+async def handle_voice_call(payload: dict):
+    """Place or queue an outbound voice call via a configured provider."""
+    from clawdbot.capability_resolver import is_already_resolved, resolve_capability
+
+    to_number = str(payload.get("to") or payload.get("phone") or "").strip()
+    if not to_number:
+        raise ValueError("to is required for voice_call")
+
+    provider = _resolve_voice_provider(str(payload.get("provider", "") or ""))
+    if not provider:
+        return await handle_service_signup({
+            "service": "telnyx_voice",
+            "url": "https://telnyx.com/sign-up",
+            "purpose": f"ClawdBot needs a configured voice provider to call {to_number}.",
+        })
+
+    if not await is_already_resolved("voice_call"):
+        await resolve_capability("voice_call", {"trigger": "voice_call", "provider": provider, "to": to_number})
+
+    import httpx
+
+    if provider == "telnyx":
+        api_key = os.environ.get("TELNYX_API_KEY", "").strip()
+        connection_id = os.environ.get("TELNYX_CONNECTION_ID", "").strip()
+        from_number = str(payload.get("from") or os.environ.get("TELNYX_FROM_NUMBER", "")).strip()
+        if not (api_key and connection_id and from_number):
+            return await handle_service_signup({
+                "service": "telnyx_voice",
+                "url": "https://telnyx.com/sign-up",
+                "purpose": "Missing TELNYX_API_KEY, TELNYX_CONNECTION_ID, or TELNYX_FROM_NUMBER for voice calling.",
+            })
+
+        request_body = {
+            "connection_id": connection_id,
+            "to": to_number,
+            "from": from_number,
+        }
+        if payload.get("answer_url"):
+            request_body["webhook_url"] = str(payload["answer_url"])
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                "https://api.telnyx.com/v2/calls",
+                json=request_body,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            provider_payload = response.json()
+
+    elif provider == "twilio":
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+        from_number = str(payload.get("from") or os.environ.get("TWILIO_FROM_NUMBER", "")).strip()
+        callback_url = str(payload.get("answer_url") or os.environ.get("TWILIO_VOICE_URL", "")).strip()
+        if not (account_sid and auth_token and from_number and callback_url):
+            return await handle_service_signup({
+                "service": "twilio_voice",
+                "url": "https://www.twilio.com/try-twilio",
+                "purpose": "Missing Twilio voice credentials or TWILIO_VOICE_URL for voice calling.",
+            })
+
+        async with httpx.AsyncClient(timeout=20.0, auth=(account_sid, auth_token)) as client:
+            response = await client.post(
+                f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls.json",
+                data={
+                    "To": to_number,
+                    "From": from_number,
+                    "Url": callback_url,
+                },
+            )
+            response.raise_for_status()
+            provider_payload = response.json()
+    else:
+        raise ValueError(f"Unsupported voice provider: {provider}")
+
+    result = {
+        "status": "queued",
+        "provider": provider,
+        "to": to_number,
+        "response": provider_payload,
+    }
+    await db.emit_event("voice_call_requested", {
+        "provider": provider,
+        "to": to_number,
+        "request_id": payload.get("request_id", ""),
+    })
+    return result
+
+
+async def handle_whatsapp_message(payload: dict):
+    """Send a WhatsApp message via the OpenJarvis channel layer."""
+    from clawdbot.capability_resolver import is_already_resolved, resolve_capability
+
+    message = str(payload.get("message", "") or "").strip()
+    target = str(payload.get("to") or payload.get("target") or "").strip()
+    if not message:
+        raise ValueError("message is required")
+
+    if not await is_already_resolved("whatsapp"):
+        await resolve_capability("whatsapp", {"trigger": "whatsapp_message", "target": target})
+
+    backend, _, channel_key = _get_channel_backend(str(payload.get("channel", "") or ""))
+    if backend is None or not channel_key:
+        return await handle_service_signup({
+            "service": "whatsapp_channel",
+            "url": "https://developers.facebook.com/docs/whatsapp",
+            "purpose": "ClawdBot needs WhatsApp channel credentials to send messages.",
+        })
+
+    resolved_target = _resolve_whatsapp_target(channel_key, target)
+    if not resolved_target:
+        raise ValueError("No WhatsApp target configured")
+
+    ok = await asyncio.to_thread(
+        backend.send,
+        resolved_target,
+        message,
+        conversation_id=str(payload.get("conversation_id", "") or ""),
+        metadata=payload.get("metadata") or {},
+    )
+    result = {
+        "sent": bool(ok),
+        "channel": channel_key,
+        "target": resolved_target,
+    }
+    if ok:
+        await db.emit_event("whatsapp_message_sent", {
+            "target": resolved_target,
+            "request_id": payload.get("request_id", ""),
+        })
+    return result
 
 
 async def _playwright_fallback(url: str, description: str) -> dict:
@@ -1188,6 +1775,8 @@ async def handle_service_signup(payload: dict):
 
 TASK_HANDLERS = {
     "clawdbot_operator_message": handle_operator_message,
+    "agent_orchestration": handle_agent_orchestration,
+    "android_automation": handle_android_automation,
     "skill_execute": handle_skill_execute,
     "web_scrape": handle_web_scrape,
     "verify_single_site": handle_site_verify,
@@ -1195,6 +1784,8 @@ TASK_HANDLERS = {
     "browser_task": handle_browser_task,
     "enrich_lead": handle_enrich_lead,
     "service_signup": handle_service_signup,
+    "voice_call": handle_voice_call,
+    "whatsapp_message": handle_whatsapp_message,
     "image_generation": handle_image_generation,
     "notebooklm": handle_notebooklm,
     "n8n_workflow": handle_n8n_workflow,

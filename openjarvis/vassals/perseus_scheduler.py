@@ -12,9 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.vassals.priorities import decide_priorities
@@ -33,6 +34,8 @@ class PerseusConfig:
     review_mode_first_n: int = 10
     health_check_interval: int = 300  # 5 minutes
     briefing_hour: int = 8  # 8 AM
+    conway_check_every_n_ticks: int = 10  # Check Conway tiers every ~10 min
+    stuck_detection_window: int = 3  # Ticks before declaring stuck
 
 
 class PerseusScheduler:
@@ -63,6 +66,7 @@ class PerseusScheduler:
         self._running = False
         self._last_health_check = 0.0
         self._tick_count = 0
+        self._prev_states: List[Dict[str, Any]] = []
 
     # ── Main loop ─────────────────────────────────────────────────────
 
@@ -100,6 +104,16 @@ class PerseusScheduler:
         # 2. Deterministic priority logic
         priorities = decide_priorities(state)
 
+        # 2b. Stuck pipeline detection — LLM override if stuck
+        self._prev_states.append(state)
+        if len(self._prev_states) > 5:
+            self._prev_states = self._prev_states[-5:]
+        if self._is_stuck():
+            logger.warning("Pipeline appears stuck — asking LLM for new strategy")
+            override = await self._llm_strategic_override(state, priorities)
+            if override:
+                priorities = override
+
         # 3. Budget enforcement
         budget_action = await self._enforce_budget(state)
         if budget_action:
@@ -116,6 +130,10 @@ class PerseusScheduler:
         # 6. Alert on high-priority events
         if priorities.get("alert"):
             await self._send_alert(priorities["reasoning"])
+
+        # 6b. Conway survival check (every N ticks)
+        if self._tick_count % self._config.conway_check_every_n_ticks == 0:
+            await self._conway_survival_check()
 
         # 7. Record decision
         await self._record_decision(state, priorities)
@@ -287,6 +305,72 @@ class PerseusScheduler:
                 )
             except Exception:
                 pass
+
+    # ── Stuck pipeline detection ─────────────────────────────────────
+
+    def _is_stuck(self) -> bool:
+        """Check if pipeline state hasn't changed meaningfully in N cycles."""
+        window = self._config.stuck_detection_window
+        if len(self._prev_states) < window:
+            return False
+        keys = ("hot_leads", "ready_to_close", "ready_to_deliver", "ready_to_invoice")
+        recent = self._prev_states[-window:]
+        first = {k: recent[0].get(k, 0) for k in keys}
+        return all({k: s.get(k, 0) for k in keys} == first for s in recent[1:])
+
+    async def _llm_strategic_override(self, state: Dict, current: Dict) -> Optional[Dict]:
+        """Ask LLM for a new strategy when deterministic rules aren't working."""
+        try:
+            from shared.llm_client import llm
+
+            response = await llm.generate(
+                f"You are OpenJarvis, the boss. Your revenue pipeline is stuck.\n\n"
+                f"Pipeline state: {json.dumps(state)}\n"
+                f"Current plan: {json.dumps(current)}\n"
+                f"This state hasn't changed in {self._config.stuck_detection_window}+ cycles. "
+                f"What should we do differently?\n"
+                f"Return JSON: {{\"schedule\": [\"task1\", \"task2\"], \"reasoning\": \"why\"}}",
+                tier="smart", max_tokens=400, temperature=0.3,
+            )
+            match = re.search(r'\{[^}]+\}', response)
+            if match:
+                override = json.loads(match.group())
+                if "schedule" in override:
+                    logger.info("LLM strategic override: %s", override.get("reasoning", "")[:100])
+                    return override
+        except Exception as exc:
+            logger.warning("LLM strategic override failed: %s", exc)
+        return None
+
+    # ── Conway survival ───────────────────────────────────────────────
+
+    async def _conway_survival_check(self) -> None:
+        """Check agent wallet tiers via Conway economic system."""
+        try:
+            from shared.config import config
+            if not config.conway.enabled:
+                return
+
+            from conway.wallet import WalletManager
+            from conway.ledger import EconomicLedger
+            from conway.survival import SurvivalMonitor
+
+            wm = WalletManager()
+            ledger = EconomicLedger()
+            monitor = SurvivalMonitor(wm, ledger)
+            results = await monitor.check_all_agents()
+
+            for r in results:
+                if r.get("changed"):
+                    msg = (
+                        f"Conway tier change: {r['agent']} -> {r['tier']} "
+                        f"(balance: ${r['balance']:.2f})"
+                    )
+                    logger.warning(msg)
+                    await self._send_alert(msg)
+
+        except Exception as exc:
+            logger.debug("Conway survival check: %s", exc)
 
     # ── Status ────────────────────────────────────────────────────────
 

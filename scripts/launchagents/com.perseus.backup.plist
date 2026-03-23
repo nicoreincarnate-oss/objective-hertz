@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/majovega/Desktop/objective-hertz/scripts/backup-postgres.sh</string>
+        <string>/Users/majovega/Desktop/Projects/objective-hertz/scripts/backup-postgres.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/objective-hertz</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz</string>
     <key>RunAtLoad</key>
     <false/>
     <key>ThrottleInterval</key>
@@ -23,9 +23,9 @@
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/backup-launchd.log</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/backup-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/backup-launchd-err.log</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/backup-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

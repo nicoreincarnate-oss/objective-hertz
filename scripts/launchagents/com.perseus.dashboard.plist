@@ -16,7 +16,7 @@
         <string>8500</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/objective-hertz</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -24,9 +24,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/dashboard-launchd.log</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/dashboard-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/dashboard-launchd-err.log</string>
+    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/dashboard-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
