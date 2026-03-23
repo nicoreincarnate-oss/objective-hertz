@@ -23,6 +23,7 @@ HERMES_CARD = AgentCard(
     url="http://localhost:9002",
     version="1.0.0",
     capabilities=[
+        "ask",
         "event_forward",
         "message_send", "message_broadcast",
         "alert_urgent", "alert_warning", "alert_info",
@@ -39,31 +40,58 @@ HERMES_CARD = AgentCard(
 # ── Capability handlers ───────────────────────────────────────────────
 
 async def _message_send(text: str = "", **_) -> dict:
-    """Send a message to the operator via Telegram (or store as event)."""
+    """Send a message to the operator via Telegram and store as event."""
     if not text:
         return {"error": "text is required"}
     await db.emit_event("operator_notification", {"message": text, "sender": "openjarvis"})
+    # Actually deliver via Telegram
+    try:
+        from hermes.alerts import _send_telegram
+        await _send_telegram(f"*[Message]* {text}")
+    except Exception as exc:
+        logger.warning("Telegram delivery failed for message_send: %s", exc)
     return {"sent": True, "channel": "telegram", "message": text[:200]}
 
 
 async def _message_broadcast(text: str = "", **_) -> dict:
     """Broadcast a message to all channels."""
     await db.emit_event("broadcast", {"message": text, "sender": "openjarvis"})
+    # Deliver broadcast via Telegram as well
+    try:
+        from hermes.alerts import _send_telegram
+        await _send_telegram(f"*[Broadcast]* {text}")
+    except Exception as exc:
+        logger.warning("Telegram delivery failed for broadcast: %s", exc)
     return {"broadcast": True, "message": text[:200]}
 
 
 async def _alert_urgent(text: str = "", **_) -> dict:
     await db.emit_event("urgent_alert", {"message": text, "sender": "openjarvis"})
+    try:
+        from hermes.alerts import _send_telegram
+        await _send_telegram(f"\U0001f6a8 *[URGENT]* {text}")
+    except Exception as exc:
+        logger.warning("Telegram delivery failed for urgent alert: %s", exc)
     return {"alerted": True, "level": "urgent", "message": text[:200]}
 
 
 async def _alert_warning(text: str = "", **_) -> dict:
     await db.emit_event("warning_alert", {"message": text, "sender": "openjarvis"})
+    try:
+        from hermes.alerts import _send_telegram
+        await _send_telegram(f"\u26a0\ufe0f *[WARNING]* {text}")
+    except Exception as exc:
+        logger.warning("Telegram delivery failed for warning alert: %s", exc)
     return {"alerted": True, "level": "warning", "message": text[:200]}
 
 
 async def _alert_info(text: str = "", **_) -> dict:
     await db.emit_event("info_alert", {"message": text, "sender": "openjarvis"})
+    try:
+        from hermes.alerts import _send_telegram
+        await _send_telegram(f"\u2139\ufe0f *[INFO]* {text}")
+    except Exception as exc:
+        logger.warning("Telegram delivery failed for info alert: %s", exc)
     return {"alerted": True, "level": "info", "message": text[:200]}
 
 
@@ -177,7 +205,34 @@ async def _health_check(**_) -> dict:
     return {"status": "running", "agent": "hermes"}
 
 
+async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+    """Handle a question from another agent about operator context."""
+    from shared.db import fetch_all
+
+    # Get recent operator messages
+    recent_msgs = await fetch_all(
+        """SELECT payload, created_at FROM events
+           WHERE event_type IN ('operator_message', 'telegram_message')
+           ORDER BY created_at DESC LIMIT 10"""
+    )
+    operator_ctx = "\n".join(
+        f"- {str(m.get('payload', ''))[:150]}" for m in (recent_msgs or [])
+    )
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are Hermes, the operator communication agent. {from_agent} is asking:\n\n"
+        f"{question}\n\n"
+        f"Recent operator messages:\n{operator_ctx}\n\n"
+        f"Answer based on what the operator has communicated. If no relevant context, say so."
+    )
+
+    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    return {"answer": answer, "from": "hermes"}
+
+
 CAPABILITY_HANDLERS = {
+    "ask": _ask,
     "event_forward": _event_forward,
     "message_send": _message_send,
     "message_broadcast": _message_broadcast,

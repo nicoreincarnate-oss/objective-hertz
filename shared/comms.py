@@ -48,10 +48,17 @@ async def request_task(
     if request_id:
         full_payload["request_id"] = request_id
 
-    # Try A2A dispatch first
+    # Try A2A dispatch first (dynamic routing → static fallback)
     if _USE_A2A:
-        from shared.task_routing import TASK_ROUTING
-        agent_name = TASK_ROUTING.get(task_type)
+        agent_name = None
+        try:
+            from shared.capability_router import get_capability_router
+            agent_name = await get_capability_router().route(task_type)
+        except Exception:
+            pass
+        if not agent_name:
+            from shared.task_routing import TASK_ROUTING
+            agent_name = TASK_ROUTING.get(task_type)
         if agent_name:
             try:
                 from shared.oj_bridge import call_agent_async
@@ -304,6 +311,23 @@ async def get_recent_decisions(agent: str = "", decision_type: str = "", limit: 
     )
 
 
+async def get_pending_recommendations(
+    target_agent: str,
+    since_minutes: int = 60,
+    limit: int = 10,
+) -> list[dict]:
+    """Fetch unacknowledged recommendations addressed to target_agent."""
+    rows = await db.fetch_all(
+        """SELECT id, payload, created_at FROM events
+           WHERE event_type = 'agent_recommendation'
+           AND payload::jsonb->>'to' = %s
+           AND created_at > NOW() - INTERVAL '%s minutes'
+           ORDER BY created_at DESC LIMIT %s""",
+        (target_agent, since_minutes, limit),
+    )
+    return [dict(r) for r in rows] if rows else []
+
+
 async def request_help(
     from_agent: str,
     problem: str,
@@ -324,3 +348,44 @@ async def request_help(
         **(context or {}),
     })
     return decision_id
+
+
+async def ask_agent(
+    from_agent: str,
+    to_agent: str,
+    question: str,
+    context: dict | None = None,
+    timeout: int = 30,
+) -> dict | None:
+    """Ask another agent a question via A2A and get a synchronous response."""
+    try:
+        from shared.oj_bridge import call_agent_async
+        result = await call_agent_async(
+            to_agent,
+            "ask",
+            {"question": question, "from": from_agent, "context": context or {}},
+            timeout=timeout,
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"ask_agent({from_agent}→{to_agent}) failed: {e}")
+        return None
+
+
+async def delegate_task(
+    from_agent: str,
+    to_agent: str,
+    task_type: str,
+    payload: dict | None = None,
+    priority: int = 3,
+) -> int | str | None:
+    """Delegate a task to a specific agent with priority override."""
+    full_payload = payload or {}
+    full_payload["delegated_by"] = from_agent
+    task_id = await request_task(
+        task_type=task_type,
+        payload=full_payload,
+        priority=priority,
+    )
+    logger.info(f"Delegated {task_type} from {from_agent} → {to_agent} (priority={priority}, id={task_id})")
+    return task_id

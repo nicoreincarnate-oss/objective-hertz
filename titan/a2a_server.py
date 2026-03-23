@@ -31,7 +31,7 @@ TITAN_CARD = AgentCard(
     url="http://localhost:9001",
     version="1.0.0",
     capabilities=[
-        "pipeline_status", "lead_discovery", "lead_research",
+        "ask", "pipeline_status", "lead_discovery", "lead_research",
         "email_compose", "email_send", "follow_up_check",
         "close_interested", "build_sites", "process_invoices",
         "sync_analytics", "budget_status", "budget_check",
@@ -204,7 +204,38 @@ async def _run_daily_reflection(**_) -> dict:
     return {"reflected": True}
 
 
+async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+    """Handle a question from another agent about pipeline/lead/budget state."""
+    from shared.llm_client import llm
+    from shared.db import fetch_all, fetch_val
+
+    # Gather context for answering
+    pipeline_summary = await fetch_val(
+        "SELECT COUNT(*) FROM clients WHERE status != 'dead'"
+    ) or 0
+    recent_events = await fetch_all(
+        "SELECT event_type, payload FROM events ORDER BY created_at DESC LIMIT 5"
+    )
+    events_ctx = "\n".join(
+        f"- {e['event_type']}: {str(e.get('payload', ''))[:100]}"
+        for e in (recent_events or [])
+    )
+
+    prompt = (
+        f"You are Titan, the revenue pipeline agent. {from_agent} is asking you:\n\n"
+        f"{question}\n\n"
+        f"Context from {from_agent}: {json.dumps(context or {})}\n\n"
+        f"Current pipeline: {pipeline_summary} active leads\n"
+        f"Recent events:\n{events_ctx}\n\n"
+        f"Answer concisely and factually."
+    )
+
+    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    return {"answer": answer, "from": "titan"}
+
+
 CAPABILITY_HANDLERS = {
+    "ask": _ask,
     "pipeline_status": _pipeline_status,
     "lead_discovery": _run_lead_discovery,
     "lead_research": _run_lead_research,

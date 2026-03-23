@@ -497,12 +497,12 @@ async def handle_skill_execute(payload: dict):
 
     # Store as learning if tagged
     if payload.get("store_learning"):
-        await _store_learning("skill_execution", f"Skill {skill_name}: {result[:500]}")
+        await _store_learning("skill_execution", f"Skill {skill_name}: {skill_output[:500]}")
 
     logger.info(f"Skill '{skill_name}' executed successfully")
     return {
         "skill": skill_name,
-        "result": result[:2000] if result else "",
+        "result": skill_output[:2000] if skill_output else "",
     }
 
 

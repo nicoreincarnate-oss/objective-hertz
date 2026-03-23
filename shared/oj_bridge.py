@@ -28,6 +28,7 @@ AGENT_URLS: dict[str, str] = {
     "titan": os.environ.get("TITAN_A2A_URL", "http://localhost:9001"),
     "hermes": os.environ.get("HERMES_A2A_URL", "http://localhost:9002"),
     "clawdbot": os.environ.get("CLAWDBOT_A2A_URL", "http://localhost:9003"),
+    "orchestrator": os.environ.get("ORCHESTRATOR_A2A_URL", "http://localhost:9000"),
 }
 
 # ── Data directory ───────────────────────────────────────────────────
@@ -114,7 +115,7 @@ def get_capability_policy():
     global _capability_policy
     if _capability_policy is None:
         from openjarvis.security.capabilities import CapabilityPolicy
-        _capability_policy = CapabilityPolicy(default_deny=False)
+        _capability_policy = CapabilityPolicy(default_deny=True)
         # Grant agent-specific capabilities
         _capability_policy.grant("titan", "pipeline:*", "*")
         _capability_policy.grant("titan", "db:clients", "*")

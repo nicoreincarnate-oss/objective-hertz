@@ -26,6 +26,7 @@ CLAWDBOT_CARD = AgentCard(
     url="http://localhost:9003",
     version="1.0.0",
     capabilities=[
+        "ask",
         "skill_execute", "skill_list", "skill_find",
         "web_scrape", "scrape_company",
         "browser_task",
@@ -193,7 +194,34 @@ async def _health_check(**_) -> dict:
     return {"status": "running", "agent": "clawdbot", "skills_count": len(skills)}
 
 
+async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+    """Handle a question from another agent about skills/infra/research."""
+    from shared.skill_loader import list_installed_skills
+    from shared.db import fetch_val
+
+    skills = list_installed_skills()
+    skill_names = [s[0] for s in skills[:20]] if skills else []
+
+    # Check infra health
+    infra = await fetch_val(
+        "SELECT value FROM system_config WHERE key = 'infra_health'"
+    ) or "unknown"
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are ClawdBot, the skills executor. {from_agent} is asking:\n\n"
+        f"{question}\n\n"
+        f"Available skills: {', '.join(skill_names)}\n"
+        f"Infrastructure health: {infra}\n\n"
+        f"Answer concisely about your capabilities."
+    )
+
+    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    return {"answer": answer, "from": "clawdbot"}
+
+
 CAPABILITY_HANDLERS = {
+    "ask": _ask,
     "skill_execute": _skill_execute,
     "skill_list": _skill_list,
     "skill_find": _skill_find,

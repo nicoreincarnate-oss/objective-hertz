@@ -208,8 +208,31 @@ class TitanDaemon(AgentBase):
             finally:
                 self.finish_work(work_id)
 
+    async def _consume_recommendations(self) -> None:
+        """Read and act on recommendations from other agents."""
+        try:
+            from shared.comms import get_pending_recommendations
+            recs = await get_pending_recommendations("titan", since_minutes=30, limit=5)
+            for rec in recs:
+                payload = rec.get("payload", {})
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                topic = payload.get("topic", "")
+                message = payload.get("message", "")
+                from_agent = payload.get("from", "unknown")
+                logger.info(f"Recommendation from {from_agent}: [{topic}] {message[:200]}")
+                # Record that we consumed it
+                await self.emit_event("recommendation_consumed", {
+                    "from": from_agent, "topic": topic, "consumed_by": "titan"
+                })
+        except Exception as e:
+            logger.debug(f"Recommendation check: {e}")
+
     async def _run_pipeline_cycle(self):
         """One full cycle of the pipeline. Checks infra health before each stage."""
+        # Consume ClawdBot recommendations
+        await self._consume_recommendations()
+
         # Check infrastructure health — skip stages whose dependencies are down
         infra = await db.get_config("infra_health", {})
 

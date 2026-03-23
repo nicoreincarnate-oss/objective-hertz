@@ -12,6 +12,7 @@ Layers:
 3. Nico alert for anything blocked — human in the loop for edge cases
 """
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -166,7 +167,18 @@ async def vet_skill(skill_path: Path) -> VetResult:
                 ),
                 model="fast",
             )
-            if '"safe": false' in llm_review.lower() or '"safe":false' in llm_review.lower():
+            # Extract JSON from LLM response
+            import re
+            json_match = re.search(r'\{[^}]+\}', llm_review)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group())
+                    is_unsafe = parsed.get("safe") is False or str(parsed.get("safe", "")).lower() == "false"
+                except (json.JSONDecodeError, ValueError):
+                    is_unsafe = '"safe": false' in llm_review.lower() or '"safe":false' in llm_review.lower()
+            else:
+                is_unsafe = '"safe": false' in llm_review.lower() or '"safe":false' in llm_review.lower()
+            if is_unsafe:
                 result = VetResult(
                     passed=False,
                     skill_name=skill_name,

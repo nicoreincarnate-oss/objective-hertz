@@ -46,7 +46,7 @@ class HermesDaemon(AgentBase):
             _placeholder_tokens = {"", "CHANGE_ME", "your-bot-token-here"}
             if not _token or _token in _placeholder_tokens:
                 logger.warning("TELEGRAM_BOT_TOKEN not set or placeholder — running dashboard + alerts only")
-                await self._alert_loop()
+                await asyncio.gather(self._alert_loop(), self._active_forward_loop())
             else:
                 # Run bot and alert dispatcher concurrently
                 bot = create_bot()
@@ -54,21 +54,25 @@ class HermesDaemon(AgentBase):
                     await bot.initialize()
                 except Exception as e:
                     logger.warning("Telegram bot failed to initialize (%s) — running dashboard + alerts only", e)
-                    await self._alert_loop()
+                    await asyncio.gather(self._alert_loop(), self._active_forward_loop())
                     return
                 await bot.start()
                 try:
                     await bot.updater.start_polling()
                     logger.info("Hermes Telegram bot is LIVE.")
 
-                    # Run alert loop alongside the bot
-                    while self._running:
-                        self.begin_work("loop:alerts")
-                        try:
-                            await dispatch_alerts()
-                        finally:
-                            self.finish_work("loop:alerts")
-                        await asyncio.sleep(self._alert_interval)
+                    # Run alert loop and active forward loop alongside the bot
+                    forward_task = asyncio.create_task(self._active_forward_loop())
+                    try:
+                        while self._running:
+                            self.begin_work("loop:alerts")
+                            try:
+                                await dispatch_alerts()
+                            finally:
+                                self.finish_work("loop:alerts")
+                            await asyncio.sleep(self._alert_interval)
+                    finally:
+                        forward_task.cancel()
                 finally:
                     await bot.updater.stop()
                     await bot.stop()
@@ -94,6 +98,58 @@ class HermesDaemon(AgentBase):
             await server.serve()
         except asyncio.CancelledError:
             server.should_exit = True
+
+    async def _active_forward_loop(self) -> None:
+        """Proactively forward operator context to relevant agents."""
+        while self._running:
+            try:
+                # Check for recent operator messages that could help other agents
+                from shared.db import fetch_all
+                recent_ops = await fetch_all(
+                    """SELECT payload, created_at FROM events
+                       WHERE event_type IN ('operator_message', 'telegram_message')
+                       AND created_at > NOW() - INTERVAL '5 minutes'
+                       ORDER BY created_at DESC LIMIT 5"""
+                )
+                if recent_ops:
+                    for msg in recent_ops:
+                        payload = msg.get("payload", {})
+                        if isinstance(payload, str):
+                            import json
+                            payload = json.loads(payload)
+                        text = str(payload.get("text", payload.get("message", "")))
+                        # Forward to relevant agent based on content
+                        if any(kw in text.lower() for kw in ("lead", "pipeline", "email", "deal", "revenue", "invoice")):
+                            try:
+                                from shared.comms import ask_agent
+                                await ask_agent("hermes", "titan", f"Operator context: {text[:500]}", timeout=10)
+                            except Exception:
+                                pass
+                        if any(kw in text.lower() for kw in ("skill", "scrape", "browser", "site", "verify", "build")):
+                            try:
+                                from shared.comms import ask_agent
+                                await ask_agent("hermes", "clawdbot", f"Operator context: {text[:500]}", timeout=10)
+                            except Exception:
+                                pass
+
+                # Check for stale pending approvals (>2 hours)
+                stale_approvals = await fetch_all(
+                    """SELECT * FROM events
+                       WHERE event_type = 'review_item_created'
+                       AND created_at < NOW() - INTERVAL '2 hours'
+                       AND created_at > NOW() - INTERVAL '4 hours'
+                       LIMIT 3"""
+                )
+                if stale_approvals:
+                    from shared.comms import send_alert
+                    await send_alert(
+                        f"{len(stale_approvals)} approval(s) pending for over 2 hours. Check /review.",
+                        sender="hermes",
+                    )
+            except Exception as e:
+                self.logger.debug(f"Active forward loop: {e}")
+
+            await asyncio.sleep(30)
 
     async def _alert_loop(self):
         """Standalone alert loop when Telegram is not configured."""

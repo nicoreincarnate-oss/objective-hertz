@@ -251,6 +251,30 @@ class WorkflowEngine:
             output="No tool executor available.",
         )
 
+    @staticmethod
+    def _safe_eval_condition_fn(expr: str, outputs: dict) -> str:
+        """Safely evaluate a simple condition expression."""
+        import ast
+
+        # Support simple comparisons: outputs["key"] == "value"
+        # Parse the expression as AST and only allow safe operations
+        try:
+            tree = ast.parse(expr, mode='eval')
+            # Walk the AST and only allow safe nodes
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Expression, ast.Compare, ast.Subscript,
+                                   ast.Constant, ast.Name, ast.Load, ast.Eq,
+                                   ast.NotEq, ast.In, ast.NotIn, ast.Str,
+                                   ast.Index, ast.BoolOp, ast.And, ast.Or,
+                                   ast.UnaryOp, ast.Not)):
+                    continue
+                # Reject anything not in the whitelist
+                raise ValueError(f"Unsafe expression node: {type(node).__name__}")
+            # Safe to evaluate with restricted namespace
+            return str(eval(expr, {"__builtins__": {}}, {"outputs": outputs}))
+        except Exception as e:
+            raise ValueError(f"Cannot evaluate condition '{expr}': {e}")
+
     def _run_condition_node(
         self, node: WorkflowNode, outputs: Dict[str, str],
     ) -> WorkflowStepResult:
@@ -260,11 +284,9 @@ class WorkflowEngine:
             return WorkflowStepResult(
                 node_id=node.id, success=True, output="true",
             )
-        # Simple expression evaluation — check if key exists and is truthy
-        # Supports: "node_id.success", "node_id.output contains 'text'"
         try:
-            result = str(eval(expr, {"__builtins__": {}}, {"outputs": outputs}))  # noqa: S307
-        except Exception:
+            result = self._safe_eval_condition_fn(expr, outputs)
+        except (ValueError, Exception):
             result = "false"
         return WorkflowStepResult(
             node_id=node.id,

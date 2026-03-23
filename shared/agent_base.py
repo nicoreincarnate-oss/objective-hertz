@@ -50,14 +50,25 @@ class AgentBase(ABC):
         ...
 
     async def register(self):
-        """Register this agent with Perseus via DB."""
+        """Register this agent with Perseus via DB, and optionally create a Conway wallet."""
         await db.execute(
             """INSERT INTO agent_registry (name, description, status)
                VALUES (%s, %s, 'active')
                ON CONFLICT (name) DO UPDATE SET status = 'active', updated_at = NOW()""",
             (self.name, self.description),
         )
-        self.logger.info(f"Agent '{self.name}' registered with Perseus")
+        self.logger.info(f"Agent '{self.name}' registered")
+
+        # Conway wallet provisioning
+        try:
+            from shared.config import config
+            if config.conway.enabled:
+                from conway.wallet import WalletManager
+                wm = WalletManager(config.conway.keystore_path)
+                wallet = await wm.get_or_create_wallet(self.name)
+                self.logger.info(f"Conway wallet: {wallet.address}")
+        except Exception as e:
+            self.logger.debug(f"Conway wallet setup skipped: {e}")
 
     async def deregister(self):
         """Mark agent as inactive."""

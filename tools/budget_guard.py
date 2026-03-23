@@ -41,7 +41,7 @@ class BudgetGuard:
 
 
 async def get_month_spending(monthly_cap: Decimal | None = None) -> dict:
-    """Get total spending for the current month."""
+    """Get total spending for the current month (fiat + Conway crypto)."""
     if monthly_cap is None:
         monthly_cap = Decimal(str(config.budget.monthly_cap))
 
@@ -53,21 +53,44 @@ async def get_month_spending(monthly_cap: Decimal | None = None) -> dict:
     ) or 0
 
     total_dec = Decimal(str(total))
-    remaining = monthly_cap - total_dec
-    percent = float(total_dec / monthly_cap * 100) if monthly_cap > 0 else 0
+
+    # Include Conway (crypto) spending if enabled
+    conway_spend = Decimal("0")
+    if config.conway.enabled:
+        try:
+            conway_total = await fetch_val(
+                """SELECT COALESCE(SUM(amount), 0) FROM conway_ledger
+                   WHERE tx_type IN ('spend', 'compute_rental', 'inference', 'service')
+                   AND created_at >= %s""",
+                (month,),
+            ) or 0
+            conway_spend = Decimal(str(conway_total))
+        except Exception:
+            pass  # Table may not exist yet
+
+    combined = total_dec + conway_spend
+    remaining = monthly_cap - combined
+    percent = float(combined / monthly_cap * 100) if monthly_cap > 0 else 0
 
     categories = await fetch_all(
         """SELECT category, SUM(amount) as amount FROM v_effective_budget_tracking
            WHERE month = %s GROUP BY category ORDER BY amount DESC""",
         (month,),
     )
+    cat_list = [dict(c) for c in categories] if categories else []
+
+    # Add Conway as a category if it has spending
+    if conway_spend > 0:
+        cat_list.append({"category": "conway_crypto", "amount": float(conway_spend)})
 
     return {
-        "total_spent": float(total_dec),
+        "total_spent": float(combined),
         "remaining": float(remaining),
         "percent_used": round(percent, 1),
         "exceeded": remaining <= 0,
-        "categories": [dict(c) for c in categories] if categories else [],
+        "categories": cat_list,
+        "fiat_spent": float(total_dec),
+        "crypto_spent": float(conway_spend),
     }
 
 
