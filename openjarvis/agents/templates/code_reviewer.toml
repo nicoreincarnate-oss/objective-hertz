@@ -1,0 +1,15 @@
+[template]
+id = "code_reviewer"
+name = "Code Reviewer"
+description = "Monitors a repository for changes, reviews code, and stores feedback."
+agent_type = "monitor_operative"
+schedule_type = "interval"
+schedule_value = "3600"
+tools = ["file_read", "shell_exec", "memory_store", "think"]
+max_turns = 15
+temperature = 0.2
+memory_extraction = "scratchpad"
+observation_compression = "summarize"
+retrieval_strategy = "keyword"
+task_decomposition = "monolithic"
+system_prompt = "You are a code review agent. Monitor the repository for recent changes, review code quality, identify potential bugs, and store your findings."

@@ -15,9 +15,9 @@ import logging
 import time
 from datetime import datetime
 
-from shared.db import fetch_all, fetch_one, execute, fetch_val, emit_event
-from shared.llm_client import llm
 from shared.config import config
+from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
+from shared.llm_client import llm
 
 logger = logging.getLogger("perseus.titan.memory")
 
@@ -30,7 +30,7 @@ _last_mem0_alert_at: dict[str, float] = {
 
 # ── Vector Memory (Mem0 + Qdrant) ─────────────────────────────────────
 
-async def store_memory(content: str, category: str, client_id: int = None, metadata: dict = None):
+async def store_memory(content: str, category: str, client_id: int | None = None, metadata: dict | None = None) -> None:
     """Store a memory in Mem0 for vector-searchable retrieval."""
     import httpx
     mem_metadata = {
@@ -122,8 +122,8 @@ async def get_relevant_learnings(context: str, limit: int = 10) -> str:
     parts = []
     if db_learnings:
         parts.append("STRUCTURED INSIGHTS:")
-        for l in db_learnings:
-            parts.append(f"  [{l['category']}] {l['insight']}")
+        for learning in db_learnings:
+            parts.append(f"  [{learning['category']}] {learning['insight']}")
     if vector_memories:
         parts.append("RELEVANT MEMORIES:")
         for m in vector_memories:
@@ -196,6 +196,12 @@ Return JSON list:
         category="daily_reflection",
     )
 
+    # Extract rules from metric changes (closed-loop learning)
+    try:
+        await extract_rules_from_reflection(metrics)
+    except Exception as e:
+        logger.warning(f"Rule extraction failed (non-critical): {e}")
+
     await emit_event("daily_reflection_complete", {"insights": len(insights)})
     logger.info(f"Daily reflection: {len(insights)} insights stored")
 
@@ -230,7 +236,7 @@ METRICS THIS WEEK:
 {json.dumps(weekly_metrics, indent=2, default=str)}
 
 DAILY INSIGHTS THIS WEEK:
-{json.dumps([dict(l) for l in weekly_learnings], default=str)}
+{json.dumps([dict(learning) for learning in weekly_learnings], default=str)}
 
 TRAINING DATA: {dict(training_stats) if training_stats else 'None'}
 
@@ -275,6 +281,12 @@ Return JSON:
     except Exception as e:
         logger.warning(f"Failed to parse weekly strategy: {e}")
 
+    # Evaluate existing rules — deactivate ones that aren't working
+    try:
+        await evaluate_rules()
+    except Exception as e:
+        logger.warning(f"Rule evaluation failed (non-critical): {e}")
+
 
 # ── Metrics Gathering ─────────────────────────────────────────────────
 
@@ -302,6 +314,15 @@ async def _gather_daily_metrics() -> dict:
         "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'paid' AND DATE(paid_at) = CURRENT_DATE"
     ) or 0
 
+    # Source quality breakdown
+    source_quality = await fetch_all(
+        """SELECT source, total_leads, has_email, progressed, engaged, converted, paid,
+                  revenue, total_cost, conversion_rate_pct
+           FROM v_source_quality
+           WHERE total_leads >= 5
+           ORDER BY conversion_rate_pct DESC LIMIT 10"""
+    )
+
     return {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "emails_sent": emails_sent,
@@ -313,6 +334,7 @@ async def _gather_daily_metrics() -> dict:
         "interested_today": interested,
         "closed_today": closed,
         "revenue_today": float(revenue),
+        "source_quality": [dict(s) for s in source_quality] if source_quality else [],
     }
 
 
@@ -335,3 +357,213 @@ async def _gather_weekly_metrics() -> dict:
     result = dict(row) if row else {}
     result["revenue_this_week"] = float(revenue)
     return result
+
+
+# ── Closed-Loop Rules System ─────────────────────────────────────────
+#
+# Rules are data-proven behavioral constraints injected into pipeline prompts.
+# Unlike learnings (suggestions the LLM can ignore), rules are deterministic:
+# "Subject lines under 6 words get 2.1x open rate" → enforced in compose prompt.
+# Rules are evaluated weekly; ones that don't hold up get deactivated.
+
+async def get_active_rules(category: str = "") -> list[dict]:
+    """Fetch active rules, optionally filtered by category."""
+    if category:
+        return await fetch_all(
+            """SELECT id, category, rule_text, metric_name, metric_before, metric_after,
+                      sample_size, confidence
+               FROM titan_rules WHERE active = TRUE AND category = %s
+               ORDER BY confidence DESC""",
+            (category,),
+        )
+    return await fetch_all(
+        """SELECT id, category, rule_text, metric_name, metric_before, metric_after,
+                  sample_size, confidence
+           FROM titan_rules WHERE active = TRUE
+           ORDER BY confidence DESC"""
+    )
+
+
+async def format_rules_for_prompt(categories: list[str]) -> str:
+    """Format active rules as numbered constraints for injection into LLM prompts."""
+    rules = []
+    for cat in categories:
+        rules.extend(await get_active_rules(cat))
+
+    if not rules:
+        return ""
+
+    lines = ["PROVEN RULES (follow these — they are data-backed, not suggestions):"]
+    for i, rule in enumerate(rules, 1):
+        metric_delta = ""
+        if rule.get("metric_before") and rule.get("metric_after"):
+            improvement = rule["metric_after"] / max(rule["metric_before"], 0.001)
+            metric_delta = f" ({improvement:.1f}x improvement, n={rule.get('sample_size', 0)})"
+        lines.append(f"  {i}. {rule['rule_text']}{metric_delta}")
+
+    return "\n".join(lines)
+
+
+async def extract_rules_from_reflection(metrics: dict, previous_metrics: dict | None = None):
+    """
+    After daily reflection, compare metrics to find improvements worth codifying as rules.
+    Called by daily_reflection after insights are stored.
+    """
+    if not previous_metrics:
+        # Get yesterday's metrics from the last daily reflection
+        prev_learning = await fetch_one(
+            """SELECT insight FROM titan_learnings
+               WHERE category = 'daily_metrics'
+               ORDER BY created_at DESC OFFSET 1 LIMIT 1"""
+        )
+        if prev_learning:
+            try:
+                previous_metrics = json.loads(prev_learning["insight"])
+            except (json.JSONDecodeError, TypeError):
+                return
+
+    if not previous_metrics:
+        return
+
+    # Store today's metrics as a learning for tomorrow's comparison
+    await execute(
+        """INSERT INTO titan_learnings (category, insight, confidence)
+           VALUES ('daily_metrics', %s, 1.0)""",
+        (json.dumps(metrics, default=str),),
+    )
+
+    # Compare key metrics
+    comparisons = [
+        ("open_rate", "email_performance"),
+        ("reply_rate", "email_performance"),
+    ]
+
+    for metric_name, rule_category in comparisons:
+        current = metrics.get(metric_name, 0)
+        previous = previous_metrics.get(metric_name, 0)
+        sample = metrics.get("emails_sent", 0)
+
+        if previous <= 0 or current <= 0 or sample < 50:
+            continue
+
+        improvement = current / previous
+        if improvement >= 1.15:  # 15%+ improvement
+            # Find what changed — check recent learnings for a cause
+            recent = await fetch_all(
+                """SELECT insight FROM titan_learnings
+                   WHERE category IN ('email_performance', 'copywriting', 'targeting')
+                   AND confidence >= 0.6
+                   AND created_at > NOW() - INTERVAL '48 hours'
+                   ORDER BY confidence DESC LIMIT 3"""
+            )
+            if not recent:
+                continue
+
+            # Ask LLM to extract a concrete rule from the improvement + insights
+            insights_text = "; ".join(r["insight"] for r in recent)
+            prompt = f"""{metric_name} improved from {previous:.1f}% to {current:.1f}% ({improvement:.1f}x) over {sample} emails.
+
+Recent insights: {insights_text}
+
+Extract ONE concrete, testable rule that likely caused this improvement.
+The rule must be specific enough to enforce in a prompt (e.g. "Subject lines must be under 6 words" not "Write better subjects").
+
+Return JSON: {{"rule_text": "...", "confidence": 0.0-1.0}}"""
+
+            result = await llm.generate(prompt, model="fast", temperature=0.2)
+            try:
+                start = result.find("{")
+                end = result.rfind("}") + 1
+                rule_data = json.loads(result[start:end])
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+            rule_text = rule_data.get("rule_text", "").strip()
+            if not rule_text:
+                continue
+
+            # Check for duplicate rules
+            existing = await fetch_one(
+                "SELECT id FROM titan_rules WHERE rule_text = %s AND active = TRUE",
+                (rule_text,),
+            )
+            if existing:
+                continue
+
+            await execute(
+                """INSERT INTO titan_rules
+                   (category, rule_text, metric_name, metric_before, metric_after, sample_size, confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    rule_category,
+                    rule_text,
+                    metric_name,
+                    previous,
+                    current,
+                    sample,
+                    rule_data.get("confidence", 0.6),
+                ),
+            )
+            logger.info(f"New rule extracted: {rule_text} ({metric_name}: {previous:.1f}% → {current:.1f}%)")
+            await emit_event("rule_created", {
+                "rule_text": rule_text,
+                "metric_name": metric_name,
+                "improvement": f"{improvement:.1f}x",
+            })
+
+
+async def evaluate_rules():
+    """
+    Weekly evaluation: check if active rules still hold up.
+    Deactivate rules whose metric has regressed since activation.
+    """
+    active_rules = await get_active_rules()
+    if not active_rules:
+        return
+
+    logger.info(f"Evaluating {len(active_rules)} active rules...")
+
+    for rule in active_rules:
+        metric_name = rule.get("metric_name", "")
+        metric_after = rule.get("metric_after", 0)
+
+        # Get current metric value (last 7 days)
+        current_value = 0
+        if metric_name == "open_rate":
+            row = await fetch_one(
+                """SELECT CASE WHEN SUM(emails_sent) > 0
+                          THEN ROUND(SUM(opens)::numeric / SUM(emails_sent) * 100, 1)
+                          ELSE 0 END as rate
+                   FROM outreach_metrics WHERE date > CURRENT_DATE - 7"""
+            )
+            current_value = float(row["rate"]) if row and row["rate"] else 0
+        elif metric_name == "reply_rate":
+            row = await fetch_one(
+                """SELECT CASE WHEN SUM(emails_sent) > 0
+                          THEN ROUND(SUM(replies)::numeric / SUM(emails_sent) * 100, 1)
+                          ELSE 0 END as rate
+                   FROM outreach_metrics WHERE date > CURRENT_DATE - 7"""
+            )
+            current_value = float(row["rate"]) if row and row["rate"] else 0
+
+        if current_value <= 0:
+            continue
+
+        # If current metric is worse than when the rule was created, deactivate
+        if metric_after > 0 and current_value < metric_after * 0.8:
+            await execute(
+                "UPDATE titan_rules SET active = FALSE, evaluated_at = NOW() WHERE id = %s",
+                (rule["id"],),
+            )
+            logger.info(f"Deactivated rule #{rule['id']}: {rule['rule_text']} ({metric_name} regressed to {current_value}%)")
+            await emit_event("rule_deactivated", {
+                "rule_id": rule["id"],
+                "rule_text": rule["rule_text"],
+                "reason": f"{metric_name} regressed from {metric_after}% to {current_value}%",
+            })
+        else:
+            # Update evaluation timestamp and sample size
+            await execute(
+                "UPDATE titan_rules SET evaluated_at = NOW() WHERE id = %s",
+                (rule["id"],),
+            )

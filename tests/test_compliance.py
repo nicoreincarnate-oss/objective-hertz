@@ -4,8 +4,11 @@ import asyncio
 import importlib
 import sys
 import types
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(coro):
@@ -83,7 +86,7 @@ def test_assert_compliance_ready_raises_and_alerts():
         }
         return values.get(key, default)
 
-    with patch.dict("os.environ", {}, clear=False):
+    with patch.dict("os.environ", {"UNSUBSCRIBE_SECRET": ""}, clear=False):
         with patch.object(compliance, "get_config", AsyncMock(side_effect=fake_get_config)):
             with patch.object(compliance, "emit_event", AsyncMock()) as emit_event:
                 try:
@@ -347,8 +350,8 @@ def test_send_recovers_pending_sequence_without_resend():
 
 
 def test_proposal_sends_are_tagged_in_compliance_checks():
-    code = open("/Users/majovega/Desktop/objective-hertz/titan/pipeline/close_deal.py").read()
-    review_code = open("/Users/majovega/Desktop/objective-hertz/titan/review_mode.py").read()
+    code = (ROOT / "titan" / "pipeline" / "close_deal.py").read_text()
+    review_code = (ROOT / "titan" / "review_mode.py").read_text()
 
     assert 'message_type="proposal"' in code
     assert 'message_type="proposal" if item.get("item_type") == "proposal" else "email"' in review_code

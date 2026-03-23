@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_lead_research_parallelizes_work_and_has_smart_escalation():

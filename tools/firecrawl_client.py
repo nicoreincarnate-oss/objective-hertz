@@ -7,7 +7,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from tools.runtime_honesty import env_is_configured, truth_payload
 
@@ -150,7 +150,8 @@ def _compact_search_results(results: list[Any], *, limit: int) -> list[dict[str,
 
 
 def _compact_scrape_content(content: dict[str, Any]) -> dict[str, str]:
-    metadata = content.get("metadata") if isinstance(content.get("metadata"), dict) else {}
+    raw_metadata = content.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     title = _normalize_text(metadata.get("title") or content.get("title"))
     description = _normalize_text(metadata.get("description") or content.get("description"))
     markdown_excerpt = _trim_text(content.get("markdown") or content.get("content") or content.get("html"))
@@ -350,7 +351,7 @@ def search_web(
             **_runtime_fields(status),
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "query": normalized_query,
         "limit": limit,
         "results": results,
@@ -405,7 +406,7 @@ def enrich_business_profile(
     scrape_payload = scrape_url(normalized_url, timeout=timeout) if normalized_url else None
 
     step_payloads = [payload for payload in [search_payload, scrape_payload] if payload]
-    payload = {
+    payload: dict[str, Any] = {
         "business_name": normalized_business,
         "query": normalized_query,
         "website_url": normalized_url,
@@ -423,14 +424,18 @@ def enrich_business_profile(
         },
     }
 
+    signals: dict[str, Any] = payload["signals"] if isinstance(payload.get("signals"), dict) else {}
+
     if search_payload and search_payload.get("mode") == "live":
         compact_results = _compact_search_results(search_payload.get("results", []), limit=search_limit)
         payload["search_results"] = compact_results
-        payload["signals"]["search_result_count"] = len(compact_results)
+        signals["search_result_count"] = len(compact_results)
 
     if scrape_payload and scrape_payload.get("mode") == "live":
         payload["website_extract"] = _compact_scrape_content(scrape_payload.get("content", {}))
-        payload["signals"]["website_scraped"] = True
+        signals["website_scraped"] = True
+
+    payload["signals"] = signals
 
     payload.update(_summarize_research_truth(step_payloads))
     return payload

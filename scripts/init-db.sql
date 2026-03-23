@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS budget_tracking (
     amount DECIMAL(10,2) NOT NULL,
     description TEXT,
     receipt_url VARCHAR(500),
+    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    pipeline_stage VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -120,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_outreach_date ON outreach_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_outreach_domain ON outreach_metrics(domain);
 CREATE INDEX IF NOT EXISTS idx_budget_month ON budget_tracking(month);
 CREATE INDEX IF NOT EXISTS idx_budget_category ON budget_tracking(category);
+CREATE INDEX IF NOT EXISTS idx_budget_client ON budget_tracking(client_id) WHERE client_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_budget_recurring_active ON budget_recurring_costs(active);
 CREATE INDEX IF NOT EXISTS idx_site_health_hosting ON site_health(hosting_id);
 CREATE INDEX IF NOT EXISTS idx_site_health_checked ON site_health(checked_at);
@@ -164,6 +167,8 @@ ALTER TABLE clients ADD COLUMN IF NOT EXISTS country VARCHAR(100);
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS city VARCHAR(255);
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS language VARCHAR(10) DEFAULT 'en';
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS research_summary TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS research_facts JSONB DEFAULT '{}';
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS research_graph JSONB DEFAULT '{}';
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS demo_site_url VARCHAR(500);
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS final_site_url VARCHAR(500);
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS lead_score FLOAT DEFAULT 0.0;
@@ -177,7 +182,8 @@ CREATE TABLE IF NOT EXISTS task_queue (
     task_type VARCHAR(100) NOT NULL,
     payload JSONB DEFAULT '{}',
     status VARCHAR(50) DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'dead_letter')),
+    retry_count INTEGER DEFAULT 0,
     priority INTEGER DEFAULT 5,
     assigned_agent VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
@@ -190,6 +196,13 @@ CREATE INDEX IF NOT EXISTS idx_task_queue_type ON task_queue(task_type);
 -- Fast dedupe lookup: is there already a pending/running task of this type?
 CREATE INDEX IF NOT EXISTS idx_task_queue_dedupe ON task_queue(task_type, status)
     WHERE status IN ('pending', 'running');
+ALTER TABLE task_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
+ALTER TABLE task_queue DROP CONSTRAINT IF EXISTS task_queue_status_check;
+DO $$ BEGIN
+    ALTER TABLE task_queue ADD CONSTRAINT task_queue_status_check
+        CHECK (status IN ('pending', 'running', 'completed', 'failed', 'dead_letter'));
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 -- Events: agents emit events for Hermes/dashboard
 CREATE TABLE IF NOT EXISTS events (
@@ -269,6 +282,52 @@ CREATE INDEX IF NOT EXISTS idx_revenue_expansion_status ON revenue_expansion_opp
 CREATE INDEX IF NOT EXISTS idx_revenue_expansion_stage ON revenue_expansion_opportunities(stage);
 CREATE INDEX IF NOT EXISTS idx_revenue_expansion_capability ON revenue_expansion_opportunities(capability_name);
 
+-- Titan rules: data-proven behavioral constraints injected into prompts
+-- Unlike titan_learnings (suggestions), rules are deterministic and measured.
+CREATE TABLE IF NOT EXISTS titan_rules (
+    id SERIAL PRIMARY KEY,
+    category VARCHAR(100) NOT NULL,
+    rule_text TEXT NOT NULL,
+    metric_name VARCHAR(100) NOT NULL,
+    metric_before FLOAT,
+    metric_after FLOAT,
+    sample_size INTEGER DEFAULT 0,
+    confidence FLOAT DEFAULT 0.0,
+    active BOOLEAN DEFAULT TRUE,
+    source_learning_id INTEGER REFERENCES titan_learnings(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    evaluated_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_titan_rules_category ON titan_rules(category);
+CREATE INDEX IF NOT EXISTS idx_titan_rules_active ON titan_rules(active) WHERE active = TRUE;
+
+-- Agent decisions: auditable trail of autonomous decisions across all agents
+CREATE TABLE IF NOT EXISTS agent_decisions (
+    id SERIAL PRIMARY KEY,
+    agent VARCHAR(100) NOT NULL,
+    decision_type VARCHAR(100) NOT NULL,
+    context JSONB NOT NULL DEFAULT '{}',
+    decision JSONB NOT NULL DEFAULT '{}',
+    reasoning TEXT,
+    outcome JSONB DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_agent ON agent_decisions(agent);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_type ON agent_decisions(decision_type);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_created ON agent_decisions(created_at);
+
+-- Sleep cycle log: nightly contrarian review audit trail
+CREATE TABLE IF NOT EXISTS sleep_cycle_log (
+    id SERIAL PRIMARY KEY,
+    cycle_date DATE NOT NULL UNIQUE,
+    system_snapshot JSONB NOT NULL DEFAULT '{}',
+    alpha_proposals JSONB NOT NULL DEFAULT '{}',
+    beta_verdicts JSONB NOT NULL DEFAULT '{}',
+    applied_changes JSONB NOT NULL DEFAULT '[]',
+    rolled_back BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Agent registry: all agents register here
 CREATE TABLE IF NOT EXISTS agent_registry (
     name VARCHAR(100) PRIMARY KEY,
@@ -288,6 +347,12 @@ CREATE TABLE IF NOT EXISTS email_sequences (
     body TEXT,
     status VARCHAR(50) DEFAULT 'pending'
         CHECK (status IN ('pending', 'sent', 'opened', 'replied', 'bounced')),
+    simulation_status VARCHAR(20) DEFAULT 'pending'
+        CHECK (simulation_status IN ('pending', 'passed', 'flagged')),
+    simulation_score INTEGER,
+    simulation_summary TEXT,
+    simulation_personas JSONB DEFAULT '[]',
+    simulation_checked_at TIMESTAMP,
     sent_at TIMESTAMP,
     opened_at TIMESTAMP,
     replied_at TIMESTAMP,
@@ -376,6 +441,8 @@ INSERT INTO system_config (key, value, is_customized) VALUES
     ('active_shadow_discovery_skill', '""', FALSE),
     ('active_shadow_opportunity_id', '0', FALSE),
     ('preferred_discovery_skill', '""', FALSE),
+    ('warmup_day', '1', FALSE),
+    ('paused_domains', '[]', FALSE),
     ('company_address', '"[SET YOUR PHYSICAL ADDRESS]"', FALSE),
     ('unsubscribe_base_url', '"https://your-domain.com"', FALSE)
 ON CONFLICT (key) DO UPDATE
@@ -438,3 +505,51 @@ SELECT
     END AS health_status
 FROM outreach_metrics
 ORDER BY date DESC, domain;
+
+-- Cost per acquisition: how much we spent (API, sending) per lead that reached each stage
+CREATE OR REPLACE VIEW v_cost_per_lead AS
+SELECT
+    c.id AS client_id,
+    c.business_name,
+    c.status,
+    c.lead_score,
+    COALESCE(SUM(bt.amount), 0) AS total_cost,
+    COUNT(bt.id) AS cost_entries
+FROM clients c
+LEFT JOIN budget_tracking bt ON bt.client_id = c.id
+GROUP BY c.id, c.business_name, c.status, c.lead_score
+ORDER BY total_cost DESC;
+
+CREATE OR REPLACE VIEW v_cost_per_stage AS
+SELECT
+    pipeline_stage,
+    COUNT(*) AS api_calls,
+    SUM(amount) AS total_cost,
+    ROUND(AVG(amount)::numeric, 4) AS avg_cost_per_call
+FROM budget_tracking
+WHERE pipeline_stage IS NOT NULL
+GROUP BY pipeline_stage
+ORDER BY total_cost DESC;
+
+-- Source quality: conversion funnel per discovery source
+CREATE OR REPLACE VIEW v_source_quality AS
+SELECT
+    COALESCE(NULLIF(c.source, ''), 'unknown') AS source,
+    COUNT(*) AS total_leads,
+    COUNT(*) FILTER (WHERE c.email IS NOT NULL AND c.email != '') AS has_email,
+    COUNT(*) FILTER (WHERE c.status NOT IN ('discovered', 'lost')) AS progressed,
+    COUNT(*) FILTER (WHERE c.status IN ('replied', 'interested', 'demo_built', 'proposal_sent', 'negotiating', 'closed', 'building', 'deployed', 'invoiced', 'paid')) AS engaged,
+    COUNT(*) FILTER (WHERE c.status IN ('closed', 'building', 'deployed', 'invoiced', 'paid')) AS converted,
+    COUNT(*) FILTER (WHERE c.status = 'paid') AS paid,
+    COALESCE(SUM(CASE WHEN d.status = 'paid' THEN d.amount ELSE 0 END), 0) AS revenue,
+    COALESCE(SUM(bt.amount), 0) AS total_cost,
+    CASE
+        WHEN COUNT(*) > 0
+        THEN ROUND(COUNT(*) FILTER (WHERE c.status IN ('closed', 'building', 'deployed', 'invoiced', 'paid'))::numeric / COUNT(*) * 100, 2)
+        ELSE 0
+    END AS conversion_rate_pct
+FROM clients c
+LEFT JOIN deals d ON d.client_id = c.id
+LEFT JOIN budget_tracking bt ON bt.client_id = c.id
+GROUP BY COALESCE(NULLIF(source, ''), 'unknown')
+ORDER BY converted DESC, total_leads DESC;

@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_logging_config_uses_rotation_and_optional_json():
@@ -24,13 +23,14 @@ def test_config_exposes_logging_controls():
 
 def test_daemon_startup_disables_stdout_duplication():
     start_code = (ROOT / "scripts/start-perseus.sh").read_text()
-    assert "LOG_TO_STDOUT=0 nohup python -m perseus.daemon > /dev/null 2>&1 &" in start_code
-    assert "LOG_TO_STDOUT=0 nohup python -m titan.daemon > /dev/null 2>&1 &" in start_code
+    assert "LOG_TO_STDOUT=0" in start_code
+    # OpenJarvis orchestrator replaces Perseus daemon; vassals managed by supervisor
+    assert "nohup python3 orchestrator.py" in start_code
+    assert "python3 -m uvicorn hermes.web.app:app" in start_code
 
     for plist_name in [
         "com.perseus.master.plist",
         "com.perseus.titan.plist",
-        "com.perseus.hermes.plist",
         "com.perseus.clawdbot.plist",
     ]:
         plist = (ROOT / "scripts/launchagents" / plist_name).read_text()

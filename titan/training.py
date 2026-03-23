@@ -21,8 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from shared.config import config
-from shared.db import fetch_all, fetch_one, fetch_val, execute, emit_event
-from shared.llm_client import llm
+from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
 
 logger = logging.getLogger("perseus.titan.training")
 
@@ -34,7 +33,7 @@ async def collect_training_example(
     input_text: str,
     output_text: str,
     outcome: str = "",
-    metadata: dict = None,
+    metadata: dict | None = None,
 ):
     """
     Collect a single training example from a real interaction.
@@ -90,7 +89,7 @@ async def collect_email_outcome(email_seq_id: int, outcome: str):
     )
 
 
-async def export_training_data(min_examples: int = 100) -> Path:
+async def export_training_data(min_examples: int = 100) -> Path | None:
     """
     Export training data as JSONL file for LoRA fine-tuning.
     Only exports examples with known outcomes (positive/negative).
@@ -163,7 +162,6 @@ async def should_train() -> bool:
             return False
 
     # Check budget
-    from shared.db import get_config
     monthly_spend = await fetch_val(
         """SELECT COALESCE(SUM(amount), 0) FROM budget_tracking
            WHERE month = DATE_TRUNC('month', CURRENT_DATE)
@@ -307,112 +305,129 @@ if __name__ == "__main__":
 '''
 
 
-async def _train_on_cloud_gpu(data_path: Path) -> Path:
+async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
     """
     Upload data and run LoRA training on Vast.ai.
     Full lifecycle: search → rent → upload → train → download → destroy.
     Returns path to the downloaded adapter weights.
     """
     import asyncio
-    import httpx
     import os
-    import tempfile
+
+    import httpx
+
+    instance_id = None
+    provider = ""
+    cloud_client = None
+    ssh_host = ""
+    ssh_port = 22
+
+    conway_instance = await _try_conway_cloud_compute()
+    if conway_instance is not None:
+        cloud_client, rented = conway_instance
+        instance_id = rented.instance_id
+        provider = rented.provider
+        ssh_host = rented.ssh_host
+        ssh_port = rented.ssh_port
+        logger.info(
+            "Using Conway Cloud instance %s (%s at $%s/hr)",
+            instance_id,
+            rented.gpu_type,
+            rented.price_per_hour,
+        )
 
     vast_key = os.getenv("VAST_AI_API_KEY", "")
-    if not vast_key:
-        logger.warning("VAST_AI_API_KEY not set. Cannot run cloud training.")
+    if not instance_id and not vast_key:
+        logger.warning("No Conway Cloud instance and VAST_AI_API_KEY not set. Falling back to local training.")
         return await _train_local(data_path)
 
     api_base = "https://cloud.vast.ai/api/v0"
     headers = {"Authorization": f"Bearer {vast_key}"}
-    instance_id = None
 
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
-            # Step 1: Find cheapest GPU
-            resp = await client.get(
-                f"{api_base}/bundles",
-                params={"q": json.dumps({
-                    "gpu_name": {"in": ["A100", "A6000", "RTX 4090"]},
-                    "num_gpus": 1,
-                    "rentable": True,
-                    "disk_space": {"gte": 50},
-                    "inet_down": {"gte": 200},
-                    "order": [["dph_total", "asc"]],
-                    "limit": 5,
-                })},
-                headers=headers,
-            )
-            resp.raise_for_status()
-            offers = resp.json().get("offers", [])
-
-            if not offers:
-                logger.warning("No GPU instances available on Vast.ai")
-                return await _train_local(data_path)
-
-            offer = offers[0]
-            cost_per_hour = offer.get("dph_total", 0.5)
-            logger.info(f"Selected GPU: {offer.get('gpu_name')} at ${cost_per_hour:.2f}/hr")
-
-            # Budget check: cap at $100/run, expect ~2 hours
-            estimated_cost = cost_per_hour * 3  # buffer for setup + training
-            if estimated_cost > 100:
-                logger.warning(f"Estimated cost ${estimated_cost:.2f} exceeds $100 cap")
-                return await _train_local(data_path)
-
-            # Record estimated cost
-            await execute(
-                """INSERT INTO budget_tracking (month, category, amount, description)
-                   VALUES (DATE_TRUNC('month', CURRENT_DATE), 'cloud_gpu', %s,
-                           'LoRA training run (estimated)')""",
-                (estimated_cost,),
-            )
-
-            # Step 2: Create instance
-            create_resp = await client.put(
-                f"{api_base}/asks/{offer['id']}/",
-                json={
-                    "client_id": "me",
-                    "image": "ghcr.io/unslothai/unsloth:latest",
-                    "disk": 50,
-                    "onstart": "pip install datasets trl && echo READY",
-                },
-                headers=headers,
-            )
-            create_resp.raise_for_status()
-            instance_id = create_resp.json().get("new_contract")
             if not instance_id:
-                logger.error("Failed to create Vast.ai instance")
-                return await _train_local(data_path)
-
-            logger.info(f"Created Vast.ai instance {instance_id}")
-            await emit_event("cloud_gpu_rented", {
-                "instance_id": instance_id,
-                "gpu": offer.get("gpu_name"),
-                "cost_per_hour": cost_per_hour,
-            })
-
-            # Step 3: Wait for instance to be running
-            for attempt in range(60):  # up to 10 minutes
-                await asyncio.sleep(10)
-                status_resp = await client.get(
-                    f"{api_base}/instances/{instance_id}/",
+                # Step 1: Find cheapest GPU on Vast.ai
+                resp = await client.get(
+                    f"{api_base}/bundles",
+                    params={"q": json.dumps({
+                        "gpu_name": {"in": ["A100", "A6000", "RTX 4090"]},
+                        "num_gpus": 1,
+                        "rentable": True,
+                        "disk_space": {"gte": 50},
+                        "inet_down": {"gte": 200},
+                        "order": [["dph_total", "asc"]],
+                        "limit": 5,
+                    })},
                     headers=headers,
                 )
-                status_resp.raise_for_status()
-                status = status_resp.json().get("actual_status", "")
-                if status == "running":
-                    logger.info("Instance is running")
-                    break
-                logger.debug(f"Instance status: {status} (attempt {attempt + 1})")
-            else:
-                logger.error("Instance failed to start within 10 minutes")
-                raise TimeoutError("Vast.ai instance startup timeout")
+                resp.raise_for_status()
+                offers = resp.json().get("offers", [])
 
-            # Get SSH connection info
-            instance_info = status_resp.json()
-            ssh_host = instance_info.get("ssh_host", "")
-            ssh_port = instance_info.get("ssh_port", 22)
+                if not offers:
+                    logger.warning("No GPU instances available on Vast.ai")
+                    return await _train_local(data_path)
+
+                offer = offers[0]
+                cost_per_hour = offer.get("dph_total", 0.5)
+                logger.info(f"Selected GPU: {offer.get('gpu_name')} at ${cost_per_hour:.2f}/hr")
+
+                estimated_cost = cost_per_hour * 3
+                if estimated_cost > 100:
+                    logger.warning(f"Estimated cost ${estimated_cost:.2f} exceeds $100 cap")
+                    return await _train_local(data_path)
+
+                await execute(
+                    """INSERT INTO budget_tracking (month, category, amount, description)
+                       VALUES (DATE_TRUNC('month', CURRENT_DATE), 'cloud_gpu', %s,
+                               'LoRA training run (estimated)')""",
+                    (estimated_cost,),
+                )
+
+                create_resp = await client.put(
+                    f"{api_base}/asks/{offer['id']}/",
+                    json={
+                        "client_id": "me",
+                        "image": "ghcr.io/unslothai/unsloth:latest",
+                        "disk": 50,
+                        "onstart": "pip install datasets trl && echo READY",
+                    },
+                    headers=headers,
+                )
+                create_resp.raise_for_status()
+                instance_id = create_resp.json().get("new_contract")
+                if not instance_id:
+                    logger.error("Failed to create Vast.ai instance")
+                    return await _train_local(data_path)
+
+                provider = "vast"
+                logger.info(f"Created Vast.ai instance {instance_id}")
+                await emit_event("cloud_gpu_rented", {
+                    "instance_id": instance_id,
+                    "gpu": offer.get("gpu_name"),
+                    "cost_per_hour": cost_per_hour,
+                    "provider": "vast",
+                })
+
+                for attempt in range(60):  # up to 10 minutes
+                    await asyncio.sleep(10)
+                    status_resp = await client.get(
+                        f"{api_base}/instances/{instance_id}/",
+                        headers=headers,
+                    )
+                    status_resp.raise_for_status()
+                    status = status_resp.json().get("actual_status", "")
+                    if status == "running":
+                        logger.info("Instance is running")
+                        break
+                    logger.debug(f"Instance status: {status} (attempt {attempt + 1})")
+                else:
+                    logger.error("Instance failed to start within 10 minutes")
+                    raise TimeoutError("Vast.ai instance startup timeout")
+
+                instance_info = status_resp.json()
+                ssh_host = instance_info.get("ssh_host", "")
+                ssh_port = instance_info.get("ssh_port", 22)
 
             if not ssh_host:
                 logger.error("No SSH host returned for instance")
@@ -454,7 +469,7 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path:
             logger.info("Training started on remote GPU")
 
             # Step 6: Poll for completion (up to 3 hours)
-            for attempt in range(108):  # 3 hours at 100s intervals
+            for _attempt in range(108):  # 3 hours at 100s intervals
                 await asyncio.sleep(100)
                 check = subprocess.run(
                     f"ssh {ssh_opts} root@{ssh_host} 'cat /workspace/TRAINING_COMPLETE 2>/dev/null'",
@@ -504,25 +519,73 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path:
         # Step 8: Always destroy the instance to stop billing
         if instance_id:
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    destroy_resp = await client.delete(
-                        f"{api_base}/instances/{instance_id}/",
-                        headers=headers,
-                    )
-                    if destroy_resp.status_code < 300:
-                        logger.info(f"Destroyed Vast.ai instance {instance_id}")
+                if provider == "conway" and cloud_client is not None:
+                    released = await cloud_client.release_compute(instance_id)
+                    if released:
+                        logger.info(f"Released Conway Cloud instance {instance_id}")
                     else:
-                        logger.warning(f"Failed to destroy instance {instance_id}: {destroy_resp.status_code}")
-                        await emit_event("cloud_gpu_cleanup_failed", {"instance_id": instance_id})
+                        logger.warning(f"Failed to release Conway Cloud instance {instance_id}")
+                        await emit_event("cloud_gpu_cleanup_failed", {"instance_id": instance_id, "provider": provider})
+                else:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        destroy_resp = await client.delete(
+                            f"{api_base}/instances/{instance_id}/",
+                            headers=headers,
+                        )
+                        if destroy_resp.status_code < 300:
+                            logger.info(f"Destroyed Vast.ai instance {instance_id}")
+                        else:
+                            logger.warning(f"Failed to destroy instance {instance_id}: {destroy_resp.status_code}")
+                            await emit_event("cloud_gpu_cleanup_failed", {"instance_id": instance_id, "provider": provider or 'vast'})
             except Exception as cleanup_err:
                 logger.error(f"CRITICAL: Failed to destroy instance {instance_id}: {cleanup_err}")
                 await emit_event("cloud_gpu_cleanup_failed", {
                     "instance_id": instance_id,
+                    "provider": provider or "vast",
                     "error": str(cleanup_err),
                 })
 
 
-async def _train_local(data_path: Path) -> Path:
+async def _try_conway_cloud_compute():
+    """Attempt to rent training compute from Conway Cloud before third-party fallback."""
+    if not config.conway.enabled:
+        return None
+
+    try:
+        from conway.runtime import get_agent_cloud_client
+
+        client = await get_agent_cloud_client("titan")
+        if client is None:
+            return None
+
+        instance = await client.provision_compute(
+            gpu_type="A100",
+            duration_hours=3,
+            image="ghcr.io/unslothai/unsloth:latest",
+        )
+        if instance is None:
+            return None
+
+        estimated_cost = float(instance.price_per_hour) * 3
+        await execute(
+            """INSERT INTO budget_tracking (month, category, amount, description)
+               VALUES (DATE_TRUNC('month', CURRENT_DATE), 'cloud_gpu', %s,
+                       'LoRA training run via Conway Cloud (estimated)')""",
+            (estimated_cost,),
+        )
+        await emit_event("cloud_gpu_rented", {
+            "instance_id": instance.instance_id,
+            "gpu": instance.gpu_type,
+            "cost_per_hour": float(instance.price_per_hour),
+            "provider": instance.provider,
+        })
+        return client, instance
+    except Exception as exc:
+        logger.warning("Conway Cloud training path unavailable: %s", exc)
+        return None
+
+
+async def _train_local(data_path: Path) -> Path | None:
     """
     Attempt LoRA training locally on Mac Studio M4 Max.
     Uses MLX for Apple Silicon optimized training.

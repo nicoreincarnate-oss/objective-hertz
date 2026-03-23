@@ -12,7 +12,6 @@ The loader reads the skill, sends it as a system prompt to the LLM, and executes
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from shared.config import config
 from shared.llm_client import llm
@@ -28,7 +27,7 @@ SKILL_DIRS = [
 ]
 
 
-def find_skill(name: str) -> Optional[Path]:
+def find_skill(name: str) -> Path | None:
     """
     Find a skill by name across all skill directories.
     Searches recursively for SKILL.md files in directories matching the name.
@@ -82,7 +81,7 @@ def load_skill(path: Path) -> str:
 async def execute_skill(
     skill_name: str,
     task_prompt: str,
-    context: dict = None,
+    context: dict | None = None,
     model: str = "fast",
 ) -> str:
     """
@@ -117,7 +116,7 @@ async def execute_skill_or_fallback(
     skill_name: str,
     task_prompt: str,
     fallback_fn,
-    context: dict = None,
+    context: dict | None = None,
     model: str = "fast",
 ):
     """

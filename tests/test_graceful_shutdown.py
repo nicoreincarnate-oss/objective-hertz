@@ -4,7 +4,10 @@ import asyncio
 import importlib
 import sys
 import types
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_agent_base():
@@ -83,14 +86,14 @@ def test_agent_base_can_requeue_stale_tasks_for_same_agent():
 
 
 def test_titan_tracks_pipeline_stages_for_shutdown():
-    code = open("/Users/majovega/Desktop/objective-hertz/titan/daemon.py").read()
+    code = (ROOT / "titan" / "daemon.py").read_text()
     assert 'self.begin_work("loop:cycle")' in code
     assert 'work_id = f"stage:{stage_name}"' in code
     assert "await self.wait_for_work_drain()" in code
 
 
 def test_clawdbot_requeues_stale_tasks_and_waits_for_drain():
-    code = open("/Users/majovega/Desktop/objective-hertz/clawdbot/daemon.py").read()
+    code = (ROOT / "clawdbot" / "daemon.py").read_text()
     assert "await self.requeue_stale_tasks()" in code
     assert 'work_id = f"task:{task[\'id\']}"' in code
     assert "await self.wait_for_work_drain()" in code

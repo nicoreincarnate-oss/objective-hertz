@@ -1,6 +1,7 @@
 """Tests for task queue deduplication — prevents runaway spend from duplicate work."""
 
 import pytest
+
 from tests.conftest import FakeDB
 
 
@@ -36,7 +37,7 @@ class TestInsertTaskDedupe:
 
     @pytest.mark.asyncio
     async def test_completed_task_allows_new_insert(self, db):
-        first = await db.insert_task("lead_discovery")
+        await db.insert_task("lead_discovery")
         # Simulate completion
         db.tables["task_queue"][0]["status"] = "completed"
         second = await db.insert_task("lead_discovery")
@@ -45,14 +46,14 @@ class TestInsertTaskDedupe:
 
     @pytest.mark.asyncio
     async def test_failed_task_allows_new_insert(self, db):
-        first = await db.insert_task("lead_discovery")
+        await db.insert_task("lead_discovery")
         db.tables["task_queue"][0]["status"] = "failed"
         second = await db.insert_task("lead_discovery")
         assert second is not None
 
     @pytest.mark.asyncio
     async def test_running_task_blocks_new_insert(self, db):
-        first = await db.insert_task("lead_discovery")
+        await db.insert_task("lead_discovery")
         db.tables["task_queue"][0]["status"] = "running"
         second = await db.insert_task("lead_discovery")
         assert second is None

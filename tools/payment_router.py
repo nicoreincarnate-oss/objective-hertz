@@ -16,13 +16,14 @@ logger = logging.getLogger("perseus.tools.payment")
 
 
 class PaymentRouter:
-    """Routes payment operations to Stripe or Wise based on availability."""
+    """Routes payment operations to Stripe, Wise, or Conway (x402/USDC) based on availability."""
 
     def __init__(self):
         self._stripe_available = env_is_configured("STRIPE_API_KEY")
         self._wise_available = (
             env_is_configured("WISE_API_TOKEN") and env_is_configured("WISE_PROFILE_ID")
         )
+        self._conway_available = env_is_configured("CONWAY_ENABLED") and env_is_configured("CONWAY_TREASURY_ADDRESS")
 
     def get_status(self) -> dict[str, Any]:
         if self._stripe_available:
@@ -33,6 +34,10 @@ class PaymentRouter:
             return truth_payload("live", "wise_api", True,
                                  summary="Wise is configured as payment fallback.",
                                  provider="wise")
+        if self._conway_available:
+            return truth_payload("live", "conway_x402", True,
+                                 summary="Conway x402 (USDC on Base) is available.",
+                                 provider="conway")
         return truth_payload("blocked", "no_payment_provider", False,
                              summary="No payment provider configured. Set STRIPE_API_KEY or WISE_API_TOKEN.",
                              provider="payment")
@@ -68,6 +73,8 @@ class PaymentRouter:
             payments.extend(await self._check_stripe_payments())
         if self._wise_available:
             payments.extend(await self._check_wise_payments())
+        if self._conway_available:
+            payments.extend(await self._check_conway_payments())
         return payments
 
     # ── Stripe ──────────────────────────────────────────────────────
@@ -204,6 +211,30 @@ class PaymentRouter:
                 return payments
         except Exception as e:
             logger.error(f"Wise payment check failed: {e}")
+            return []
+
+
+    # ── Conway (x402 / USDC on Base) ──────────────────────────────
+
+    async def _check_conway_payments(self) -> list[dict[str, Any]]:
+        """Check Conway ledger for recent incoming USDC payments."""
+        try:
+            from conway.ledger import EconomicLedger
+            ledger = EconomicLedger()
+            txs = await ledger.recent_transactions(limit=20)
+            payments = []
+            for tx in txs:
+                if tx.get("tx_type") == "earn":
+                    payments.append({
+                        "reference": tx.get("tx_hash", ""),
+                        "amount": float(tx.get("amount", 0)),
+                        "currency": tx.get("currency", "USDC"),
+                        "provider": "conway",
+                        "metadata": {"agent": tx.get("agent", "")},
+                    })
+            return payments
+        except Exception as e:
+            logger.error(f"Conway payment check failed: {e}")
             return []
 
 

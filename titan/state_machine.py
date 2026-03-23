@@ -3,7 +3,6 @@ Lead state machine for the Titan pipeline.
 Defines valid transitions and ensures leads progress correctly.
 """
 
-from typing import Optional
 
 # Valid transitions: current_status -> list of valid next statuses
 TRANSITIONS: dict[str, list[str]] = {
@@ -45,7 +44,8 @@ async def transition_lead(client_id: int, new_status: str, *, conn=None) -> bool
     Returns True if successful, False if invalid transition.
     """
     import logging
-    from shared.db import fetch_one, execute
+
+    from shared.db import execute, fetch_one
 
     logger = logging.getLogger("perseus.titan.state_machine")
 

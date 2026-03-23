@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_close_deal_no_longer_calls_dead_negotiation_handler():

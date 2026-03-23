@@ -129,6 +129,7 @@ async def _send_approved_proposal(item: dict):
 async def _send_approved_review_item(item: dict) -> tuple[dict, dict | None, bool]:
     """Send approved review content through the shared compliance send path."""
     import json
+
     from titan.compliance import send_to_instantly
 
     content = item["content"] if isinstance(item["content"], dict) else json.loads(item["content"])

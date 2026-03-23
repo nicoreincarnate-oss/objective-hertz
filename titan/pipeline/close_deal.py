@@ -7,12 +7,18 @@ Uses Claude Sonnet for high-quality proposals.
 import json
 import logging
 
-from shared.db import fetch_all, fetch_one, execute, emit_event, get_config, set_config, increment_config_int
+from shared.db import (
+    emit_event,
+    execute,
+    fetch_all,
+    get_config,
+    increment_config_int,
+    set_config,
+)
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from titan.state_machine import transition_lead
 from titan.memory import get_relevant_learnings
-from titan.training import collect_training_example
+from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.close")
 
@@ -22,7 +28,7 @@ async def process_interested_leads():
     # Get interested leads that need a demo site
     leads_need_demo = await fetch_all(
         """SELECT id, business_name, contact_name, email, industry,
-                  research_summary, language, country, city
+                  research_summary, research_facts, language, country, city
            FROM clients WHERE status = 'interested'
            ORDER BY lead_score DESC LIMIT 5"""
     )
@@ -48,11 +54,38 @@ async def _build_demo_and_propose(lead: dict):
     demo_url = await _build_demo_site(lead)
 
     if demo_url:
-        await execute(
-            "UPDATE clients SET demo_site_url = %s WHERE id = %s",
-            (demo_url, lead_id),
+        # QA the demo site before using it in a proposal
+        from shared.comms import request_task_result
+        qa_result = await request_task_result(
+            "verify_demo_site",
+            payload={"url": demo_url, "business_name": lead["business_name"], "client_id": lead_id},
+            timeout_seconds=45,
         )
-        await transition_lead(lead_id, "demo_built")
+        if qa_result and qa_result.get("ok") and qa_result.get("result", {}).get("passed"):
+            await execute(
+                "UPDATE clients SET demo_site_url = %s WHERE id = %s",
+                (demo_url, lead_id),
+            )
+            await transition_lead(lead_id, "demo_built")
+        elif qa_result and qa_result.get("ok"):
+            # QA ran but failed — block the proposal
+            reason = qa_result.get("result", {}).get("reason", "qa_failed")
+            logger.warning(f"Demo site QA failed for lead {lead_id}: {reason}")
+            await emit_event("proposal_blocked", {
+                "client_id": lead_id,
+                "business_name": lead["business_name"],
+                "reason": f"demo_qa_failed: {reason}",
+                "demo_url": demo_url,
+            })
+            return
+        else:
+            # ClawdBot unavailable — accept the demo (fail open, don't block revenue)
+            logger.info(f"Demo QA unavailable for lead {lead_id}, accepting demo")
+            await execute(
+                "UPDATE clients SET demo_site_url = %s WHERE id = %s",
+                (demo_url, lead_id),
+            )
+            await transition_lead(lead_id, "demo_built")
     else:
         logger.warning(f"Could not build demo for lead {lead_id}, blocking proposal until demo exists")
         await emit_event("proposal_blocked", {
@@ -93,92 +126,62 @@ async def _build_demo_and_propose(lead: dict):
 
 
 async def _build_demo_site(lead: dict) -> str:
-    """Build a quick 1-page demo site for the prospect. Uses v0.dev API."""
-    import httpx
-    import os
+    """Build a demo landing page using ClawdBot's competitive build process."""
+    from clawdbot.site_builder import build_demo_site
+    return await build_demo_site(lead)
 
-    # Try v0.dev Platform API (project → chat → deploy)
-    api_key = os.getenv("V0_API_KEY", "")
-    if api_key:
-        try:
-            v0_headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            v0_base = "https://api.v0.dev/v1"
 
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                # Step 1: Create project
-                proj_resp = await client.post(
-                    f"{v0_base}/projects",
-                    json={"name": f"Demo - {lead['business_name'][:30]}"},
-                    headers=v0_headers,
-                )
-                proj_resp.raise_for_status()
-                project_id = proj_resp.json().get("id", "")
+async def _get_dynamic_price(lead: dict) -> dict:
+    """
+    Pick a price for this lead based on industry, region, and what's worked before.
+    Tracks the offered price on the client row so we can measure conversion by price.
+    """
+    from shared.config import config as cfg
 
-                if not project_id:
-                    raise ValueError("No project ID returned from v0.dev")
+    base = cfg.pricing.website_5page  # default $299
+    industry = (lead.get("industry") or "").lower()
+    country = (lead.get("country") or "").lower()
+    score = float(lead.get("lead_score", 50) or 50)
 
-                # Step 2: Create chat with initial prompt
-                prompt = f"""Build a stunning 1-page landing site for:
-Business: {lead['business_name']}
-Industry: {lead.get('industry', 'general services')}
-Location: {lead.get('city', '')}, {lead.get('country', '')}
+    # Check for pricing rules from titan_rules
+    from titan.memory import format_rules_for_prompt
+    pricing_rules = await format_rules_for_prompt(["pricing"])
 
-This is a FREE demo to show the client what their site could look like.
-Make it impressive: hero section, services, contact info, modern design.
-Use a professional color scheme. Mobile responsive."""
+    # Simple tiers: high-score leads in premium industries get a higher price
+    premium_industries = {"dental", "dentist", "law", "legal", "medical", "clinic", "real estate"}
+    budget_regions = {"mexico", "india", "philippines", "colombia", "brazil", "argentina"}
 
-                chat_resp = await client.post(
-                    f"{v0_base}/chats",
-                    json={
-                        "initialMessage": prompt,
-                        "projectId": project_id,
-                    },
-                    headers=v0_headers,
-                )
-                chat_resp.raise_for_status()
-                chat_data = chat_resp.json()
-                chat_id = chat_data.get("id", "")
-                version_id = chat_data.get("versionId", chat_data.get("version_id", ""))
+    price = base
+    if any(kw in industry for kw in premium_industries) and score >= 70:
+        price = min(base + 50, 399)  # premium tier
+    elif any(kw in country for kw in budget_regions):
+        price = max(base - 50, 199)  # regional discount
 
-                if not chat_id:
-                    raise ValueError("No chat ID returned from v0.dev")
+    # Record the offered price so we can track conversion by price point
+    await execute(
+        "UPDATE clients SET notes = COALESCE(notes, '') || %s WHERE id = %s",
+        (f"\n[price_offered: ${price}]", lead["id"]),
+    )
 
-                # Step 3: Deploy
-                if version_id:
-                    deploy_resp = await client.post(
-                        f"{v0_base}/deployments",
-                        json={
-                            "projectId": project_id,
-                            "chatId": chat_id,
-                            "versionId": version_id,
-                        },
-                        headers=v0_headers,
-                    )
-                    deploy_resp.raise_for_status()
-                    deploy_data = deploy_resp.json()
-                    url = deploy_data.get("webUrl", deploy_data.get("url", ""))
-                    if url:
-                        logger.info(f"v0.dev demo deployed: {url}")
-                        return url
-
-        except Exception as e:
-            logger.warning(f"v0.dev demo build failed: {e}")
-
-    logger.warning("v0.dev API not configured — cannot build demo site")
-    return ""
+    return {
+        "website_price": price,
+        "hosting_price": cfg.pricing.hosting_monthly,
+        "receptionist_price": cfg.pricing.receptionist_monthly,
+        "pricing_rules": pricing_rules,
+    }
 
 
 async def _generate_proposal(lead: dict, demo_url: str = "") -> dict:
-    """Generate a custom proposal using Claude Sonnet."""
+    """Generate a custom proposal using Claude Sonnet with dynamic pricing."""
     demo_mention = f"\nI already built a demo site for you: {demo_url}" if demo_url else ""
 
     # Get learnings about what closes deals
     learnings = await get_relevant_learnings(
         "sales proposals, closing deals, pricing objections, what converts interested leads"
     )
+
+    # Dynamic pricing based on lead quality, industry, region
+    pricing = await _get_dynamic_price(lead)
 
     prompt = f"""You are Titan's sales closer. Write a proposal email for:
 
@@ -193,11 +196,13 @@ Research: {lead.get('research_summary', '')}
 Language: {'Spanish' if lead.get('language') == 'es' else 'English'}
 {demo_mention}
 
+{pricing.get('pricing_rules', '')}
+
 PRICING:
-- Professional 5-page website: $299
+- Professional 5-page website: ${pricing['website_price']}
 - Includes: custom design, mobile responsive, SEO optimized, contact forms
-- Hosting available: $52/month
-- Optional AI receptionist add-on: $398/month
+- Hosting available: ${pricing['hosting_price']}/month
+- Optional AI receptionist add-on: ${pricing['receptionist_price']}/month
 - Timeline: delivered within 5-7 business days
 
 Write a warm, professional proposal email. Under 200 words.

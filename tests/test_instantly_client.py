@@ -73,7 +73,7 @@ def test_wait_for_rate_limit_slot_sleeps_when_called_too_soon():
 def test_rate_limit_slot_is_shared_across_client_instances():
     from tools.instantly_client import InstantlyClient
 
-    client_one = make_client(type("FakeHTTP", (), {})(), min_interval=0.2)
+    make_client(type("FakeHTTP", (), {})(), min_interval=0.2)
     client_two = make_client(type("FakeHTTP", (), {})(), min_interval=0.2)
     InstantlyClient._rate_limit_lock = None
     InstantlyClient._global_last_request_at = time.monotonic()

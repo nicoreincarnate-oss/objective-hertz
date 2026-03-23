@@ -1,7 +1,8 @@
 """Tests for the lead state machine — the core business logic guard."""
 
 import pytest
-from titan.state_machine import can_transition, valid_next_states, TRANSITIONS
+
+from titan.state_machine import TRANSITIONS, can_transition, valid_next_states
 
 
 class TestValidTransitions:

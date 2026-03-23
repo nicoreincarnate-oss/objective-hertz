@@ -4,9 +4,8 @@ Loads from .env, provides typed access to all settings.
 """
 
 import os
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -57,6 +56,7 @@ class ClaudeConfig:
     api_key: str = _env("ANTHROPIC_API_KEY")
     primary_model: str = _env("CLAUDE_PRIMARY_MODEL", "claude-sonnet-4-6")
     fast_model: str = _env("CLAUDE_FAST_MODEL", "claude-haiku-4-5-20251001")
+    genius_model: str = _env("CLAUDE_GENIUS_MODEL", "claude-opus-4")
 
 
 @dataclass(frozen=True)
@@ -112,6 +112,21 @@ class PricingConfig:
 
 
 @dataclass(frozen=True)
+class ConwayConfig:
+    """Conway Terminal — economic nervous system for agents."""
+    enabled: bool = _env_bool("CONWAY_ENABLED", False)
+    chain: str = _env("CONWAY_CHAIN", "base")
+    keystore_path: str = _env("CONWAY_KEYSTORE_PATH", "conway/data/keystores")
+    treasury_address: str = _env("CONWAY_TREASURY_ADDRESS", "")
+    api_key: str = _env("CONWAY_API_KEY", "")
+    api_url: str = _env("CONWAY_API_URL", "https://api.conway.tech")
+    base_rpc_url: str = _env("BASE_RPC_URL", "https://mainnet.base.org")
+    x402_facilitator_url: str = _env("X402_FACILITATOR_URL", "https://x402.org/facilitator")
+    auto_fund_threshold: float = _env_float("CONWAY_AUTO_FUND_THRESHOLD", 0.1)
+    erc8004_registry: str = _env("ERC8004_REGISTRY_ADDRESS", "")
+
+
+@dataclass(frozen=True)
 class PerseusConfig:
     root_dir: Path = _ROOT
     log_level: str = _env("LOG_LEVEL", "INFO")
@@ -134,6 +149,7 @@ class PerseusConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     pricing: PricingConfig = field(default_factory=PricingConfig)
+    conway: ConwayConfig = field(default_factory=ConwayConfig)
 
 
 # Singleton

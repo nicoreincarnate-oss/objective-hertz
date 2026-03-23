@@ -68,8 +68,23 @@ async def _load_compliance_config() -> tuple[ComplianceConfig, list[str]]:
         issues.append("company_address is not configured in system_config")
     if not base_url or base_url == UNSUB_BASE_URL_PLACEHOLDER:
         issues.append("unsubscribe_base_url is not configured in system_config")
-    if not secret or secret == "CHANGE-ME-GENERATE-A-REAL-SECRET":
-        issues.append("UNSUBSCRIBE_SECRET is not configured in the environment")
+    _PLACEHOLDER_SECRETS = {
+        "CHANGE-ME-GENERATE-A-REAL-SECRET",
+        "CHANGE_ME",
+        "changeme",
+        "change_me",
+        "secret",
+        "xxx",
+        "test",
+        "placeholder",
+    }
+    if (
+        not secret
+        or secret in _PLACEHOLDER_SECRETS
+        or secret.lower() in _PLACEHOLDER_SECRETS
+        or len(secret) < 16
+    ):
+        issues.append("UNSUBSCRIBE_SECRET is not configured in the environment (must be 16+ chars, not a placeholder)")
 
     return ComplianceConfig(address=address, base_url=base_url, secret=secret), issues
 
@@ -260,10 +275,10 @@ async def send_to_instantly(
         logger.error(f"Failed to create outbound_email_log before send for client {client_id}: {e}")
         return False
 
-    log_id = log_row["id"] if log_row else None
-    if not log_id:
+    if not log_row or "id" not in log_row:
         logger.error(f"Failed to create outbound_email_log before send for client {client_id}")
         return False
+    log_id = log_row["id"]
 
     # 4. Send via Instantly — footer goes as a template variable,
     #    NOT inside personalization (which is truncated to 500 chars).

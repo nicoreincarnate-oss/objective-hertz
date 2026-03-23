@@ -7,7 +7,6 @@ and registers with Perseus.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from shared import db
 
@@ -28,6 +27,12 @@ class AgentBase(ABC):
         self._stopped = asyncio.Event()
         self._stopped.set()
         self._shutdown_timeout_seconds = 45
+        # OJ EventBus integration
+        try:
+            from shared.oj_bridge import get_bus
+            self._bus = get_bus()
+        except Exception:
+            self._bus = None
 
     @abstractmethod
     async def start(self):
@@ -45,14 +50,37 @@ class AgentBase(ABC):
         ...
 
     async def register(self):
-        """Register this agent with Perseus via DB."""
+        """Register this agent with Perseus via DB, and optionally create a Conway wallet."""
         await db.execute(
             """INSERT INTO agent_registry (name, description, status)
                VALUES (%s, %s, 'active')
                ON CONFLICT (name) DO UPDATE SET status = 'active', updated_at = NOW()""",
             (self.name, self.description),
         )
-        self.logger.info(f"Agent '{self.name}' registered with Perseus")
+        self.logger.info(f"Agent '{self.name}' registered")
+
+        # Conway wallet provisioning
+        try:
+            from shared.config import config
+            if config.conway.enabled:
+                from conway.runtime import ensure_agent_runtime
+
+                conway_state = await ensure_agent_runtime(
+                    self.name,
+                    agent_card={
+                        "name": self.name,
+                        "description": self.description,
+                    },
+                )
+                wallet_address = conway_state.get("wallet_address", "")
+                if wallet_address:
+                    self.logger.info("Conway wallet: %s", wallet_address)
+                if conway_state.get("api_key_provisioned"):
+                    self.logger.info("Conway Cloud identity provisioned for %s", self.name)
+                if conway_state.get("erc8004_registered"):
+                    self.logger.info("ERC-8004 identity active for %s", self.name)
+        except Exception as e:
+            self.logger.debug(f"Conway wallet setup skipped: {e}")
 
     async def deregister(self):
         """Mark agent as inactive."""
@@ -61,9 +89,32 @@ class AgentBase(ABC):
             (self.name,),
         )
 
-    async def emit_event(self, event_type: str, payload: dict = None):
-        """Emit an event for other agents (Hermes, dashboard, etc.)."""
-        await db.emit_event(event_type, {"agent": self.name, **(payload or {})})
+    async def emit_event(self, event_type: str, payload: dict | None = None):
+        """Emit an event for other agents (Hermes, dashboard, etc.).
+
+        Writes to Postgres (for audit/dashboard) AND publishes to OJ EventBus
+        AND forwards to Hermes via A2A for instant alert dispatch.
+        """
+        full_payload = {"agent": self.name, **(payload or {})}
+        # 1. Postgres (audit trail + dashboard queries)
+        await db.emit_event(event_type, full_payload)
+        # 2. OJ EventBus (in-process subscribers)
+        if self._bus is not None:
+            try:
+                from openjarvis.core.events import EventType
+                self._bus.publish(EventType.A2A_REMOTE_EVENT, {
+                    "event_type": event_type,
+                    **full_payload,
+                })
+            except Exception:
+                pass
+        # 3. Forward to Hermes via A2A for instant alerts (non-blocking)
+        if self.name != "hermes":
+            try:
+                from shared.oj_bridge import forward_event_to_hermes
+                forward_event_to_hermes(event_type, full_payload)
+            except Exception:
+                pass  # DB fallback catches it on Hermes's poll cycle
 
     def request_shutdown(self):
         """Signal the agent to stop accepting new work."""
@@ -91,7 +142,7 @@ class AgentBase(ABC):
                 timeout=timeout or self._shutdown_timeout_seconds,
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     async def finalize_shutdown(self):
@@ -123,18 +174,19 @@ class AgentBase(ABC):
             self.logger.warning("Requeued %d stale running task(s) for %s", count, self.name)
         return count
 
-    async def get_pending_tasks(self, task_type: str = None) -> list[dict]:
+    async def get_pending_tasks(self, task_type: str | None = None) -> list[dict]:
         """Get pending tasks from the queue, optionally filtered by type."""
         if task_type:
             return await db.fetch_all(
                 """SELECT * FROM task_queue
-                   WHERE status = 'pending' AND task_type = %s
+                   WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                     AND task_type = %s
                    ORDER BY priority ASC, created_at ASC LIMIT 50""",
                 (task_type,),
             )
         return await db.fetch_all(
             """SELECT * FROM task_queue
-               WHERE status = 'pending'
+               WHERE status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3)
                ORDER BY priority ASC, created_at ASC LIMIT 50""",
         )
 
@@ -143,7 +195,9 @@ class AgentBase(ABC):
         row = await db.fetch_one(
             """UPDATE task_queue
                SET status = 'running', started_at = NOW(), assigned_agent = %s
-               WHERE id = %s AND status = 'pending' RETURNING id""",
+               WHERE id = %s
+                 AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+               RETURNING id""",
             (self.name, task_id),
         )
         return row is not None
@@ -159,9 +213,26 @@ class AgentBase(ABC):
 
     async def fail_task(self, task_id: int, error: str):
         """Mark a task as failed."""
-        await db.execute(
+        row = await db.fetch_one(
             """UPDATE task_queue
-               SET status = 'failed', error = %s, completed_at = NOW(), assigned_agent = %s
-               WHERE id = %s""",
+               SET retry_count = COALESCE(retry_count, 0) + 1,
+                   status = CASE
+                       WHEN COALESCE(retry_count, 0) + 1 >= 3 THEN 'dead_letter'
+                       ELSE 'failed'
+                   END,
+                   error = %s,
+                   completed_at = NOW(),
+                   assigned_agent = %s
+               WHERE id = %s
+               RETURNING status, retry_count""",
             (error, self.name, task_id),
         )
+        if row and row.get("status") == "dead_letter":
+            await db.emit_event(
+                "urgent_alert",
+                {
+                    "sender": self.name,
+                    "message": f"Task {task_id} moved to dead-letter queue after {row.get('retry_count', 0)} failures",
+                    "task_id": task_id,
+                },
+            )

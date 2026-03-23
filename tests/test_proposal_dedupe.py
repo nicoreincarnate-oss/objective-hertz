@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_non_seq_sends_dedupe_by_client_campaign_and_message_type():

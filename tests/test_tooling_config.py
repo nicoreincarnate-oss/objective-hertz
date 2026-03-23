@@ -2,8 +2,7 @@
 
 from pathlib import Path
 
-
-ROOT = Path("/Users/majovega/Desktop/objective-hertz")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _read(path: str) -> str:

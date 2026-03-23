@@ -1,0 +1,266 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* PERSEUS War Room - Jarvis HUD Theme */
+  --background: #04080c;
+  --foreground: #d9f6ff;
+  --card: rgba(4, 14, 22, 0.8);
+  --card-foreground: #d9f6ff;
+  --popover: rgba(3, 12, 20, 0.95);
+  --popover-foreground: #d9f6ff;
+  --primary: #58e0ff;
+  --primary-foreground: #031118;
+  --secondary: rgba(88, 224, 255, 0.12);
+  --secondary-foreground: #9bebff;
+  --muted: rgba(137, 222, 255, 0.07);
+  --muted-foreground: #6e96a5;
+  --accent: #2fd6ff;
+  --accent-foreground: #031118;
+  --destructive: #ff5a7a;
+  --destructive-foreground: #fff3f7;
+  --border: rgba(94, 215, 255, 0.2);
+  --input: rgba(7, 25, 35, 0.74);
+  --ring: rgba(88, 224, 255, 0.72);
+  --chart-1: #58e0ff;
+  --chart-2: #1097ff;
+  --chart-3: #39f3e2;
+  --chart-4: #ffb347;
+  --chart-5: #ff5a7a;
+  --radius: 0.75rem;
+
+  /* Custom Perseus Colors */
+  --gold: #58e0ff;
+  --gold-dim: rgba(88, 224, 255, 0.56);
+  --gold-glow: rgba(88, 224, 255, 0.28);
+  --teal: #39f3e2;
+  --green: #62f1b5;
+  --amber: #ffb347;
+  --red: #ff5a7a;
+  --glass: rgba(4, 14, 22, 0.6);
+  --glass-border: rgba(88, 224, 255, 0.16);
+  --hud-grid: rgba(68, 203, 255, 0.08);
+  --hud-line: rgba(107, 230, 255, 0.22);
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-gold: var(--gold);
+  --color-gold-dim: var(--gold-dim);
+  --color-gold-glow: var(--gold-glow);
+  --color-teal: var(--teal);
+  --color-green: var(--green);
+  --color-amber: var(--amber);
+  --color-red: var(--red);
+  --color-glass: var(--glass);
+  --color-glass-border: var(--glass-border);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      linear-gradient(180deg, rgba(3, 11, 18, 0.95), rgba(3, 8, 13, 0.98)),
+      radial-gradient(circle at top, rgba(76, 223, 255, 0.12), transparent 34%),
+      radial-gradient(circle at 80% 18%, rgba(19, 141, 255, 0.14), transparent 28%);
+  }
+}
+
+@keyframes aurora {
+  0%, 100% {
+    background-position: 0% 50%, 100% 50%, 50% 50%;
+  }
+  25% {
+    background-position: 100% 0%, 0% 100%, 40% 55%;
+  }
+  50% {
+    background-position: 100% 50%, 0% 50%, 52% 42%;
+  }
+  75% {
+    background-position: 0% 100%, 100% 0%, 48% 58%;
+  }
+}
+
+.aurora-bg {
+  background:
+    radial-gradient(ellipse 78% 50% at 18% 28%, rgba(63, 225, 255, 0.11) 0%, transparent 52%),
+    radial-gradient(ellipse 58% 42% at 84% 22%, rgba(16, 133, 255, 0.11) 0%, transparent 48%),
+    radial-gradient(ellipse 52% 34% at 48% 84%, rgba(57, 243, 226, 0.08) 0%, transparent 48%);
+  animation: aurora 24s ease-in-out infinite;
+}
+
+.aurora-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--hud-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hud-grid) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(circle at center, black 28%, transparent 88%);
+  opacity: 0.26;
+  pointer-events: none;
+}
+
+@keyframes breathe {
+  0%, 100% {
+    box-shadow: 0 0 24px rgba(88, 224, 255, 0.2), 0 0 48px rgba(17, 151, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 36px rgba(88, 224, 255, 0.3), 0 0 72px rgba(17, 151, 255, 0.16);
+  }
+}
+
+.breathing-glow {
+  animation: breathe 4s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(88, 224, 255, 0.14) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card {
+  background: linear-gradient(180deg, rgba(6, 20, 31, 0.76), rgba(4, 13, 22, 0.62));
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(88, 224, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(183, 245, 255, 0.05),
+    0 0 0 1px rgba(7, 85, 113, 0.16),
+    0 18px 48px rgba(1, 6, 12, 0.42);
+}
+
+.hud-panel {
+  position: relative;
+}
+
+.hud-panel::before,
+.hud-panel::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: var(--hud-line);
+  pointer-events: none;
+}
+
+.hud-panel::before {
+  top: 10px;
+  left: 10px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.hud-panel::after {
+  right: 10px;
+  bottom: 10px;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(88, 224, 255, 0.32);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(88, 224, 255, 0.54);
+}
+
+.perseus-video-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.34;
+  filter: saturate(0.92) hue-rotate(156deg) brightness(0.44) contrast(1.14);
+  transform: scale(1.04);
+}

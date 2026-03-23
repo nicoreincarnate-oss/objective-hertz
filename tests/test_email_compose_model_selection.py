@@ -4,7 +4,7 @@ import asyncio
 import importlib
 import sys
 import types
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 
 def run(coro):
