@@ -27,6 +27,12 @@ class AgentBase(ABC):
         self._stopped = asyncio.Event()
         self._stopped.set()
         self._shutdown_timeout_seconds = 45
+        # OJ EventBus integration
+        try:
+            from shared.oj_bridge import get_bus
+            self._bus = get_bus()
+        except Exception:
+            self._bus = None
 
     @abstractmethod
     async def start(self):
@@ -61,8 +67,31 @@ class AgentBase(ABC):
         )
 
     async def emit_event(self, event_type: str, payload: dict | None = None):
-        """Emit an event for other agents (Hermes, dashboard, etc.)."""
-        await db.emit_event(event_type, {"agent": self.name, **(payload or {})})
+        """Emit an event for other agents (Hermes, dashboard, etc.).
+
+        Writes to Postgres (for audit/dashboard) AND publishes to OJ EventBus
+        AND forwards to Hermes via A2A for instant alert dispatch.
+        """
+        full_payload = {"agent": self.name, **(payload or {})}
+        # 1. Postgres (audit trail + dashboard queries)
+        await db.emit_event(event_type, full_payload)
+        # 2. OJ EventBus (in-process subscribers)
+        if self._bus is not None:
+            try:
+                from openjarvis.core.events import EventType
+                self._bus.publish(EventType.A2A_REMOTE_EVENT, {
+                    "event_type": event_type,
+                    **full_payload,
+                })
+            except Exception:
+                pass
+        # 3. Forward to Hermes via A2A for instant alerts (non-blocking)
+        if self.name != "hermes":
+            try:
+                from shared.oj_bridge import forward_event_to_hermes
+                forward_event_to_hermes(event_type, full_payload)
+            except Exception:
+                pass  # DB fallback catches it on Hermes's poll cycle
 
     def request_shutdown(self):
         """Signal the agent to stop accepting new work."""

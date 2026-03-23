@@ -1,0 +1,191 @@
+"""Shared base for OpenAI-compatible ``/v1/`` engines."""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import AsyncIterator, Sequence
+from typing import Any, Dict, List
+
+import httpx
+
+from openjarvis.core.types import Message
+from openjarvis.engine._base import (
+    EngineConnectionError,
+    InferenceEngine,
+    messages_to_dicts,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class _OpenAICompatibleEngine(InferenceEngine):
+    """Base for engines that serve the OpenAI ``/v1/chat/completions`` API."""
+
+    engine_id: str = ""
+    _default_host: str = "http://localhost:8000"
+    _api_prefix: str = "/v1"
+
+    def __init__(self, host: str | None = None, *, timeout: float = 600.0) -> None:
+        self._host = (host or self._default_host).rstrip("/")
+        self._client = httpx.Client(base_url=self._host, timeout=timeout)
+
+    # -- InferenceEngine interface ------------------------------------------
+
+    @staticmethod
+    def _fix_tool_call_arguments(msg_dicts: list) -> list:
+        """Ensure tool_call arguments are dicts, not JSON strings.
+
+        OpenAI-compatible servers (vLLM, SGLang, llama.cpp, etc.) expect
+        tool_call arguments as JSON objects.  ``messages_to_dicts`` may
+        serialize them as strings, which causes 400 errors on multi-turn
+        tool-calling conversations.
+        """
+        for md in msg_dicts:
+            for tc in md.get("tool_calls", []):
+                fn = tc.get("function", {})
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        fn["arguments"] = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+        return msg_dicts
+
+    def generate(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": msg_dicts,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+            **kwargs,
+        }
+        try:
+            url = f"{self._api_prefix}/chat/completions"
+            resp = self._client.post(url, json=payload)
+            if resp.status_code == 400 and "tools" in payload:
+                payload.pop("tools", None)
+                payload.pop("tool_choice", None)
+                resp = self._client.post(url, json=payload)
+            resp.raise_for_status()
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise EngineConnectionError(
+                f"{self.engine_id} engine not reachable at {self._host}"
+            ) from exc
+        data = resp.json()
+        choices = data.get("choices", [])
+        if not choices:
+            return {
+                "content": "",
+                "usage": data.get("usage", {}),
+                "model": data.get("model", model),
+                "finish_reason": "error",
+            }
+        choice = choices[0]
+        usage = data.get("usage", {})
+        result: Dict[str, Any] = {
+            "content": choice["message"].get("content") or "",
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            },
+            "model": data.get("model", model),
+            "finish_reason": choice.get("finish_reason", "stop"),
+        }
+        # Extract tool calls if present
+        raw_tool_calls = choice["message"].get("tool_calls", [])
+        if raw_tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.get("id", ""),
+                    "name": tc.get("function", {}).get("name", ""),
+                    "arguments": tc.get("function", {}).get("arguments", "{}"),
+                }
+                for tc in raw_tool_calls
+            ]
+        return result
+
+    async def stream(
+        self,
+        messages: Sequence[Message],
+        *,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": msg_dicts,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            **kwargs,
+        }
+        try:
+            url = f"{self._api_prefix}/chat/completions"
+            with self._client.stream("POST", url, json=payload) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:"):].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise EngineConnectionError(
+                f"{self.engine_id} engine not reachable at {self._host}"
+            ) from exc
+
+    def list_models(self) -> List[str]:
+        try:
+            resp = self._client.get(f"{self._api_prefix}/models")
+            resp.raise_for_status()
+        except (
+            httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError,
+        ) as exc:
+            logger.warning(
+                "Failed to list models from %s at %s: %s",
+                self.engine_id, self._host, exc,
+            )
+            return []
+        data = resp.json()
+        return [m["id"] for m in data.get("data", [])]
+
+    def health(self) -> bool:
+        try:
+            resp = self._client.get(f"{self._api_prefix}/models", timeout=2.0)
+            return resp.status_code == 200
+        except Exception as exc:
+            logger.debug(
+                "%s health check failed at %s: %s",
+                self.engine_id, self._host, exc,
+            )
+            return False
+
+    def close(self) -> None:
+        self._client.close()
+
+
+__all__ = ["_OpenAICompatibleEngine"]

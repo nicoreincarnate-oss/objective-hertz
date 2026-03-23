@@ -131,5 +131,28 @@ async def main():
     await hermes.start()
 
 
+async def main_with_a2a():
+    """Entry point for Hermes daemon + A2A server."""
+    import uvicorn as _uvicorn
+    from hermes.a2a_server import create_hermes_a2a
+
+    hermes = HermesDaemon()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(hermes.stop()))
+
+    a2a_app = create_hermes_a2a(hermes)
+    a2a_port = int(os.getenv("HERMES_A2A_PORT", "9002"))
+    uvi_config = _uvicorn.Config(a2a_app, host="0.0.0.0", port=a2a_port, log_level="warning")
+    server = _uvicorn.Server(uvi_config)
+
+    logger.info("Hermes A2A server starting on :%d", a2a_port)
+    await asyncio.gather(hermes.start(), server.serve())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    if os.getenv("HERMES_A2A", "1") == "1":
+        asyncio.run(main_with_a2a())
+    else:
+        asyncio.run(main())

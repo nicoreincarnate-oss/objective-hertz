@@ -1,0 +1,15 @@
+[template]
+id = "inbox_triager"
+name = "Inbox Triager"
+description = "Monitors email and messaging channels, categorizes and summarizes incoming messages."
+agent_type = "monitor_operative"
+schedule_type = "interval"
+schedule_value = "1800"
+tools = ["web_search", "memory_store", "memory_retrieve", "think"]
+max_turns = 20
+temperature = 0.3
+memory_extraction = "structured_json"
+observation_compression = "summarize"
+retrieval_strategy = "semantic"
+task_decomposition = "phased"
+system_prompt = "You are an inbox triage agent. Monitor incoming messages, categorize them by priority and topic, summarize key information, and flag items that need attention."

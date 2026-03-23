@@ -20,7 +20,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from hermes.web.insights import answer_strategic_question
 from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
@@ -191,6 +190,10 @@ async def operator_chat(
 @app.post("/api/insights")
 async def api_insights(request: Request):
     """Answer a strategic operator question grounded in pipeline data."""
+    # Import lazily so the dashboard can start even if LLM-only deps
+    # are unavailable or this endpoint is not exercised.
+    from hermes.web.insights import answer_strategic_question
+
     payload = await request.json()
     question = str(payload.get("question", "")).strip()
     if not question:
@@ -243,7 +246,7 @@ async def api_health():
         db_ok = False
         db_error = str(exc)
 
-    from perseus.agent_registry import check_agent_health
+    from openjarvis.vassals.registry import check_agent_health
     agents = await check_agent_health()
     agent_values = list((agents or {}).values()) if isinstance(agents, dict) else []
     agents_ok = bool(agent_values) and all(status == "ok" for status in agent_values)

@@ -7,7 +7,7 @@ import asyncio
 import json
 import signal
 
-from perseus.agent_registry import heartbeat
+from openjarvis.vassals.registry import heartbeat
 from shared import db
 from shared.agent_base import AgentBase
 from shared.logging_config import setup_logging
@@ -30,7 +30,7 @@ logger = setup_logging("titan")
 
 async def _handle_health_check():
     """System-wide health check — verify all agents are alive, emit status."""
-    from perseus.agent_registry import check_agent_health
+    from openjarvis.vassals.registry import check_agent_health
     agents = await check_agent_health()
     await db.emit_event("health_report", {"agents": agents})
     logger.debug(f"Health check: {agents}")
@@ -57,7 +57,7 @@ async def _handle_morning_briefing():
 
 async def _handle_sleep_cycle():
     """Run the nightly sleep cycle — contrarian Opus debate + backprop."""
-    from perseus.sleep_cycle import run_sleep_cycle
+    from openjarvis.vassals.sleep_cycle import run_sleep_cycle
     result = await run_sleep_cycle()
     logger.info(f"Sleep cycle complete: {result}")
 
@@ -232,7 +232,7 @@ class TitanDaemon(AgentBase):
             # Check required services
             skip = False
             for svc in required_services:
-                from perseus.health import is_service_ok
+                from openjarvis.vassals.infra_health import is_service_ok
                 if not is_service_ok(infra, svc):
                     logger.warning(f"Skipping stage '{stage_name}': {svc} is down")
                     skip = True
@@ -266,5 +266,30 @@ async def main():
     await titan.start()
 
 
+async def main_with_a2a():
+    """Entry point for Titan daemon + A2A server."""
+    import os
+    import uvicorn
+    from titan.a2a_server import create_titan_a2a
+
+    titan = TitanDaemon()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(titan.stop()))
+
+    a2a_app = create_titan_a2a(titan)
+    a2a_port = int(os.environ.get("TITAN_A2A_PORT", "9001"))
+    config = uvicorn.Config(a2a_app, host="0.0.0.0", port=a2a_port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    logger.info("Titan A2A server starting on :%d", a2a_port)
+    await asyncio.gather(titan.start(), server.serve())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    import os
+    if os.environ.get("TITAN_A2A", "1") == "1":
+        asyncio.run(main_with_a2a())
+    else:
+        asyncio.run(main())

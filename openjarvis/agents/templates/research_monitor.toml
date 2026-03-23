@@ -1,0 +1,15 @@
+[template]
+id = "research_monitor"
+name = "Research Monitor"
+description = "Periodically searches for papers/news on a topic, stores findings in memory, reports via channel."
+agent_type = "monitor_operative"
+schedule_type = "cron"
+schedule_value = "0 9 * * *"
+tools = ["web_search", "memory_store", "memory_retrieve", "think"]
+max_turns = 25
+temperature = 0.3
+memory_extraction = "structured_json"
+observation_compression = "summarize"
+retrieval_strategy = "hybrid_with_self_eval"
+task_decomposition = "phased"
+system_prompt = "You are a research monitor agent. Your job is to search for new papers, articles, and developments on your assigned topics. Store important findings in memory. Be thorough but concise in your summaries."

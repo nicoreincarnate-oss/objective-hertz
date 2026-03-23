@@ -13,7 +13,7 @@ import asyncio
 import json
 import signal
 
-from perseus.agent_registry import heartbeat
+from openjarvis.vassals.registry import heartbeat
 from shared import db
 from shared.agent_base import AgentBase
 from shared.comms import record_decision
@@ -1134,5 +1134,30 @@ async def main():
     await bot.start()
 
 
+async def main_with_a2a():
+    """Entry point for ClawdBot daemon + A2A server."""
+    import os
+    import uvicorn as _uvicorn
+    from clawdbot.a2a_server import create_clawdbot_a2a
+
+    bot = ClawdBotDaemon()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.stop()))
+
+    a2a_app = create_clawdbot_a2a(bot)
+    a2a_port = int(os.getenv("CLAWDBOT_A2A_PORT", "9003"))
+    uvi_config = _uvicorn.Config(a2a_app, host="0.0.0.0", port=a2a_port, log_level="warning")
+    server = _uvicorn.Server(uvi_config)
+
+    logger.info("ClawdBot A2A server starting on :%d", a2a_port)
+    await asyncio.gather(bot.start(), server.serve())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    import os
+    if os.getenv("CLAWDBOT_A2A", "1") == "1":
+        asyncio.run(main_with_a2a())
+    else:
+        asyncio.run(main())

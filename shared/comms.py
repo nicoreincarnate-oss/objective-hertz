@@ -1,24 +1,32 @@
 """
 Inter-daemon communication layer.
 
+PRIMARY: A2A (HTTP JSON-RPC) for direct agent-to-agent calls.
+FALLBACK: Postgres task_queue for backward compat when A2A unavailable.
+
 All 4 daemons (Perseus, Titan, Hermes, ClawdBot) share:
-1. task_queue   — request work from another daemon
-2. events       — broadcast status/results to all daemons
-3. titan_learnings — shared structured memory (what the system has learned)
-4. Mem0 vector store — shared semantic memory (searchable by any daemon)
-5. system_config — shared runtime configuration
+1. A2A protocol  — direct HTTP calls between agents (primary)
+2. task_queue     — request work from another daemon (fallback)
+3. events         — broadcast status/results to all daemons
+4. titan_learnings — shared structured memory (what the system has learned)
+5. Mem0 vector store — shared semantic memory (searchable by any daemon)
+6. system_config  — shared runtime configuration
 
 This module provides a clean API for daemon-to-daemon communication.
 """
 
 import json
 import logging
+import os
 import uuid
 from typing import Any
 
 from shared import db
 
 logger = logging.getLogger("perseus.comms")
+
+# Feature flag: set USE_A2A_DISPATCH=0 to disable A2A and use DB polling only
+_USE_A2A = os.environ.get("USE_A2A_DISPATCH", "1") != "0"
 
 
 # ── Request Work From Another Daemon ──────────────────────────────
@@ -29,23 +37,33 @@ async def request_task(
     priority: int = 5,
     request_id: str = "",
     dedupe: bool = False,
-) -> int | None:
+) -> int | str | None:
     """
-    Insert a task into the shared queue for any daemon to pick up.
+    Request work from another agent. Routes via A2A if available,
+    falls back to DB task_queue insert.
 
-    Examples:
-        # Titan asks ClawdBot to scrape a URL
-        await request_task("web_scrape", {"url": "https://example.com"})
-
-        # Perseus asks Titan to discover leads
-        await request_task("lead_discovery", {"batch_size": 20})
-
-        # Titan asks ClawdBot to enrich a lead
-        await request_task("enrich_lead", {"client_id": 42})
+    Returns task_id (int from DB, str from A2A) or None if deduped.
     """
     full_payload = payload or {}
     if request_id:
         full_payload["request_id"] = request_id
+
+    # Try A2A dispatch first
+    if _USE_A2A:
+        from shared.task_routing import TASK_ROUTING
+        agent_name = TASK_ROUTING.get(task_type)
+        if agent_name:
+            try:
+                from shared.oj_bridge import call_agent_async
+                result = await call_agent_async(agent_name, task_type, full_payload)
+                if "error" not in result:
+                    logger.debug("A2A dispatch: %s → %s (ok)", task_type, agent_name)
+                    return result.get("task_id", f"a2a_{uuid.uuid4().hex[:8]}")
+                logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
+            except Exception as exc:
+                logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
+
+    # Fallback: DB task_queue
     return await db.insert_task(task_type, full_payload, priority, dedupe=dedupe)
 
 
@@ -55,15 +73,32 @@ async def request_task_result(
     priority: int = 5,
     timeout_seconds: int = 60,
 ) -> dict | None:
-    """Request work from another daemon and wait for its task_result event."""
+    """Request work from another agent and get the result.
+
+    Via A2A: synchronous call-response (blocks until agent returns).
+    Via DB: inserts task, polls events table for task_result event.
+    """
+    full_payload = payload or {}
+
+    # Try A2A direct call (synchronous request-response)
+    if _USE_A2A:
+        from shared.task_routing import TASK_ROUTING
+        agent_name = TASK_ROUTING.get(task_type)
+        if agent_name:
+            try:
+                from shared.oj_bridge import call_agent_async
+                result = await call_agent_async(agent_name, task_type, full_payload, timeout=float(timeout_seconds))
+                if "error" not in result:
+                    logger.debug("A2A request_task_result: %s → %s (ok)", task_type, agent_name)
+                    return result
+                logger.warning("A2A request_task_result %s → %s error: %s", task_type, agent_name, result.get("error"))
+            except Exception as exc:
+                logger.warning("A2A request_task_result %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
+
+    # Fallback: DB insert + poll
     request_id = uuid.uuid4().hex
-    task_id = await request_task(
-        task_type,
-        payload=payload,
-        priority=priority,
-        request_id=request_id,
-        dedupe=False,
-    )
+    full_payload["request_id"] = request_id
+    task_id = await db.insert_task(task_type, full_payload, priority, dedupe=False)
     if task_id is None:
         return None
     return await wait_for_event("task_result", request_id=request_id, timeout_seconds=timeout_seconds)

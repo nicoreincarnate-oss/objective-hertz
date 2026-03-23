@@ -13,7 +13,11 @@ logger = logging.getLogger("perseus.hermes.alerts")
 
 
 async def dispatch_alerts():
-    """Check for unacknowledged events and send Telegram alerts."""
+    """Check for unacknowledged events and send Telegram alerts.
+
+    This is the FALLBACK poll loop. Primary delivery is via A2A push
+    through dispatch_alert_for_event().
+    """
     events = await fetch_all(
         """SELECT id, event_type, payload, created_at
            FROM events WHERE acknowledged = FALSE
@@ -35,6 +39,38 @@ async def dispatch_alerts():
             )
         except Exception as e:
             logger.error(f"Alert dispatch failed for event {event['id']}: {e}")
+
+
+async def dispatch_alert_for_event(event: dict) -> bool:
+    """Dispatch a single event as a Telegram alert (called via A2A push).
+
+    This is the PRIMARY delivery path — events arrive instantly via A2A
+    instead of waiting for the poll cycle.
+
+    Args:
+        event: dict with at least "event_type" key and optional payload fields.
+
+    Returns:
+        True if alert was sent successfully.
+    """
+    event_type = event.get("event_type", "")
+    if not event_type:
+        return False
+
+    try:
+        if event_type == "morning_briefing":
+            await send_morning_briefing()
+            return True
+
+        formatted = {"event_type": event_type, "payload": event}
+        message = _format_event(formatted)
+        if message:
+            await _send_telegram(message)
+            return True
+    except Exception as e:
+        logger.error(f"A2A alert dispatch failed for {event_type}: {e}")
+
+    return False
 
 
 def _format_event(event: dict) -> str:

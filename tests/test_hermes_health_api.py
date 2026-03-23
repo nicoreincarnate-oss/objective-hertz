@@ -60,7 +60,7 @@ def test_health_api_includes_mode_and_metrics(monkeypatch):
     fake_db_module.init_pool = fake_init_pool
     fake_db_module.close_pool = fake_close_pool
 
-    fake_registry_module = types.ModuleType("perseus.agent_registry")
+    fake_registry_module = types.ModuleType("openjarvis.vassals.registry")
 
     async def fake_check_agent_health():
         return {
@@ -73,7 +73,7 @@ def test_health_api_includes_mode_and_metrics(monkeypatch):
     fake_registry_module.check_agent_health = fake_check_agent_health
 
     monkeypatch.setitem(sys.modules, "shared.db", fake_db_module)
-    monkeypatch.setitem(sys.modules, "perseus.agent_registry", fake_registry_module)
+    monkeypatch.setitem(sys.modules, "openjarvis.vassals.registry", fake_registry_module)
     monkeypatch.delitem(sys.modules, "hermes.web.app", raising=False)
 
     try:
