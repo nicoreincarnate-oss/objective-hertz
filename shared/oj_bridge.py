@@ -31,6 +31,7 @@ AGENT_URLS: dict[str, str] = {
     "hermes": os.environ.get("HERMES_A2A_URL", "http://localhost:9002"),
     "clawdbot": os.environ.get("CLAWDBOT_A2A_URL", "http://localhost:9003"),
     "orchestrator": os.environ.get("ORCHESTRATOR_A2A_URL", "http://localhost:9000"),
+    "ruflo": os.environ.get("RUFLO_A2A_URL", "http://localhost:9004"),
 }
 
 # ── Data directory ───────────────────────────────────────────────────
@@ -220,7 +221,10 @@ async def call_agent_async(agent_name: str, capability: str, params: Optional[di
     """Async wrapper around call_agent (runs sync A2A call in thread pool)."""
     import asyncio
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, call_agent, agent_name, capability, params, timeout)
+    return await asyncio.wait_for(
+        loop.run_in_executor(None, call_agent, agent_name, capability, params, timeout),
+        timeout=timeout + 5,
+    )
 
 
 def forward_event_to_hermes(event_type: str, payload: dict) -> None:

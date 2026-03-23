@@ -38,4 +38,13 @@ TASK_ROUTING: dict[str, str] = {
     "verify_demo_site": "clawdbot",
     "handle_n8n_workflow": "clawdbot",
     "image_generation": "clawdbot",
+
+    # Ruflo — engineering swarm
+    "code_fix": "ruflo",
+    "code_review": "ruflo",
+    "code_refactor": "ruflo",
+    "security_scan": "ruflo",
+    "dependency_audit": "ruflo",
+    "implement_tool": "ruflo",
+    "test_generate": "ruflo",
 }

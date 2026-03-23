@@ -157,6 +157,18 @@ class SiteBuildConfig:
 
 
 @dataclass(frozen=True)
+class RufloConfig:
+    """Ruflo engineering agent — multi-agent swarm for code fixes."""
+    enabled: bool = _env_bool("RUFLO_ENABLED", False)
+    a2a_url: str = _env("RUFLO_A2A_URL", "http://localhost:9004")
+    a2a_port: int = _env_int("RUFLO_A2A_PORT", 9004)
+    claude_monthly_cap: float = _env_float("RUFLO_CLAUDE_MONTHLY_CAP", 50)
+    max_concurrent_swarms: int = _env_int("RUFLO_MAX_SWARMS", 1)
+    swarm_timeout_seconds: int = _env_int("RUFLO_SWARM_TIMEOUT", 900)
+    auto_apply_fixes: bool = _env_bool("RUFLO_AUTO_APPLY", False)
+
+
+@dataclass(frozen=True)
 class PerseusConfig:
     root_dir: Path = _ROOT
     log_level: str = _env("LOG_LEVEL", "INFO")
@@ -182,6 +194,7 @@ class PerseusConfig:
     conway: ConwayConfig = field(default_factory=ConwayConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     site_build: SiteBuildConfig = field(default_factory=SiteBuildConfig)
+    ruflo: RufloConfig = field(default_factory=RufloConfig)
 
 
 # Singleton
