@@ -30,6 +30,7 @@ import threading
 import time
 from pathlib import Path
 
+from shared.config import config
 from shared.logging_config import setup_logging
 from shared.observability import capture_exception, install_asyncio_exception_handler
 
@@ -301,7 +302,7 @@ class Orchestrator:
         logger.info("=" * 60)
 
         try:
-            await asyncio.gather(
+            loops = [
                 self._scheduler.start(),       # Strategic brain
                 self._relay.start_polling(),   # Event bridge
                 self._command_loop(),          # Operator commands
@@ -309,7 +310,11 @@ class Orchestrator:
                 self._sleep_cycle_loop(),      # Nightly optimization
                 self._scout_loop(),            # External intelligence
                 self._self_audit_loop(),       # Codebase self-audit
-            )
+            ]
+            if config.ruflo.enabled:
+                loops.append(self._ruflo_validation_loop())  # Ruflo fix validation
+                logger.info("Ruflo validation loop enabled")
+            await asyncio.gather(*loops)
         finally:
             await self._cleanup()
 
@@ -693,6 +698,96 @@ class Orchestrator:
                 chunk = min(wait, 60)
                 await asyncio.sleep(chunk)
                 wait -= chunk
+
+    # ── Ruflo Validation Loop ───────────────────────────────────────────
+
+    async def _ruflo_validation_loop(self):
+        """Poll completed Ruflo tasks and validate fixes via targeted self-audit."""
+        from shared.db import execute, fetch_all
+
+        # Initial delay: let Ruflo come online
+        await asyncio.sleep(120)
+
+        while self._running:
+            try:
+                pending = await fetch_all(
+                    "SELECT * FROM ruflo_tasks "
+                    "WHERE status = 'completed' AND validation_status IS NULL "
+                    "ORDER BY completed_at ASC LIMIT 5"
+                )
+                for task in pending:
+                    task_id = task["id"]
+                    task_type = task.get("task_type", "")
+                    result = task.get("result", {})
+                    changed_files = result.get("changed_files", []) if isinstance(result, dict) else []
+
+                    if not changed_files:
+                        # No files changed — mark as skipped
+                        await execute(
+                            "UPDATE ruflo_tasks SET validation_status = 'skipped', validated_at = NOW() "
+                            "WHERE id = %s", (task_id,)
+                        )
+                        continue
+
+                    # Run targeted self-audit on changed files
+                    validation_passed = True
+                    validation_details = {}
+                    try:
+                        from perseus.self_audit import _analyze_file
+                        for fpath in changed_files[:10]:  # cap at 10 files
+                            full = Path(config.root_dir) / fpath if hasattr(config, "root_dir") else Path(fpath)
+                            if full.exists():
+                                findings = await _analyze_file(str(fpath), full.read_text())
+                                if findings:
+                                    validation_details[fpath] = [f.get("issue", "") for f in findings]
+                                    validation_passed = False
+                    except Exception as e:
+                        logger.debug("Ruflo validation analysis failed: %s", e)
+                        validation_details["error"] = str(e)
+
+                    status = "passed" if validation_passed else "failed"
+                    await execute(
+                        "UPDATE ruflo_tasks SET validation_status = %s, "
+                        "validation_details = %s, validated_at = NOW() WHERE id = %s",
+                        (status, json.dumps(validation_details), task_id),
+                    )
+
+                    # Emit learning event
+                    from shared.db import emit_event
+                    event_type = "ruflo_fix_validated" if validation_passed else "ruflo_fix_rejected"
+                    await emit_event(event_type, {
+                        "task_id": task_id,
+                        "task_type": task_type,
+                        "changed_files": changed_files,
+                        "validation_status": status,
+                    })
+
+                    # Store learning
+                    from shared.comms import store_learning
+                    if validation_passed:
+                        await store_learning(
+                            category="ruflo_code_pattern",
+                            insight=f"Ruflo successfully fixed {task_type} in {', '.join(changed_files[:3])}",
+                            confidence=0.7,
+                            source_agent="ruflo",
+                            source_event="ruflo_fix_validated",
+                        )
+                    else:
+                        await store_learning(
+                            category="ruflo_code_pattern",
+                            insight=f"Ruflo fix rejected for {task_type}: {json.dumps(validation_details)[:200]}",
+                            confidence=0.3,
+                            source_agent="ruflo",
+                            source_event="ruflo_fix_rejected",
+                        )
+
+                    logger.info("Ruflo task %d validation: %s (%s)", task_id, status, task_type)
+
+            except Exception as exc:
+                logger.debug("Ruflo validation loop error: %s", exc)
+
+            # Check every 60 seconds
+            await asyncio.sleep(60)
 
     # ── External Intelligence Scout ────────────────────────────────────
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.comms import ask_agent, record_decision
+from shared.config import config
 from shared.db import emit_event, get_config, set_config
 from shared.llm_client import llm
 
@@ -424,19 +425,41 @@ async def _apply_approved_fixes(
                 skipped += 1
                 continue
 
-            try:
-                success = await _safe_code_edit(
-                    root, filepath,
-                    finding.get("proposed_fix", ""),
-                    f"Self-audit {cycle_id}: {finding.get('issue', '')}",
-                )
-                if success:
-                    applied += 1
-                else:
+            # Try Ruflo multi-agent swarm first if enabled
+            ruflo_dispatched = False
+            if config.ruflo.enabled:
+                try:
+                    from shared.comms import request_task
+                    task_id = await request_task("code_fix", {
+                        "capability": "code_fix",
+                        "finding": finding,
+                        "file": filepath,
+                        "cycle_id": cycle_id,
+                        "source": "self_audit",
+                        "source_id": f"audit-{cycle_id}-{filepath}",
+                    }, dedupe=False)
+                    if task_id:
+                        ruflo_dispatched = True
+                        applied += 1
+                        logger.info("Dispatched code_fix to Ruflo for %s (task %s)", filepath, task_id)
+                except Exception as e:
+                    logger.debug("Ruflo dispatch failed for %s, falling back to inline: %s", filepath, e)
+
+            # Fallback to inline single-pass fix
+            if not ruflo_dispatched:
+                try:
+                    success = await _safe_code_edit(
+                        root, filepath,
+                        finding.get("proposed_fix", ""),
+                        f"Self-audit {cycle_id}: {finding.get('issue', '')}",
+                    )
+                    if success:
+                        applied += 1
+                    else:
+                        skipped += 1
+                except Exception as e:
+                    logger.debug("Code edit failed for %s: %s", filepath, e)
                     skipped += 1
-            except Exception as e:
-                logger.debug("Code edit failed for %s: %s", filepath, e)
-                skipped += 1
         else:
             skipped += 1
 
