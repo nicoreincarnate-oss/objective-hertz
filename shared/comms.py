@@ -389,3 +389,15 @@ async def delegate_task(
     )
     logger.info(f"Delegated {task_type} from {from_agent} → {to_agent} (priority={priority}, id={task_id})")
     return task_id
+
+
+async def escalate_to_boss(
+    from_agent: str,
+    problem: str,
+    context: dict | None = None,
+) -> None:
+    """Escalate a problem to the boss (OpenJarvis orchestrator)."""
+    await ask_agent(from_agent, "orchestrator",
+        f"Escalation from {from_agent}: {problem}",
+        context=context, timeout=15)
+    await send_alert(f"Escalation from {from_agent}: {problem[:200]}", sender=from_agent)

@@ -223,18 +223,18 @@ class ClawdBotDaemon(AgentBase):
             ) or 0
             if stuck_no_email > 10:
                 await db.insert_task("enrich_leads", {"batch_size": min(stuck_no_email, 20), "proactive": True}, dedupe=True)
-                await self._recommend("titan", "discovery_quality",
-                    f"{stuck_no_email} leads stuck without email for 24h+. Consider switching discovery sources.")
+                await self._collaborate("titan", "discovery_quality",
+                    f"{stuck_no_email} leads stuck without email for 24h+.")
 
-            # Discovery returning zero results repeatedly
+            # Discovery returning zero results — act within 1 hour, not 6
             empty_runs = await db.fetch_val(
                 "SELECT COUNT(*) FROM events WHERE event_type = 'lead_discovery_empty' "
-                "AND created_at > NOW() - INTERVAL '6 hours'"
+                "AND created_at > NOW() - INTERVAL '1 hour'"
             ) or 0
-            if empty_runs >= 3:
-                await self._recommend("titan", "discovery_failing",
-                    f"Discovery returned zero results {empty_runs} times in 6h. "
-                    "Recommend: change search queries, try different skill, or check Firecrawl status.")
+            if empty_runs >= 2:
+                await self._collaborate("titan", "discovery_failing",
+                    f"Discovery returned zero results {empty_runs} times in 1h. "
+                    "Pipeline will starve without leads.")
 
             # Demo QA failure rate
             qa_failures = await db.fetch_val(
@@ -242,7 +242,7 @@ class ClawdBotDaemon(AgentBase):
                 "AND created_at > NOW() - INTERVAL '24 hours'"
             ) or 0
             if qa_failures >= 2:
-                await self._recommend("titan", "demo_quality",
+                await self._collaborate("titan", "demo_quality",
                     f"{qa_failures} demo sites failed QA in 24h. v0.dev may need different prompts.")
 
             # Infrastructure health checks
@@ -288,10 +288,91 @@ class ClawdBotDaemon(AgentBase):
         except Exception:
             pass
 
-    # ── Agent-to-agent recommendations ────────────────────────────
+    # ── Agent collaboration — real conversations, not just recommendations ─
+
+    async def _collaborate(self, target_agent: str, topic: str, problem: str):
+        """Have a real conversation with another agent and try to fix the problem."""
+        from shared.comms import ask_agent, delegate_task
+        from clawdbot.brain import decide_approach
+
+        try:
+            # Dedup: don't re-collaborate on same topic within 30 minutes
+            recent = await db.fetch_one(
+                "SELECT id FROM agent_decisions WHERE agent = 'clawdbot' "
+                "AND decision_type = 'collaboration' AND context->>'topic' = %s "
+                "AND created_at > NOW() - INTERVAL '30 minutes'",
+                (topic,),
+            )
+            if recent:
+                return
+
+            logger.info(f"Collaborating with {target_agent} on: {topic}")
+
+            # Step 1: Ask the agent what's going on from their side
+            response = await ask_agent("clawdbot", target_agent,
+                f"I noticed a problem: {problem}. What's your current state on this? "
+                f"What have you tried?", timeout=15)
+            their_context = response.get("answer", "no response") if response else "agent unreachable"
+
+            # Step 2: Ask Opus brain what to do with both sides of context
+            from shared.skill_loader import list_installed_skills
+            skills = list_installed_skills()
+            skill_names = [s[0] for s in skills[:20]] if skills else []
+            decision = await decide_approach(
+                f"Problem: {problem}\n"
+                f"{target_agent} says: {their_context}\n"
+                f"Available skills: {', '.join(skill_names[:15])}\n"
+                f"What should I do to fix this?",
+                available_tools=skill_names)
+
+            approach = decision.get("approach", "ask_operator")
+            tool_name = decision.get("tool_name", "")
+            logger.info(f"Collaboration decision: {approach} (tool: {tool_name})")
+
+            # Step 3: Execute the fix
+            if approach == "skill" and tool_name:
+                from shared.skill_loader import execute_skill
+                result = await execute_skill(tool_name,
+                    f"Fix this problem: {problem}. Context from {target_agent}: {their_context}",
+                    {})
+                logger.info(f"Skill '{tool_name}' executed for fix: {str(result)[:200]}")
+
+            elif approach == "ask_operator":
+                # Escalate through Hermes to operator, and up to the boss
+                await ask_agent("clawdbot", "hermes",
+                    f"Need operator help with: {problem}. "
+                    f"{target_agent} says: {their_context}. "
+                    f"I couldn't fix it autonomously.", timeout=10)
+                # Also inform the boss
+                await ask_agent("clawdbot", "orchestrator",
+                    f"Escalation: {topic} — {problem}. "
+                    f"Tried to fix but need human input.", timeout=10)
+
+            elif approach in ("http_scrape", "playwright"):
+                # ClawdBot can do this itself
+                task_type = "web_scrape" if approach == "http_scrape" else "browser_task"
+                await db.insert_task(task_type, {
+                    "url": decision.get("url", ""),
+                    "description": f"Fix: {problem}",
+                    "proactive": True,
+                }, dedupe=True)
+
+            # Step 4: Record the collaboration
+            await record_decision(
+                agent="clawdbot",
+                decision_type="collaboration",
+                context={"target": target_agent, "topic": topic, "their_context": their_context[:200]},
+                decision={"approach": approach, "tool": tool_name},
+                reasoning=f"Problem: {problem}. {target_agent}: {their_context[:100]}. Fix: {approach}",
+            )
+
+        except Exception as e:
+            logger.debug(f"Collaboration with {target_agent} on '{topic}' failed: {e}")
+            # Fall back to old-style recommendation if collaboration fails
+            await self._recommend(target_agent, topic, problem)
 
     async def _recommend(self, target_agent: str, topic: str, message: str):
-        """Send a recommendation to another agent. Deduped by topic per hour."""
+        """Send a recommendation to another agent. Deduped by topic per hour. Fallback for _collaborate."""
         try:
             recent = await db.fetch_one(
                 "SELECT id FROM agent_decisions WHERE agent = 'clawdbot' "

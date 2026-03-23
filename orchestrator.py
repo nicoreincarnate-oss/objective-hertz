@@ -64,12 +64,14 @@ class Orchestrator:
         for sig in (signal.SIGTERM, signal.SIGINT):
             asyncio.get_running_loop().add_signal_handler(sig, self._shutdown)
 
-        # Run concurrent loops (all formerly split between Perseus + Orchestrator)
+        # Run concurrent loops — the boss runs everything
         loops = [
             self._pipeline_loop(),
             self._health_loop(),
             self._budget_loop(),
             self._strategic_loop(),
+            self._command_loop(),      # Listen for operator commands
+            self._followup_loop(),     # Monitor agent progress
         ]
 
         # Add Conway survival monitoring if enabled
@@ -178,12 +180,12 @@ class Orchestrator:
             await asyncio.sleep(self._budget_interval)
 
     async def _strategic_loop(self):
-        """Strategic priority allocation — absorbed from Perseus.
+        """Strategic priority allocation — the boss decides what the team works on.
 
-        Assesses pipeline state every 60s and decides which tasks to
-        schedule next. Uses deterministic rules (no LLM), prioritizing
-        revenue-closest work first.
+        Deterministic rules as baseline, with LLM override when pipeline is stuck.
         """
+        self._prev_states: list[dict] = []
+
         while self._running:
             try:
                 from shared.db import execute as db_execute, insert_task
@@ -192,17 +194,24 @@ class Orchestrator:
                 state = await assess_pipeline_state()
                 priorities = _decide_priorities(state)
 
-                # Record decision for auditability
+                # Detect stuck pipeline: same state for 3+ cycles
+                self._prev_states.append(state)
+                if len(self._prev_states) > 5:
+                    self._prev_states = self._prev_states[-5:]
+
+                if self._is_stuck():
+                    logger.warning("Pipeline appears stuck — asking LLM for new strategy")
+                    llm_override = await self._llm_strategic_override(state, priorities)
+                    if llm_override:
+                        priorities = llm_override
+
+                # Record decision
                 try:
                     await db_execute(
                         """INSERT INTO agent_decisions (agent, decision_type, context, decision, reasoning)
                            VALUES (%s, 'priority_allocation', %s, %s, %s)""",
-                        (
-                            "orchestrator",
-                            json.dumps(state),
-                            json.dumps(priorities),
-                            priorities.get("reasoning", ""),
-                        ),
+                        ("orchestrator", json.dumps(state),
+                         json.dumps(priorities), priorities.get("reasoning", "")),
                     )
                 except Exception:
                     pass
@@ -211,7 +220,7 @@ class Orchestrator:
                 now = time.time()
                 for task_name in priorities.get("schedule", []):
                     elapsed = now - self._last_run.get(task_name, 0)
-                    if elapsed < 30:  # minimum 30s between same task
+                    if elapsed < 30:
                         continue
                     self._last_run[task_name] = now
                     task_id = await insert_task(
@@ -225,6 +234,49 @@ class Orchestrator:
                 logger.debug(f"Strategic tick: {exc}")
 
             await asyncio.sleep(self._strategic_interval)
+
+    def _is_stuck(self) -> bool:
+        """Check if pipeline state hasn't changed meaningfully in 3+ cycles."""
+        if len(self._prev_states) < 3:
+            return False
+        # Compare last 3 states — if key metrics are identical, we're stuck
+        keys = ("hot_leads", "ready_to_close", "ready_to_deliver", "ready_to_invoice")
+        recent = self._prev_states[-3:]
+        first = {k: recent[0].get(k, 0) for k in keys}
+        return all({k: s.get(k, 0) for k in keys} == first for s in recent[1:])
+
+    async def _llm_strategic_override(self, state: dict, current: dict) -> dict | None:
+        """Ask LLM for a new strategy when deterministic rules aren't working."""
+        try:
+            from shared.llm_client import llm
+            from shared.comms import get_pending_recommendations
+
+            recs = await get_pending_recommendations("orchestrator", since_minutes=60, limit=5)
+            rec_text = "\n".join(
+                f"- {r.get('payload', {}).get('topic', '?')}: {str(r.get('payload', {}).get('message', ''))[:100]}"
+                for r in recs
+            ) or "None"
+
+            response = await llm.generate(
+                f"You are OpenJarvis, the boss. Your revenue pipeline is stuck.\n\n"
+                f"Pipeline state: {json.dumps(state)}\n"
+                f"Current plan: {json.dumps(current)}\n"
+                f"Agent recommendations:\n{rec_text}\n\n"
+                f"This state hasn't changed in 3+ cycles. What should we do differently?\n"
+                f"Return JSON: {{\"schedule\": [\"task1\", \"task2\"], \"reasoning\": \"why\"}}",
+                tier="smart", max_tokens=400, temperature=0.3)
+
+            # Parse LLM response
+            import re
+            match = re.search(r'\{[^}]+\}', response)
+            if match:
+                override = json.loads(match.group())
+                if "schedule" in override:
+                    logger.info(f"LLM strategic override: {override.get('reasoning', '')[:100]}")
+                    return override
+        except Exception as e:
+            logger.debug(f"LLM strategic override failed: {e}")
+        return None
 
     async def _conway_survival_loop(self):
         """Monitor agent survival tiers (Conway economic system)."""
@@ -249,6 +301,170 @@ class Orchestrator:
                 logger.debug(f"Conway survival check: {exc}")
 
             await asyncio.sleep(120)  # Check every 2 min
+
+
+    async def _command_loop(self):
+        """Listen for operator commands and decompose into agent work.
+
+        The boss receives high-level instructions and turns them into
+        specific tasks for the team.
+        """
+        while self._running:
+            try:
+                from shared.db import fetch_all, execute as db_execute
+
+                # Check for unprocessed operator commands
+                commands = await fetch_all(
+                    """SELECT id, payload FROM task_queue
+                       WHERE task_type = 'operator_command'
+                       AND status = 'pending'
+                       ORDER BY created_at ASC LIMIT 3"""
+                )
+                for cmd in commands or []:
+                    task_id = cmd["id"]
+                    payload = cmd.get("payload", {})
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                    text = payload.get("text", payload.get("description", ""))
+                    if not text:
+                        await db_execute(
+                            "UPDATE task_queue SET status = 'completed' WHERE id = %s",
+                            (task_id,))
+                        continue
+
+                    # Claim the command
+                    await db_execute(
+                        "UPDATE task_queue SET status = 'running' WHERE id = %s",
+                        (task_id,))
+
+                    # Boss decomposes command into agent tasks
+                    await self._handle_command(text)
+
+                    await db_execute(
+                        "UPDATE task_queue SET status = 'completed' WHERE id = %s",
+                        (task_id,))
+
+            except Exception as exc:
+                logger.debug(f"Command loop: {exc}")
+
+            await asyncio.sleep(10)  # Check every 10s — commands are urgent
+
+    async def _handle_command(self, command: str):
+        """The boss decomposes a high-level command into agent tasks."""
+        from shared.llm_client import llm
+        from shared.comms import delegate_task
+        from shared.db import execute as db_execute
+
+        logger.info(f"Boss received command: {command[:100]}")
+
+        try:
+            plan = await llm.generate(
+                f"You are OpenJarvis, the boss of a 3-agent business team:\n"
+                f"- Titan: revenue pipeline (lead discovery, email outreach, deals, invoicing, payments)\n"
+                f"- ClawdBot: skills executor (browser automation, web scraping, site building, research, image gen)\n"
+                f"- Hermes: operator comms (Telegram alerts, dashboard, briefings)\n\n"
+                f"The operator commands: \"{command}\"\n\n"
+                f"Decompose this into specific, actionable tasks for your agents.\n"
+                f"Available task_types for Titan: lead_discovery, lead_research, email_compose, email_send, "
+                f"follow_up_check, close_interested, build_sites, process_invoices, sync_analytics\n"
+                f"Available task_types for ClawdBot: skill_execute, web_scrape, browser_task, enrich_lead, "
+                f"site_verify, image_generation, capability_resolve\n"
+                f"Available task_types for Hermes: send_alert, morning_briefing\n\n"
+                f"Return ONLY valid JSON:\n"
+                f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes\", \"task_type\": \"...\", "
+                f"\"description\": \"...\", \"priority\": 1}}], "
+                f"\"reasoning\": \"why this plan\"}}",
+                tier="genius", max_tokens=800, temperature=0.3)
+
+            # Parse response
+            import re
+            match = re.search(r'\{[\s\S]*\}', plan)
+            if not match:
+                logger.error(f"Boss couldn't parse plan from LLM: {plan[:200]}")
+                return
+
+            parsed = json.loads(match.group())
+            tasks = parsed.get("tasks", [])
+            reasoning = parsed.get("reasoning", "")
+
+            logger.info(f"Boss plan: {len(tasks)} tasks — {reasoning[:100]}")
+
+            # Dispatch tasks to agents
+            for task in tasks:
+                agent = task.get("agent", "")
+                task_type = task.get("task_type", "")
+                description = task.get("description", "")
+                priority = task.get("priority", 3)
+
+                if agent and task_type:
+                    await delegate_task("orchestrator", agent, task_type,
+                        {"description": description, "boss_command": command[:200]},
+                        priority=priority)
+                    logger.info(f"Boss → {agent}: {task_type} (p{priority}) — {description[:80]}")
+
+            # Record the command execution
+            await db_execute(
+                """INSERT INTO agent_decisions (agent, decision_type, context, decision, reasoning)
+                   VALUES (%s, 'boss_command', %s, %s, %s)""",
+                ("orchestrator", json.dumps({"command": command}),
+                 json.dumps({"tasks": tasks}),
+                 f"Decomposed into {len(tasks)} tasks: {reasoning[:200]}"),
+            )
+
+        except Exception as e:
+            logger.error(f"Boss command handling failed: {e}")
+            # At minimum, alert Hermes that the command couldn't be processed
+            from shared.comms import send_alert
+            await send_alert(f"Boss couldn't process command: {command[:100]}. Error: {e}", sender="orchestrator")
+
+    async def _followup_loop(self):
+        """Boss monitors team progress and intervenes when needed."""
+        while self._running:
+            try:
+                from shared.db import fetch_all, fetch_val
+                from shared.comms import ask_agent, send_alert
+
+                # Check for stale tasks (assigned but not completed in 10+ minutes)
+                stale = await fetch_all(
+                    """SELECT id, task_type, assigned_agent, created_at FROM task_queue
+                       WHERE status = 'running'
+                       AND created_at < NOW() - INTERVAL '10 minutes'
+                       LIMIT 5"""
+                )
+                for task in stale or []:
+                    agent = task.get("assigned_agent", "unknown")
+                    task_type = task.get("task_type", "unknown")
+                    logger.warning(f"Boss: task '{task_type}' assigned to {agent} is stale (10+ min)")
+
+                    # Ask the agent what's happening
+                    response = await ask_agent("orchestrator", agent,
+                        f"You have task '{task_type}' running for 10+ minutes. What's the status? Are you stuck?",
+                        timeout=10)
+                    if response:
+                        logger.info(f"Boss followup — {agent} says: {response.get('answer', '')[:150]}")
+
+                # Check for agents that haven't completed any tasks recently
+                for agent_name in ("titan", "clawdbot", "hermes"):
+                    recent_completions = await fetch_val(
+                        """SELECT COUNT(*) FROM task_queue
+                           WHERE assigned_agent = %s AND status = 'completed'
+                           AND created_at > NOW() - INTERVAL '30 minutes'""",
+                        (agent_name,),
+                    ) or 0
+                    if recent_completions == 0:
+                        # Check if they're alive
+                        from shared.comms import is_agent_alive
+                        alive = await is_agent_alive(agent_name, max_age_seconds=120)
+                        if not alive:
+                            logger.error(f"Boss: {agent_name} appears down — no completions, no heartbeat")
+                            await send_alert(
+                                f"Agent {agent_name} may be down. No task completions in 30min, no heartbeat.",
+                                sender="orchestrator")
+
+            except Exception as exc:
+                logger.debug(f"Followup loop: {exc}")
+
+            await asyncio.sleep(300)  # Check every 5 minutes
 
 
 # ── Strategic priority logic (from Perseus, deterministic) ─────

@@ -265,8 +265,39 @@ async def _get_pipeline_summary() -> str:
     )
 
 
+async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle plain text messages — forward to the boss (OpenJarvis) as commands."""
+    if not await _require_chat_access(update):
+        return
+
+    text = update.effective_message.text if update.effective_message else ""
+    if not text or text.startswith("/"):
+        return
+
+    logger.info(f"Operator message (forwarding to boss): {text[:100]}")
+
+    # Store the message as an event
+    from shared.db import execute
+    await execute(
+        "INSERT INTO events (event_type, payload) VALUES (%s, %s)",
+        ("operator_message", f'{{"text": "{text[:500]}", "source": "telegram"}}'),
+    )
+
+    # Forward to OpenJarvis as a boss command
+    try:
+        from shared.comms import delegate_task
+        await delegate_task("hermes", "orchestrator", "operator_command",
+            {"text": text}, priority=1)
+        await _reply(update, f"Got it. Forwarded to OpenJarvis.")
+    except Exception as e:
+        logger.error(f"Failed to forward to boss: {e}")
+        await _reply(update, f"Message received but couldn't reach the boss: {e}")
+
+
 def create_bot() -> Application:
     """Create the Telegram bot application."""
+    from telegram.ext import MessageHandler, filters
+
     app = Application.builder().token(config.telegram.bot_token).build()
 
     app.add_handler(CommandHandler("status", cmd_status))
@@ -279,5 +310,8 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("start", cmd_help))
+
+    # Plain text messages → forward to boss
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_message))
 
     return app

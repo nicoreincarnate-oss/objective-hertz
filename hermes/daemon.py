@@ -100,37 +100,65 @@ class HermesDaemon(AgentBase):
             server.should_exit = True
 
     async def _active_forward_loop(self) -> None:
-        """Proactively forward operator context to relevant agents."""
+        """Proactively forward operator context to relevant agents using LLM routing."""
+        _forwarded_ids: set[int] = set()  # Track already-forwarded messages
+
         while self._running:
             try:
-                # Check for recent operator messages that could help other agents
                 from shared.db import fetch_all
                 recent_ops = await fetch_all(
-                    """SELECT payload, created_at FROM events
+                    """SELECT id, payload, created_at FROM events
                        WHERE event_type IN ('operator_message', 'telegram_message')
                        AND created_at > NOW() - INTERVAL '5 minutes'
                        ORDER BY created_at DESC LIMIT 5"""
                 )
-                if recent_ops:
-                    for msg in recent_ops:
-                        payload = msg.get("payload", {})
-                        if isinstance(payload, str):
-                            import json
-                            payload = json.loads(payload)
-                        text = str(payload.get("text", payload.get("message", "")))
-                        # Forward to relevant agent based on content
-                        if any(kw in text.lower() for kw in ("lead", "pipeline", "email", "deal", "revenue", "invoice")):
-                            try:
-                                from shared.comms import ask_agent
-                                await ask_agent("hermes", "titan", f"Operator context: {text[:500]}", timeout=10)
-                            except Exception:
-                                pass
-                        if any(kw in text.lower() for kw in ("skill", "scrape", "browser", "site", "verify", "build")):
-                            try:
-                                from shared.comms import ask_agent
-                                await ask_agent("hermes", "clawdbot", f"Operator context: {text[:500]}", timeout=10)
-                            except Exception:
-                                pass
+                for msg in recent_ops or []:
+                    msg_id = msg.get("id", 0)
+                    if msg_id in _forwarded_ids:
+                        continue
+
+                    payload = msg.get("payload", {})
+                    if isinstance(payload, str):
+                        import json
+                        payload = json.loads(payload)
+                    text = str(payload.get("text", payload.get("message", "")))
+                    if not text:
+                        continue
+
+                    # Use LLM to decide who needs this context
+                    try:
+                        from shared.llm_client import llm
+                        routing = await llm.generate(
+                            f"Operator message: \"{text}\"\n\n"
+                            f"Who needs this? Reply with ONLY one of: titan, clawdbot, both, neither",
+                            tier="fast", max_tokens=10, temperature=0.1)
+                        routing = routing.strip().lower()
+                    except Exception:
+                        # Fallback to keyword matching
+                        routing = ""
+                        if any(kw in text.lower() for kw in ("lead", "pipeline", "email", "deal", "revenue")):
+                            routing = "titan"
+                        if any(kw in text.lower() for kw in ("skill", "scrape", "browser", "site", "build")):
+                            routing = "both" if routing == "titan" else "clawdbot"
+
+                    from shared.comms import ask_agent
+                    if routing in ("titan", "both"):
+                        try:
+                            await ask_agent("hermes", "titan",
+                                f"Operator context for you: {text[:500]}", timeout=10)
+                        except Exception:
+                            pass
+                    if routing in ("clawdbot", "both"):
+                        try:
+                            await ask_agent("hermes", "clawdbot",
+                                f"Operator context for you: {text[:500]}", timeout=10)
+                        except Exception:
+                            pass
+
+                    _forwarded_ids.add(msg_id)
+                    # Keep set bounded
+                    if len(_forwarded_ids) > 100:
+                        _forwarded_ids = set(list(_forwarded_ids)[-50:])
 
                 # Check for stale pending approvals (>2 hours)
                 stale_approvals = await fetch_all(

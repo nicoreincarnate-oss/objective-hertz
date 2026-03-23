@@ -209,9 +209,9 @@ class TitanDaemon(AgentBase):
                 self.finish_work(work_id)
 
     async def _consume_recommendations(self) -> None:
-        """Read and act on recommendations from other agents."""
+        """Read and ACT on recommendations from other agents."""
         try:
-            from shared.comms import get_pending_recommendations
+            from shared.comms import get_pending_recommendations, send_alert, delegate_task
             recs = await get_pending_recommendations("titan", since_minutes=30, limit=5)
             for rec in recs:
                 payload = rec.get("payload", {})
@@ -221,12 +221,66 @@ class TitanDaemon(AgentBase):
                 message = payload.get("message", "")
                 from_agent = payload.get("from", "unknown")
                 logger.info(f"Recommendation from {from_agent}: [{topic}] {message[:200]}")
-                # Record that we consumed it
+
+                # ACT on the recommendation based on topic
+                if topic == "discovery_failing":
+                    await db.set_config("discovery_strategy_override", message[:200])
+                    logger.warning(f"Acting: switching discovery strategy per {from_agent}")
+                elif topic == "discovery_quality":
+                    await delegate_task("titan", "clawdbot", "capability_resolve",
+                        {"capability": "lead_discovery", "problem": message}, priority=2)
+                    logger.warning(f"Acting: delegated discovery fix to ClawdBot")
+                elif topic == "demo_quality":
+                    await db.set_config("proposals_paused_reason", message[:200])
+                    logger.warning(f"Acting: paused proposals until demo quality fixed")
+                elif topic.startswith("help_"):
+                    await send_alert(f"Agent needs human help: {message[:300]}", sender="titan")
+                elif topic in ("ollama_down", "ollama_degraded", "firecrawl_down", "mem0_down"):
+                    logger.warning(f"Infra alert from {from_agent}: {topic} — {message[:100]}")
+
                 await self.emit_event("recommendation_consumed", {
-                    "from": from_agent, "topic": topic, "consumed_by": "titan"
+                    "from": from_agent, "topic": topic, "consumed_by": "titan", "acted": True,
                 })
         except Exception as e:
             logger.debug(f"Recommendation check: {e}")
+
+    async def _ask_team_for_help(self, stage_name: str, error: Exception) -> None:
+        """Ask ClawdBot and Hermes for help when a pipeline stage fails."""
+        from shared.comms import ask_agent, delegate_task
+        error_msg = str(error)[:300]
+
+        try:
+            # Ask ClawdBot: can you fix this?
+            clawdbot_answer = await ask_agent("titan", "clawdbot",
+                f"Pipeline stage '{stage_name}' failed: {error_msg}. "
+                f"Can you fix this? What should I try differently?",
+                context={"stage": stage_name, "error": error_msg},
+                timeout=20)
+
+            if clawdbot_answer and clawdbot_answer.get("answer", ""):
+                answer = clawdbot_answer["answer"]
+                logger.info(f"ClawdBot says about '{stage_name}' failure: {answer[:200]}")
+                # If ClawdBot suggests it can fix it, delegate
+                if any(kw in answer.lower() for kw in ("i can", "retry", "fix", "install", "try")):
+                    await delegate_task("titan", "clawdbot", "skill_execute",
+                        {"skill_name": "troubleshoot",
+                         "prompt": f"Fix pipeline stage '{stage_name}': {error_msg}\nClawdBot plan: {answer[:500]}"},
+                        priority=2)
+                    logger.info(f"Delegated '{stage_name}' fix to ClawdBot")
+
+            # Ask Hermes: does the operator have context?
+            hermes_answer = await ask_agent("titan", "hermes",
+                f"Pipeline stage '{stage_name}' failed: {error_msg}. "
+                f"Does the operator have any context or instructions about this?",
+                timeout=10)
+
+            if hermes_answer and hermes_answer.get("answer", ""):
+                answer = hermes_answer["answer"]
+                if "no relevant" not in answer.lower() and "no context" not in answer.lower():
+                    logger.info(f"Hermes has operator context for '{stage_name}': {answer[:200]}")
+
+        except Exception as help_err:
+            logger.debug(f"Team help-seeking for '{stage_name}': {help_err}")
 
     async def _run_pipeline_cycle(self):
         """One full cycle of the pipeline. Checks infra health before each stage."""
@@ -273,6 +327,8 @@ class TitanDaemon(AgentBase):
                     "stage": stage_name,
                     "error": str(e),
                 })
+                # Ask teammates for help instead of just logging
+                await self._ask_team_for_help(stage_name, e)
             finally:
                 self.finish_work(work_id)
 
