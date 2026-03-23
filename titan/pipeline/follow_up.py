@@ -43,18 +43,13 @@ async def _check_replies():
             replies = replies.get("data", []) if isinstance(replies, dict) else []
     except Exception as e:
         logger.warning(f"Could not check replies: {e}")
-        if fetch_client:
-            try:
-                await fetch_client.close()
-            except Exception as close_exc:
-                logger.warning(f"Could not close Instantly replies client cleanly: {close_exc}")
         return
     finally:
         if fetch_client:
             try:
                 await fetch_client.close()
-            except Exception as e:
-                logger.warning(f"Could not close Instantly replies client cleanly: {e}")
+            except Exception as close_exc:
+                logger.warning(f"Could not close Instantly replies client cleanly: {close_exc}")
 
     for reply in replies:
         try:
@@ -94,6 +89,9 @@ async def _process_reply(reply: dict) -> bool:
     """Process one Instantly reply and return True when it was handled successfully."""
     # Instantly returns lead email in the reply object
     email = reply.get("lead", reply.get("from_email", reply.get("email", "")))
+    if not email:
+        logger.warning("Reply missing lead email — skipping: reply_id=%s", reply.get("id", "?"))
+        return False
     lead = await fetch_one("SELECT id, status FROM clients WHERE email = %s", (email,))
     if not lead:
         return False
@@ -265,7 +263,7 @@ Industry: {lead.get('research_summary', 'unknown')[:200]}
 
 Answer YES or NO with one sentence reasoning."""
 
-    result = await llm.generate(prompt, model="local-small", max_tokens=50, temperature=0.3)
+    result = await llm.generate(prompt, model="fast", max_tokens=50, temperature=0.3)
     return "yes" in result.lower()
 
 

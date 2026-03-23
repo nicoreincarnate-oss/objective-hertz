@@ -137,8 +137,11 @@ class ConwayCloudClient:
                 },
                 timeout=30.0,
             )
+            instance_id = data.get("instance_id")
+            if not instance_id:
+                raise RuntimeError("No instance_id in cloud provider response")
             return ComputeInstance(
-                instance_id=data["instance_id"],
+                instance_id=instance_id,
                 provider="conway",
                 gpu_type=gpu_type,
                 price_per_hour=Decimal(str(data.get("price_per_hour", 0))),

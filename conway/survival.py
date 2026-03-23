@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:
+    Jsonb = None
+
 from conway.ledger import EconomicLedger
 from conway.wallet import WalletManager
 from shared.db import execute, fetch_one, insert_task, set_config
@@ -140,8 +145,6 @@ class SurvivalMonitor:
         )
 
         # Store tier in system_config so llm_client can read it
-        from psycopg.types.json import Jsonb
-
         await execute(
             """INSERT INTO system_config (key, value)
                VALUES (%s, %s)

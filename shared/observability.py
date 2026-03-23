@@ -38,9 +38,19 @@ try:
     )
 except Exception:  # pragma: no cover - optional dependency
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
-    Counter = Gauge = Histogram = None
-    generate_latest = None
-    start_http_server = None
+
+    class _NoOpMetric:
+        """Stub metric that silently discards all operations."""
+        def labels(self, **kw): return self
+        def inc(self, *a, **kw): pass
+        def dec(self, *a, **kw): pass
+        def set(self, *a, **kw): pass
+        def observe(self, *a, **kw): pass
+        def __init__(self, *a, **kw): pass
+
+    Counter = Gauge = Histogram = _NoOpMetric
+    generate_latest = lambda: b""
+    start_http_server = lambda *a, **kw: None
 
 
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")

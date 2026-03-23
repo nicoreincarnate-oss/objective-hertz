@@ -32,6 +32,7 @@ class LLMClient:
 
     def __init__(self):
         self._http: httpx.AsyncClient | None = None
+        self._last_usage = None
 
     def _get_http(self) -> httpx.AsyncClient:
         """Lazy-init the HTTP client so import alone never triggers network/SSL."""
@@ -177,7 +178,7 @@ class LLMClient:
 
         except Exception as e:
             # If we can't check budget, allow the call (fail open, not closed)
-            logger.debug(f"Budget check failed (allowing call): {e}")
+            logger.warning(f"Budget check failed (allowing call): {e}")
 
         return requested_model
 
@@ -259,6 +260,8 @@ class LLMClient:
         if usage:
             self._last_usage = usage  # Cache for more accurate spend recording
 
+        if not data.get("content") or not data["content"]:
+            raise RuntimeError("Empty response from Claude API")
         return data["content"][0]["text"]
 
     async def _claude_generate_with_images(
@@ -343,6 +346,8 @@ class LLMClient:
 
     async def classify(self, text: str, categories: list[str]) -> str:
         """Quick classification using fast model."""
+        if not categories:
+            raise ValueError("categories list cannot be empty")
         cats = ", ".join(categories)
         prompt = f"Classify this text into exactly one category: [{cats}]\n\nText: {text}\n\nCategory:"
         result = await self.generate(prompt, model="local-small", max_tokens=50, temperature=0.0)

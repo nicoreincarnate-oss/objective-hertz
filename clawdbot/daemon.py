@@ -12,8 +12,8 @@ ClawdBot is the hands of Perseus:
 import asyncio
 import json
 import os
-import signal
 import shutil
+import signal
 import time
 from pathlib import Path
 
@@ -279,10 +279,13 @@ class ClawdBotDaemon(AgentBase):
                         await asyncio.sleep(10)
                         continue
 
-                    await self._process_task_queue()
-                    await self._think()
+                    await asyncio.wait_for(self._process_task_queue(), timeout=120)
+                    await asyncio.wait_for(self._think(), timeout=120)
                     await heartbeat(self.name)
 
+                except asyncio.TimeoutError:
+                    logger.error("ClawdBot cycle timed out after 120s")
+                    await self.emit_event("clawdbot_error", {"error": "cycle_timeout"})
                 except Exception as e:
                     logger.error(f"ClawdBot cycle error: {e}", exc_info=True)
                     await self.emit_event("clawdbot_error", {"error": str(e)})
@@ -593,15 +596,15 @@ class ClawdBotDaemon(AgentBase):
             if status.get("mode") != "live":
                 await self._recommend("titan", "firecrawl_down",
                     f"Firecrawl is not live: {status.get('summary', 'unknown')[:120]}. Discovery/research scraping degraded.")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Health check failed: %s", e)
 
     # ── Agent collaboration — real conversations, not just recommendations ─
 
     async def _collaborate(self, target_agent: str, topic: str, problem: str):
         """Have a real conversation with another agent and try to fix the problem."""
-        from shared.comms import ask_agent, delegate_task
         from clawdbot.brain import decide_approach
+        from shared.comms import ask_agent, delegate_task
 
         try:
             # Dedup: don't re-collaborate on same topic within 30 minutes
@@ -764,6 +767,10 @@ class ClawdBotDaemon(AgentBase):
                 f"Can't solve '{problem[:80]}' autonomously. Opus suggests asking operator: {decision.get('reasoning', '')[:120]}")
         elif approach and approach != "http_scrape":
             logger.info(f"Brain suggests {approach} for help request from {from_agent}: {decision.get('reasoning', '')[:80]}")
+        else:
+            logger.warning("Unknown help approach: %s", approach)
+            await self._recommend(from_agent, f"help_{from_agent}",
+                f"Can't solve '{problem[:80]}' autonomously. Unrecognized approach '{approach}' — escalating to operator.")
 
     async def _resolve_repeated_capability_needs(self):
         """If the same capability_missing event fires 3+ times in an hour, proactively resolve."""
@@ -1154,23 +1161,29 @@ async def handle_android_automation(payload: dict):
         raise ValueError("android serial is required for action '%s'" % action)
 
     if action == "tap":
-        x = int(payload.get("x", 0))
-        y = int(payload.get("y", 0))
+        try:
+            x = int(payload.get("x", 0))
+            y = int(payload.get("y", 0))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid tap coordinates: {e}") from e
         await _run_adb_command(["shell", "input", "tap", str(x), str(y)], serial=serial)
         result = {"status": "ok", "action": action, "serial": serial, "x": x, "y": y}
     elif action == "text":
         text = str(payload.get("text", "") or "").strip()
         if not text:
             raise ValueError("text is required for android text input")
-        escaped = text.replace(" ", "%s")
+        escaped = text.replace(" ", "\\ ")
         await _run_adb_command(["shell", "input", "text", escaped], serial=serial)
         result = {"status": "ok", "action": action, "serial": serial, "text": text}
     elif action == "swipe":
-        x1 = int(payload.get("x1", 0))
-        y1 = int(payload.get("y1", 0))
-        x2 = int(payload.get("x2", 0))
-        y2 = int(payload.get("y2", 0))
-        duration_ms = int(payload.get("duration_ms", 300))
+        try:
+            x1 = int(payload.get("x1", 0))
+            y1 = int(payload.get("y1", 0))
+            x2 = int(payload.get("x2", 0))
+            y2 = int(payload.get("y2", 0))
+            duration_ms = int(payload.get("duration_ms", 300))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid swipe coordinates: {e}") from e
         await _run_adb_command(
             ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
             serial=serial,
@@ -1858,7 +1871,9 @@ async def main():
 async def main_with_a2a():
     """Entry point for ClawdBot daemon + A2A server."""
     import os
+
     import uvicorn as _uvicorn
+
     from clawdbot.a2a_server import create_clawdbot_a2a
 
     bot = ClawdBotDaemon()

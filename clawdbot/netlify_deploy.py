@@ -99,7 +99,7 @@ async def deploy_static_site(
         }
 
         for path, digest in file_digests.items():
-            if required and digest not in required:
+            if required and path not in required:
                 continue
             filename = path.lstrip("/")
             body = pages.get(filename, pages.get(path, ""))

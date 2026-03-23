@@ -353,7 +353,9 @@ Return ONLY a JSON array. No explanation."""
             result = await llm.generate(prompt, model="fast", max_tokens=2000, temperature=0.1)
             start = result.find("[")
             end = result.rfind("]") + 1
-            if start >= 0 and end > start:
+            if start < 0 or end <= 0:
+                logger.debug("Scout evaluation: no JSON array found in LLM response")
+            elif start >= 0 and end > start:
                 parsed = json.loads(result[start:end])
                 for j, item in enumerate(parsed):
                     if j < len(batch):
@@ -413,8 +415,8 @@ async def _store_and_act(findings: list[dict[str, Any]]) -> dict[str, int]:
                 content=f"[SCOUT] {summary} (source: {url})",
                 category=f"scout_{stage}",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to store scout memory: %s", e)
 
         # Record decision for audit trail
         try:
@@ -425,8 +427,8 @@ async def _store_and_act(findings: list[dict[str, Any]]) -> dict[str, int]:
                 decision={"action_type": action_type, "summary": summary, "estimated_value": value, "estimated_cost": cost},
                 reasoning=f"Found via scout search: {f.get('title', '')}",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to record decision: %s", e)
 
         # Emit event for Hermes/dashboard
         await emit_event("scout_finding", {
@@ -472,8 +474,8 @@ async def _store_and_act(findings: list[dict[str, Any]]) -> dict[str, int]:
                     "pipeline_stage": stage,
                 })
                 models_flagged += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to emit model finding event: %s", e)
 
     return {
         "stored": stored,
@@ -500,8 +502,8 @@ async def _create_scout_rule(finding: dict[str, Any]) -> None:
                 excerpt = scraped["content"].get("markdown_excerpt", "")
                 if excerpt:
                     detail = f"{summary}\n\nSource detail: {excerpt[:800]}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to store scout rule: %s", e)
 
     # Ask LLM to extract a concrete, testable rule
     prompt = f"""Extract ONE specific, testable rule from this finding:
@@ -534,7 +536,7 @@ Return ONLY JSON, no explanation."""
                 await execute(
                     """INSERT INTO titan_rules (category, rule_text, metric_name, confidence, source, active)
                        VALUES (%s, %s, %s, 0.3, 'scout', TRUE)
-                       ON CONFLICT DO NOTHING""",
+                       ON CONFLICT (category, rule_text) DO NOTHING""",
                     (category, rule_text, metric_name),
                 )
                 logger.info("Scout rule created: [%s] %s", category, rule_text[:80])

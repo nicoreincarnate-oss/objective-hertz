@@ -133,7 +133,7 @@ async def _build_demo_and_propose(lead: dict):
         await execute(
             """INSERT INTO review_queue (item_type, client_id, content, status)
                VALUES ('proposal', %s, %s, 'pending_review')""",
-            (lead_id, json.dumps(proposal)),
+            (lead_id, json.dumps(proposal, default=str)),
         )
         await emit_event("review_needed", {
             "type": "proposal",
@@ -156,9 +156,12 @@ async def _build_demo_and_propose(lead: dict):
 
 
 async def _build_demo_site(lead: dict) -> str:
-    """Build a demo landing page using ClawdBot's competitive build process."""
-    from clawdbot.site_builder import build_demo_site
-    return await build_demo_site(lead)
+    """Build a demo landing page using ClawdBot's competitive build process via A2A."""
+    from shared.comms import ask_agent
+    result = await ask_agent("titan", "clawdbot", "build_demo_site", context=lead, timeout=120)
+    if not result or "error" in result:
+        raise RuntimeError(f"ClawdBot demo site build failed: {result}")
+    return result.get("url", "")
 
 
 async def _get_dynamic_price(lead: dict) -> dict:
@@ -336,7 +339,7 @@ async def _send_proposal(lead: dict, proposal: dict, demo_url: str = "") -> bool
         subject=proposal.get("subject", ""),
         body=proposal.get("body", ""),
         message_type="proposal",
-        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        first_name=(lead.get("contact_name") or "").strip().split()[0] if (lead.get("contact_name") or "").strip() else "",
         company_name=lead.get("business_name", ""),
     )
 

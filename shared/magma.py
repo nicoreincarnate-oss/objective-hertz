@@ -26,6 +26,7 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -91,6 +92,7 @@ def _get_driver():
 
 # Track last node per category for temporal chaining
 _last_node_ids: dict[str, str] = {}
+_node_ids_lock = asyncio.Lock()
 
 
 async def magma_ingest(
@@ -151,7 +153,8 @@ async def magma_ingest(
             )
 
             # Temporal edge to previous node in same category
-            prev_id = _last_node_ids.get(category)
+            async with _node_ids_lock:
+                prev_id = _last_node_ids.get(category)
             if prev_id:
                 session.run(
                     """MATCH (prev:MemoryNode {node_id: $prev_id})
@@ -161,7 +164,8 @@ async def magma_ingest(
                     curr_id=node_id,
                     delta=0,  # actual delta computed on read
                 )
-            _last_node_ids[category] = node_id
+            async with _node_ids_lock:
+                _last_node_ids[category] = node_id
 
             # Entity edges
             entity_list = entities or _extract_entities(content, meta)
@@ -672,7 +676,7 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
         return 0
 
     try:
-        from shared.db import fetch_all, execute
+        from shared.db import execute, fetch_all
         pending = await fetch_all(
             """SELECT id, payload FROM events
                WHERE event_type = 'magma_consolidate'

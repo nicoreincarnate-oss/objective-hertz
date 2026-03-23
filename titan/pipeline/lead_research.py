@@ -33,10 +33,14 @@ async def research_leads(batch_size: int = 10):
     )
 
     semaphore = asyncio.Semaphore(4)
-    await asyncio.gather(
+    results = await asyncio.gather(
         *[_research_with_limit(lead, semaphore) for lead in leads],
-        return_exceptions=False,
+        return_exceptions=True,
     )
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            lead_id = leads[i].get("id", "?") if i < len(leads) else "?"
+            logger.error(f"Unhandled research error for lead {lead_id}: {r}")
 
 
 async def _research_with_limit(lead: dict, semaphore: asyncio.Semaphore):

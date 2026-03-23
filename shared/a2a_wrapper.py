@@ -17,7 +17,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Awaitable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -107,9 +107,9 @@ def create_a2a_app(
         if method == "tasks/send":
             return await _handle_send(params, req_id)
         elif method == "tasks/get":
-            return _handle_get(params, req_id)
+            return await _handle_get(params, req_id)
         elif method == "tasks/cancel":
-            return _handle_cancel(params, req_id)
+            return await _handle_cancel(params, req_id)
         else:
             return JSONResponse({
                 "jsonrpc": "2.0",
@@ -141,9 +141,9 @@ def create_a2a_app(
                 **request_meta,
                 **params.get("_meta", {}),
             }
-        header_trace = request.headers.get("x-trace-id", "").strip()
-        header_correlation = request.headers.get("x-correlation-id", "").strip()
-        header_request = request.headers.get("x-request-id", "").strip() or req_id
+        header_trace = request.headers.get("x-trace-id", "").strip()[:64]
+        header_correlation = request.headers.get("x-correlation-id", "").strip()[:64]
+        header_request = (request.headers.get("x-request-id", "").strip() or req_id)[:64]
         context = ensure_trace_context(
             trace_id=str(request_meta.get("trace_id", "") or header_trace),
             correlation_id=str(request_meta.get("correlation_id", "") or header_correlation),
@@ -182,8 +182,8 @@ def create_a2a_app(
                 task["state"] = TaskState.FAILED.value
                 task["metadata"]["blocked_by"] = "injection_scanner"
                 return JSONResponse({"jsonrpc": "2.0", "result": task, "id": req_id})
-        except ImportError:
-            pass  # Scanner not available, proceed without
+        except ImportError as e:
+            logger.debug("Injection scan failed: %s", e)
 
         t0 = _time.time()
         try:
@@ -199,8 +199,8 @@ def create_a2a_app(
 
         # Tracing: publish A2A execution event
         try:
-            from shared.oj_bridge import get_bus
             from openjarvis.core.events import EventType
+            from shared.oj_bridge import get_bus
             get_bus().publish(EventType.A2A_TASK_COMPLETED, {
                 "agent": agent_card.name,
                 "task_id": task_id,
@@ -210,8 +210,8 @@ def create_a2a_app(
                 "output_length": len(task.get("output", "")),
                 **context,
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Injection scan failed: %s", e)
         finally:
             clear_observability_context()
 
@@ -227,7 +227,7 @@ def create_a2a_app(
             "id": req_id,
         })
 
-    def _handle_get(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_get(params: dict, req_id: str) -> JSONResponse:
         task_id = params.get("id", "")
         task = tasks.get(task_id)
         if not task:
@@ -238,7 +238,7 @@ def create_a2a_app(
             })
         return JSONResponse({"jsonrpc": "2.0", "result": task, "id": req_id})
 
-    def _handle_cancel(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_cancel(params: dict, req_id: str) -> JSONResponse:
         task_id = params.get("id", "")
         task = tasks.get(task_id)
         if not task:

@@ -34,6 +34,11 @@ class AgentWallet:
     """Ethereum wallet for a single Perseus agent on Base L2."""
 
     def __init__(self, agent_name: str, address: str, private_key: str):
+        if not isinstance(private_key, str) or not private_key.startswith("0x") or len(private_key) != 66:
+            raise ValueError(
+                "private_key must be a 66-character hex string starting with '0x' "
+                "(e.g. '0x' + 64 hex digits)"
+            )
         self.agent_name = agent_name
         self._address = address
         self._private_key = private_key
@@ -256,6 +261,9 @@ class WalletManager:
             encrypted = json.loads(keystore_path.read_text())
             private_key = Account.decrypt(encrypted, _get_keystore_password())
             return AgentWallet(agent_name, address, private_key.hex())
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.error(f"Corrupt keystore file {keystore_ref}: {e}")
+            raise RuntimeError(f"Cannot read keystore {keystore_ref}: {e}") from e
         except ImportError:
             logger.error("eth_account not installed")
             raise

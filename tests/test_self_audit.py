@@ -145,7 +145,9 @@ def test_consensus_rejects_on_any_veto():
     with patch.object(self_audit, "ask_agent", side_effect=mock_ask):
         result = run(self_audit._discuss_with_agents([finding]))
 
-    assert result[0]["_consensus"] == "rejected"
+    # C-10 fix: 2/3 approve meets CONSENSUS_THRESHOLD=2, so consensus is "approved"
+    # (previously a single reject would veto, contradicting the stated threshold)
+    assert result[0]["_consensus"] == "approved"
 
 
 def test_analyze_file_returns_structured_findings():

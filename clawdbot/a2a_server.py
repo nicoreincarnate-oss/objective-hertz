@@ -283,7 +283,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer concisely about your capabilities."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "clawdbot"}
 
 
@@ -357,8 +357,8 @@ async def handle_a2a(input_text: str) -> str:
                 result = await handler(**params)
                 return json.dumps(result, indent=2, default=str)
             return json.dumps({"error": f"Unknown capability: {cap}"})
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except json.JSONDecodeError as e:
+        logger.debug(f"A2A request is not JSON, routing as natural language: {e}")
 
     # Natural language routing
     lower = text.lower()
@@ -401,5 +401,5 @@ async def handle_a2a(input_text: str) -> str:
 
 
 def create_clawdbot_a2a(clawdbot_daemon=None) -> "FastAPI":
-    health_fn = clawdbot_daemon.health_check if clawdbot_daemon else None
+    health_fn = clawdbot_daemon.health_check if clawdbot_daemon is not None else None
     return create_a2a_app(agent_card=CLAWDBOT_CARD, handler=handle_a2a, health_check=health_fn)

@@ -94,7 +94,7 @@ async def _handle_operator_message(payload: dict):
             "agent": "titan",
             "reply": "Titan received your note and queued it for the next cycle.",
             "operator_message": message,
-            "priority": payload.get("priority", "priority"),
+            "priority": payload.get("priority", "normal"),
             "source": payload.get("source", "war_room"),
         },
     )
@@ -235,7 +235,7 @@ class TitanDaemon(AgentBase):
     async def _consume_recommendations(self) -> None:
         """Read and ACT on recommendations from other agents."""
         try:
-            from shared.comms import get_pending_recommendations, send_alert, delegate_task
+            from shared.comms import delegate_task, get_pending_recommendations, send_alert
             recs = await get_pending_recommendations("titan", since_minutes=30, limit=5)
             for rec in recs:
                 payload = rec.get("payload", {})
@@ -253,10 +253,10 @@ class TitanDaemon(AgentBase):
                 elif topic == "discovery_quality":
                     await delegate_task("titan", "clawdbot", "capability_resolve",
                         {"capability": "lead_discovery", "problem": message}, priority=2)
-                    logger.warning(f"Acting: delegated discovery fix to ClawdBot")
+                    logger.warning("Acting: delegated discovery fix to ClawdBot")
                 elif topic == "demo_quality":
                     await db.set_config("proposals_paused_reason", message[:200])
-                    logger.warning(f"Acting: paused proposals until demo quality fixed")
+                    logger.warning("Acting: paused proposals until demo quality fixed")
                 elif topic.startswith("help_"):
                     await send_alert(f"Agent needs human help: {message[:300]}", sender="titan")
                 elif topic in ("ollama_down", "ollama_degraded", "firecrawl_down", "mem0_down"):
@@ -378,7 +378,9 @@ async def main():
 async def main_with_a2a():
     """Entry point for Titan daemon + A2A server."""
     import os
+
     import uvicorn
+
     from titan.a2a_server import create_titan_a2a
 
     titan = TitanDaemon()

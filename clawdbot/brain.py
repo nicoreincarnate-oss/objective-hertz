@@ -99,8 +99,8 @@ Return JSON only:
             decision=decision,
             reasoning=decision.get("reasoning", ""),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to record orchestration decision: %s", e)
 
     logger.info(
         f"Brain decided: {decision.get('approach')} "

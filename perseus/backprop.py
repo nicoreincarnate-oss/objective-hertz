@@ -57,7 +57,7 @@ def _is_immutable(file_path: str, start_line: int = 0, end_line: int = 0) -> boo
     # Normalize path
     rel = file_path
     if str(config.root_dir) in file_path:
-        rel = file_path.replace(str(config.root_dir) + "/", "")
+        rel = str(Path(file_path).relative_to(config.root_dir))
 
     # Full file immutable?
     if rel in IMMUTABLE_FILES:
@@ -101,14 +101,16 @@ async def apply_soul_doc_edit(
         return False
 
     # Check immutable sections by line number
-    lines = content.split("\n")
     old_start = None
-    for i, line in enumerate(lines, 1):
-        if old_text.split("\n")[0] in line:
-            old_start = i
+    old_lines = old_text.split("\n")
+    content_lines = content.split("\n")
+    num_old_lines = len(old_lines)
+    for i in range(len(content_lines) - num_old_lines + 1):
+        if content_lines[i:i + num_old_lines] == old_lines:
+            old_start = i + 1  # 1-indexed
             break
     if old_start:
-        old_end = old_start + old_text.count("\n")
+        old_end = old_start + num_old_lines - 1
         if _is_immutable(file_path, old_start, old_end):
             logger.warning(f"Backprop blocked: lines {old_start}-{old_end} of {file_path} are immutable")
             return False
@@ -152,8 +154,9 @@ async def apply_config_change(
             if new_num < PRICE_MIN or new_num > PRICE_MAX:
                 logger.warning(f"Backprop blocked: price ${new_num} outside [{PRICE_MIN}, {PRICE_MAX}]")
                 return False
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            logger.warning("Price validation failed: %s", e)
+            return False
 
     await set_config(key, new_value)
 

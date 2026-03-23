@@ -330,10 +330,10 @@ async def _discuss_with_agents(findings: list[dict[str, Any]]) -> list[dict[str,
         approve_count = sum(1 for v in votes.values() if v == "approve")
         reject_count = sum(1 for v in votes.values() if v == "reject")
 
-        if reject_count > 0:
-            consensus = "rejected"
-        elif approve_count >= CONSENSUS_THRESHOLD:
+        if approve_count >= CONSENSUS_THRESHOLD:
             consensus = "approved"
+        elif reject_count >= CONSENSUS_THRESHOLD:
+            consensus = "rejected"
         else:
             consensus = "deferred"
 

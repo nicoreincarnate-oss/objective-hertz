@@ -411,8 +411,8 @@ async def send_morning_briefing() -> bool:
                 },
             }, dedupe=True)
             message += "\n\n_Audio briefing generating via NotebookLM..._"
-    except Exception:
-        pass  # NotebookLM is a nice-to-have, not critical
+    except Exception as e:
+        logger.debug("Alert processing failed: %s", e)
 
     delivery = await send_operator_message(message)
     if delivery.get("sent"):

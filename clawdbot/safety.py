@@ -167,9 +167,8 @@ async def vet_skill(skill_path: Path) -> VetResult:
                 ),
                 model="fast",
             )
-            # Extract JSON from LLM response
-            import re
-            json_match = re.search(r'\{[^}]+\}', llm_review)
+            # Extract JSON from LLM response (use DOTALL to handle multi-line JSON)
+            json_match = re.search(r'\{.*\}', llm_review, re.DOTALL)
             if json_match:
                 try:
                     parsed = json.loads(json_match.group())

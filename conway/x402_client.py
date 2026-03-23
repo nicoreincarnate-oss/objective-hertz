@@ -153,7 +153,7 @@ class X402Client:
                     f"{self._facilitator_url}/verify",
                     json={
                         "payload": payment_payload,
-                        "signature": f"0x{signature}",
+                        "signature": f"0x{signature}" if not signature.startswith("0x") else signature,
                     },
                 )
                 if resp.status_code == 200:

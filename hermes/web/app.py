@@ -8,6 +8,7 @@ Pass as ?token=<secret> in the URL or Authorization: Bearer <secret> header.
 
 import hmac
 import json as _json
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,6 +31,7 @@ from shared.observability import (
     render_prometheus_metrics,
 )
 
+logger = logging.getLogger("hermes.web")
 _PUBLIC_PATHS = {"/api/health", "/metrics"}  # health and metrics stay unauthenticated
 
 
@@ -162,7 +164,7 @@ async def dashboard(request: Request):
 @app.post("/api/operator-chat")
 async def operator_chat(
     target_agent: str = Form(...),
-    priority: str = Form("priority"),
+    priority: str = Form("routine"),
     message: str = Form(...),
 ):
     """Queue an operator message for a daemon and record an audit event."""
@@ -229,7 +231,7 @@ async def api_leads():
         """SELECT id, business_name, email, industry, status, lead_score, created_at
            FROM clients ORDER BY created_at DESC LIMIT 50"""
     )
-    return JSONResponse(content=_json.loads(_json.dumps([dict(lead) for lead in leads], default=str)))
+    return JSONResponse(content=[dict(lead) for lead in leads])
 
 
 @app.get("/api/events")
@@ -238,7 +240,7 @@ async def api_events():
     events = await fetch_all(
         "SELECT * FROM events ORDER BY created_at DESC LIMIT 50"
     )
-    return JSONResponse(content=_json.loads(_json.dumps([dict(e) for e in events], default=str)))
+    return JSONResponse(content=[dict(e) for e in events])
 
 
 @app.get("/api/health")
@@ -252,8 +254,12 @@ async def api_health():
         db_ok = False
         db_error = str(exc)
 
-    from openjarvis.vassals.registry import check_agent_health
-    agents = await check_agent_health()
+    try:
+        from openjarvis.vassals.registry import check_agent_health
+        agents = await check_agent_health()
+    except Exception as exc:
+        logger.warning(f"Agent health check failed: {exc}")
+        agents = {}
     agent_values = list((agents or {}).values()) if isinstance(agents, dict) else []
     agents_ok = bool(agent_values) and all(status == "ok" for status in agent_values)
     status = "ok" if db_ok and agents_ok else "degraded"

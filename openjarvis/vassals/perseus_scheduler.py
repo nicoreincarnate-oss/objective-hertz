@@ -330,7 +330,7 @@ class PerseusScheduler:
                 f"This state hasn't changed in {self._config.stuck_detection_window}+ cycles. "
                 f"What should we do differently?\n"
                 f"Return JSON: {{\"schedule\": [\"task1\", \"task2\"], \"reasoning\": \"why\"}}",
-                tier="smart", max_tokens=400, temperature=0.3,
+                model="smart", max_tokens=400, temperature=0.3,
             )
             match = re.search(r'\{[^}]+\}', response)
             if match:

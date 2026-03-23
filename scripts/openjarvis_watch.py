@@ -13,8 +13,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 # ── Config ──────────────────────────────────────────────────────────
 REPO = "open-jarvis/OpenJarvis"
@@ -37,6 +37,11 @@ _load_env()
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+if not BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set — openjarvis_watch cannot start")
+if not CHAT_ID:
+    raise RuntimeError("TELEGRAM_CHAT_ID is not set — openjarvis_watch cannot start")
 
 
 def gh_api(endpoint: str) -> dict | list:

@@ -179,8 +179,8 @@ async def _briefing_generate(**_) -> dict:
     try:
         from tools.budget_guard import BudgetGuard
         budget = await BudgetGuard().check_budget()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Budget check failed: %s", e)
 
     decisions = await db.fetch_all(
         "SELECT agent, decision_type, reasoning FROM agent_decisions ORDER BY created_at DESC LIMIT 5"
@@ -302,7 +302,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer based on what the operator has communicated. If no relevant context, say so."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "hermes"}
 
 
@@ -341,8 +341,8 @@ async def handle_a2a(input_text: str) -> str:
                 result = await handler(**params)
                 return json.dumps(result, indent=2, default=str)
             return json.dumps({"error": f"Unknown capability: {cap}"})
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug("JSON parse failed in A2A handler: %s", e)
 
     # Natural language routing
     lower = text.lower()

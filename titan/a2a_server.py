@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
-from shared import db
-from shared import comms
+from shared import comms, db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
 from shared.pipeline import assess_pipeline_state
 
@@ -206,8 +205,8 @@ async def _run_daily_reflection(**_) -> dict:
 
 async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
     """Handle a question from another agent about pipeline/lead/budget state."""
-    from shared.llm_client import llm
     from shared.db import fetch_all, fetch_val
+    from shared.llm_client import llm
 
     # Gather context for answering
     pipeline_summary = await fetch_val(
@@ -230,7 +229,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer concisely and factually."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "titan"}
 
 
@@ -311,8 +310,8 @@ async def handle_a2a(input_text: str) -> str:
                 result = await handler(**params)
                 return json.dumps(result, indent=2, default=str)
             return json.dumps({"error": f"Unknown capability: {cap}"})
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug("JSON decode failed: %s", e)
 
     # Natural language routing (keyword matching)
     lower = text.lower()
@@ -360,8 +359,8 @@ async def handle_a2a(input_text: str) -> str:
         result = await _memory_search(query=query)
     else:
         result = {
-            "error": f"Titan couldn't route this request. Try JSON format: "
-                     f'{{"capability": "pipeline_status", "params": {{}}}}',
+            "error": "Titan couldn't route this request. Try JSON format: "
+                     '{"capability": "pipeline_status", "params": {}}',
             "available_capabilities": list(CAPABILITY_HANDLERS.keys()),
         }
 

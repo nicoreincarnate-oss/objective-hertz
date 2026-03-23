@@ -40,6 +40,7 @@ class TraceCollector:
         self._current_steps: list[TraceStep] = []
         self._current_model: str = ""
         self._current_engine: str = ""
+        self._last_trace: Optional[Trace] = None
 
     def run(
         self,
@@ -89,6 +90,8 @@ class TraceCollector:
             trace.total_latency_seconds += step.duration_seconds
             trace.total_tokens += step.output.get("tokens", 0)
 
+        self._last_trace = trace
+
         if self._store is not None:
             self._store.save(trace)
 
@@ -100,10 +103,7 @@ class TraceCollector:
     @property
     def last_trace(self) -> Optional[Trace]:
         """Return the trace from the most recent ``run()``, if available."""
-        if not self._current_steps:
-            return None
-        # Reconstruct from saved steps (steps cleared on next run)
-        return None  # Use TraceStore.get() for retrieval after run
+        return self._last_trace
 
     # -- event handlers --------------------------------------------------------
 

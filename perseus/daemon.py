@@ -7,6 +7,7 @@ Use `python orchestrator.py` instead.
 """
 
 import asyncio
+import functools
 import json
 import signal
 import time
@@ -17,6 +18,7 @@ from shared import db
 from shared.agent_base import AgentBase
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.pipeline import assess_pipeline_state
 
 logger = setup_logging("perseus")
 
@@ -276,7 +278,6 @@ class PerseusDaemon(AgentBase):
 
 async def _assess_pipeline_state() -> dict:
     """Build a snapshot of the full pipeline for strategic decision-making."""
-    from shared.pipeline import assess_pipeline_state
     return await assess_pipeline_state()
 
 
@@ -382,7 +383,7 @@ async def main():
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(perseus.stop()))
+        loop.add_signal_handler(sig, functools.partial(asyncio.ensure_future, perseus.stop()))
 
     await perseus.start()
 

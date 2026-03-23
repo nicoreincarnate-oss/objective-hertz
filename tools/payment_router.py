@@ -101,7 +101,7 @@ class PaymentRouter:
                     data={
                         "line_items[0][price_data][currency]": currency.lower(),
                         "line_items[0][price_data][product_data][name]": description or "Website",
-                        "line_items[0][price_data][unit_amount]": int(amount * 100),
+                        "line_items[0][price_data][unit_amount]": int(round(float(amount) * 100)),
                         "line_items[0][quantity]": 1,
                         "metadata[client_email]": email,
                         "metadata[client_name]": name,

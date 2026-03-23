@@ -139,7 +139,7 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"*{len(items)} items pending review:*\n\n"
     for item in items[:10]:
-        text += f"  [{item['id']}] {item['item_type']} — {item.get('business_name', 'unknown')}\n"
+        text += f"  [{item.get('id', '?')}] {item['item_type']} — {item.get('business_name', 'unknown')}\n"
     text += "\nUse /approve <id> or /reject <id>"
     await _reply(update, text, parse_mode="Markdown")
 
@@ -292,7 +292,7 @@ async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _reply(update, f"Got it. Forwarded to OpenJarvis.")
     except Exception as e:
         logger.error(f"Failed to forward to boss: {e}")
-        await _reply(update, f"Message received but couldn't reach the boss: {e}")
+        await _reply(update, "Message received but couldn't reach the boss. Please try again.")
 
 
 def create_bot() -> Application:

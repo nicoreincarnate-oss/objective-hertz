@@ -3,6 +3,7 @@ Postgres database helpers for Perseus.
 Async connection pool using psycopg (v3, async-native).
 """
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from shared.observability import (
 logger = logging.getLogger("perseus.db")
 
 _pool: AsyncConnectionPool | None = None
+_pool_lock = asyncio.Lock()
 
 
 async def init_pool(min_size: int = 2, max_size: int = 10):
@@ -28,14 +30,17 @@ async def init_pool(min_size: int = 2, max_size: int = 10):
     global _pool
     if _pool is not None:
         return
-    _pool = AsyncConnectionPool(
-        conninfo=config.postgres.dsn,
-        min_size=min_size,
-        max_size=max_size,
-        kwargs={"row_factory": dict_row},
-    )
-    await _pool.open()
-    logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
+    async with _pool_lock:
+        if _pool is not None:
+            return
+        _pool = AsyncConnectionPool(
+            conninfo=config.postgres.dsn,
+            min_size=min_size,
+            max_size=max_size,
+            kwargs={"row_factory": dict_row},
+        )
+        await _pool.open()
+        logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
 
 
 async def close_pool():

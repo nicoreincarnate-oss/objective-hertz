@@ -48,8 +48,11 @@ echo "════════════════════════�
 echo "  OPENJARVIS — Starting The Boss"
 echo "═══════════════════════════════════════"
 
+# 0. Validate Python version
+python3 -c "import sys; assert sys.version_info >= (3, 11), f'Python 3.11+ required, got {sys.version}'" || exit 1
+
 # 1. Start Docker services
-echo "[1/8] Starting Docker services..."
+echo "[1/7] Starting Docker services..."
 cd "$ROOT_DIR"
 if ! command -v docker &> /dev/null; then
     echo "  ✗ docker not found in PATH — install Docker Desktop or add it to PATH"
@@ -94,7 +97,7 @@ fi
 echo "  ✓ Docker services running, Postgres ready, schema applied"
 
 # 2. Start Ollama (if not already running)
-echo "[2/8] Checking Ollama..."
+echo "[2/7] Checking Ollama..."
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "  Starting Ollama..."
     ollama serve &
@@ -103,11 +106,11 @@ fi
 echo "  ✓ Ollama running"
 
 # 3. Sync Hermes soul + local skills
-echo "[3/8] Syncing Hermes soul + skills..."
+echo "[3/7] Syncing Hermes soul + skills..."
 bash "$ROOT_DIR/scripts/sync-hermes-agent.sh"
 
 # 4. Start official Hermes gateway
-echo "[4/8] Starting official Hermes gateway..."
+echo "[4/7] Starting official Hermes gateway..."
 if ! hermes gateway start > /dev/null 2>&1; then
     hermes gateway install > /dev/null 2>&1 || true
     hermes gateway start > /dev/null 2>&1
@@ -115,7 +118,7 @@ fi
 echo "  ✓ Hermes gateway running"
 
 # 5. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
-echo "[5/6] Starting OpenJarvis Orchestrator (boss)..."
+echo "[5/7] Starting OpenJarvis Orchestrator (boss)..."
 cd "$ROOT_DIR"
 LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
 echo $! > "$PID_DIR/orchestrator.pid"
@@ -132,7 +135,7 @@ echo "  Metrics    Hermes:     http://localhost:9102/metrics"
 echo "  Metrics    ClawdBot:   http://localhost:9103/metrics"
 
 # 6. Start dashboard backend
-echo "[6/6] Starting dashboard backend..."
+echo "[6/7] Starting dashboard backend..."
 LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
 echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
@@ -140,9 +143,9 @@ wait_for_http "http://localhost:8500/api/health" "Dashboard backend"
 echo "  ✓ Dashboard backend started on :8500 (PID: $(cat $PID_DIR/dashboard.pid))"
 echo "  Metrics    Dashboard:  http://localhost:8500/metrics"
 
-# 9. Start War Room frontend (Next.js)
+# 7. Start War Room frontend (Next.js)
 FRONTEND_DIR="$ROOT_DIR/hermes/web/frontend"
-echo "[9/9] Starting War Room frontend..."
+echo "[7/7] Starting War Room frontend..."
 if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     cd "$FRONTEND_DIR"
     # Build if not already built

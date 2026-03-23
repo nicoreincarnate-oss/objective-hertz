@@ -375,6 +375,11 @@ async def _search_for_businesses(query: str) -> list[dict]:
     # Use Firecrawl for web search
     try:
         from tools.firecrawl_client import search_web
+    except ImportError:
+        logger.warning("Firecrawl client not available")
+        return []
+
+    try:
         result = search_web(query, limit=10)
         if result.get("mode") != "live":
             logger.warning(f"Firecrawl not available: {result.get('summary', '')}")
@@ -391,9 +396,6 @@ async def _search_for_businesses(query: str) -> list[dict]:
                     "source": "firecrawl",
                 })
         return businesses
-    except ImportError:
-        logger.warning("Firecrawl client not available")
-        return []
     except Exception as e:
         logger.error(f"Firecrawl search failed: {e}")
         return []

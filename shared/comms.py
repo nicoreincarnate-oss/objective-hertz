@@ -179,6 +179,7 @@ async def store_learning(
     confidence: float = 0.5,
     source_agent: str = "",
     source_lead_id: int | None = None,
+    source_event: str = "",
 ):
     """
     Store a structured learning accessible by all daemons.
@@ -188,7 +189,7 @@ async def store_learning(
     await db.execute(
         """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event, writer_agent)
            VALUES (%s, %s, %s, %s, %s, %s)""",
-        (category, insight, confidence, source_lead_id, source_agent, source_agent or "unknown"),
+        (category, insight, confidence, source_lead_id, source_event, source_agent or "unknown"),
     )
 
 

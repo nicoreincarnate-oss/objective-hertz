@@ -15,6 +15,11 @@ import json
 import logging
 import re
 
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:
+    Jsonb = None
+
 from shared.db import (
     emit_event,
     execute,
@@ -204,9 +209,7 @@ def _score_deliverability_guard(combined: str, spam_hits: list[str]) -> dict:
 
 
 def _jsonb_value(value):
-    try:
-        from psycopg.types.json import Jsonb
-    except ImportError:
+    if Jsonb is None:
         return value
 
     return Jsonb(value)
@@ -248,8 +251,8 @@ async def send_emails(batch_size: int = 50):
             logger.info("Daily send budget exhausted — skipping email_send this cycle")
             return
         batch_size = min(batch_size, budget_remaining)
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.debug(f"Deliverability monitor not available: {e}")
 
     # Get emails ready to send
     leads = await fetch_all(
@@ -302,13 +305,16 @@ async def _get_or_create_campaign() -> str:
 
     try:
         from tools.instantly_client import InstantlyClient
-        client = InstantlyClient()
+    except ImportError:
+        logger.warning("Instantly client not available")
+        return ""
 
+    client = InstantlyClient()
+    try:
         if campaign_id:
             # Verify it still exists
             try:
                 campaign = await client.get_campaign(campaign_id)
-                await client.close()
                 return campaign_id
             except Exception:
                 logger.info("Stored campaign no longer valid, creating new one")
@@ -326,16 +332,13 @@ async def _get_or_create_campaign() -> str:
             # Activate the campaign so Instantly starts sending
             await client.activate_campaign(new_id)
 
-        await client.close()
-
         return new_id
 
-    except ImportError:
-        logger.warning("Instantly client not available")
-        return ""
     except Exception as e:
         logger.error(f"Failed to get/create campaign: {e}")
         return ""
+    finally:
+        await client.close()
 
 
 async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
@@ -360,7 +363,7 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
         subject=lead.get("subject", ""),
         body=lead.get("body", ""),
         seq_id=lead["seq_id"],
-        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        first_name=(lead.get("contact_name") or "").strip().split()[0] if (lead.get("contact_name") or "").strip() else "",
         company_name=lead.get("business_name", ""),
         industry=lead.get("industry", ""),
         city=lead.get("city", ""),
@@ -415,8 +418,6 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
 
 async def _queue_for_review(batch_size: int):
     """In review mode: queue emails for Nico's approval instead of sending."""
-    from psycopg.types.json import Jsonb
-
     from titan.state_machine import transition_lead
 
     leads = await fetch_all(
@@ -540,7 +541,7 @@ def _apply_provider_bucketing(
     for lead in leads:
         if len(selected) >= batch_size:
             break
-        provider = _recipient_provider(lead.get("email", ""))
+        provider = _recipient_provider(lead.get("email") or "")
         cap = _PROVIDER_DAILY_CAPS.get(provider, _PROVIDER_DAILY_CAPS["other"])
         if counts.get(provider, 0) >= cap:
             continue

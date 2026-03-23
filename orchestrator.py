@@ -273,7 +273,7 @@ class Orchestrator:
 
         sched_config = PerseusConfig(
             tick_interval=int(os.environ.get("SCHEDULER_TICK_INTERVAL", "60")),
-            budget_monthly_cap=float(os.environ.get("BUDGET_MONTHLY_CAP", "800")),
+            budget_monthly_cap=float(os.environ.get("MONTHLY_BUDGET_CAP", "800")),
         )
 
         budget_guard = None
@@ -529,7 +529,7 @@ class Orchestrator:
                 f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes\", \"task_type\": \"...\", "
                 f"\"description\": \"...\", \"priority\": 1}}], "
                 f"\"reasoning\": \"why this plan\"}}",
-                tier="genius", max_tokens=800, temperature=0.3,
+                model="genius", max_tokens=800, temperature=0.3,
             )
 
             match = re.search(r'\{[\s\S]*\}', plan)

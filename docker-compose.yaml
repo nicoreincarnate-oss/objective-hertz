@@ -25,7 +25,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-perseus}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ${PWD}/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-perseus}"]
@@ -59,7 +59,7 @@ services:
     ports:
       - "8888:8888"
     environment:
-      OPENAI_BASE_URL: http://host.docker.internal:11434/v1
+      OPENAI_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}/v1
       OPENAI_API_KEY: ollama
       LLM_MODEL: qwen2.5:14b-instruct-q4_K_M
       OLLAMA_EMBED_MODEL: nomic-embed-text
@@ -112,7 +112,7 @@ services:
     environment:
       N8N_BASIC_AUTH_ACTIVE: "true"
       N8N_BASIC_AUTH_USER: ${N8N_USER:-perseus}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-perseus_n8n_2026}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-CHANGE_ME}
       WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678}
       GENERIC_TIMEZONE: America/Mazatlan
     volumes:
@@ -137,7 +137,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
     volumes:
-      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PWD}/ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -155,8 +155,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-objective_hertz_2026}
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${PWD}/ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${PWD}/ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     mem_limit: 256m
