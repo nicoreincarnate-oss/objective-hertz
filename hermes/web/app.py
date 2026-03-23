@@ -234,6 +234,48 @@ async def api_leads():
     return JSONResponse(content=[dict(lead) for lead in leads])
 
 
+@app.get("/api/ruflo")
+async def api_ruflo():
+    """Ruflo engineering agent status and recent activity."""
+    from shared.config import config as _cfg
+    if not _cfg.ruflo.enabled:
+        return JSONResponse(content={"enabled": False})
+
+    recent_tasks = await fetch_all(
+        "SELECT id, task_type, source, status, validation_status, confidence, "
+        "claude_cost, duration_seconds, created_at, completed_at "
+        "FROM ruflo_tasks ORDER BY created_at DESC LIMIT 20"
+    )
+    stats = {
+        "total": await fetch_val("SELECT COUNT(*) FROM ruflo_tasks") or 0,
+        "validated": await fetch_val(
+            "SELECT COUNT(*) FROM ruflo_tasks WHERE validation_status = 'passed'"
+        ) or 0,
+        "rejected": await fetch_val(
+            "SELECT COUNT(*) FROM ruflo_tasks WHERE validation_status = 'failed'"
+        ) or 0,
+        "pending": await fetch_val(
+            "SELECT COUNT(*) FROM ruflo_tasks WHERE status IN ('pending', 'dispatched', 'running')"
+        ) or 0,
+        "month_claude_spend": float(await fetch_val(
+            "SELECT COALESCE(SUM(claude_cost), 0) FROM ruflo_tasks "
+            "WHERE created_at > DATE_TRUNC('month', NOW())"
+        ) or 0),
+        "claude_cap": _cfg.ruflo.claude_monthly_cap,
+        "patterns_learned": await fetch_val("SELECT COUNT(*) FROM ruflo_patterns") or 0,
+    }
+    if stats["total"] > 0:
+        stats["success_rate"] = round(stats["validated"] / stats["total"] * 100, 1)
+    else:
+        stats["success_rate"] = 0.0
+
+    return JSONResponse(content={
+        "enabled": True,
+        "stats": stats,
+        "recent_tasks": [dict(t) for t in recent_tasks],
+    })
+
+
 @app.get("/api/events")
 async def api_events():
     """Recent events."""

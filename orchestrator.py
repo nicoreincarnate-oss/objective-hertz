@@ -313,7 +313,8 @@ class Orchestrator:
             ]
             if config.ruflo.enabled:
                 loops.append(self._ruflo_validation_loop())  # Ruflo fix validation
-                logger.info("Ruflo validation loop enabled")
+                loops.append(self._ruflo_maintenance_loop())  # Weekly maintenance
+                logger.info("Ruflo validation + maintenance loops enabled")
             await asyncio.gather(*loops)
         finally:
             await self._cleanup()
@@ -519,19 +520,22 @@ class Orchestrator:
 
         try:
             plan = await llm.generate(
-                f"You are OpenJarvis, the boss of a 3-agent business team:\n"
+                f"You are OpenJarvis, the boss of a 4-agent business team:\n"
                 f"- Titan: revenue pipeline (lead discovery, email outreach, deals, invoicing, payments)\n"
                 f"- ClawdBot: skills executor (browser automation, web scraping, site building, research, image gen)\n"
-                f"- Hermes: operator comms (Telegram alerts, dashboard, briefings)\n\n"
+                f"- Hermes: operator comms (Telegram alerts, dashboard, briefings)\n"
+                f"- Ruflo: engineering (code fixes, code review, security scans, dependency audits, refactoring)\n\n"
                 f"The operator commands: \"{command}\"\n\n"
                 f"Decompose this into specific, actionable tasks for your agents.\n"
                 f"Available task_types for Titan: lead_discovery, lead_research, email_compose, email_send, "
                 f"follow_up_check, close_interested, build_sites, process_invoices, sync_analytics\n"
                 f"Available task_types for ClawdBot: skill_execute, web_scrape, browser_task, enrich_lead, "
                 f"site_verify, image_generation, capability_resolve\n"
-                f"Available task_types for Hermes: send_alert, morning_briefing\n\n"
+                f"Available task_types for Hermes: send_alert, morning_briefing\n"
+                f"Available task_types for Ruflo: code_fix, code_review, code_refactor, "
+                f"security_scan, dependency_audit, implement_tool, test_generate\n\n"
                 f"Return ONLY valid JSON:\n"
-                f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes\", \"task_type\": \"...\", "
+                f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes|ruflo\", \"task_type\": \"...\", "
                 f"\"description\": \"...\", \"priority\": 1}}], "
                 f"\"reasoning\": \"why this plan\"}}",
                 model="genius", max_tokens=800, temperature=0.3,
@@ -829,6 +833,50 @@ class Orchestrator:
                             result.get("total", 0), result.get("new", 0), result.get("actionable", 0))
             except Exception as exc:
                 logger.warning("Scout cycle failed: %s", exc)
+
+    # ── Weekly Maintenance (Ruflo) ─────────────────────────────────────
+
+    async def _ruflo_maintenance_loop(self):
+        """Weekly scheduled maintenance tasks dispatched to Ruflo.
+
+        Monday 3 AM: dependency_audit
+        Wednesday 3 AM: security_scan
+        Friday 3 AM: code_refactor (complexity analysis)
+        """
+        import datetime as _dt
+        from shared.comms import request_task
+
+        # Wait for system to stabilize
+        await asyncio.sleep(3600)
+
+        # Map: weekday (0=Mon) → task type
+        schedule = {
+            0: "dependency_audit",   # Monday
+            2: "security_scan",      # Wednesday
+            4: "code_refactor",      # Friday
+        }
+
+        while self._running:
+            now = _dt.datetime.now()
+            weekday = now.weekday()
+            task_type = schedule.get(weekday)
+
+            if task_type and now.hour == 3 and now.minute < 5:
+                try:
+                    task_id = await request_task(task_type, {
+                        "capability": task_type,
+                        "source": "maintenance",
+                        "source_id": f"maint-{now.strftime('%Y%m%d')}-{task_type}",
+                        "scope": "full_codebase",
+                    }, dedupe=True)
+                    if task_id:
+                        logger.info("Weekly maintenance: dispatched %s to Ruflo (task %s)",
+                                   task_type, task_id)
+                except Exception as e:
+                    logger.debug("Weekly maintenance dispatch failed: %s", e)
+
+            # Check every 5 minutes
+            await asyncio.sleep(300)
 
     # ── Shutdown ──────────────────────────────────────────────────────
 

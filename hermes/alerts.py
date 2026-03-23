@@ -379,6 +379,31 @@ async def send_morning_briefing() -> bool:
         "SELECT COUNT(*) FROM review_queue WHERE status = 'pending_review'"
     ) or 0
 
+    # Ruflo engineering stats
+    ruflo_section = ""
+    try:
+        from shared.config import config
+        if config.ruflo.enabled:
+            ruflo_fixes = await fetch_val(
+                "SELECT COUNT(*) FROM ruflo_tasks WHERE validation_status = 'passed' "
+                "AND created_at > NOW() - INTERVAL '24 hours'"
+            ) or 0
+            ruflo_pending = await fetch_val(
+                "SELECT COUNT(*) FROM ruflo_tasks WHERE status IN ('pending', 'dispatched', 'running')"
+            ) or 0
+            ruflo_spend = await fetch_val(
+                "SELECT COALESCE(SUM(claude_cost), 0) FROM ruflo_tasks "
+                "WHERE created_at > DATE_TRUNC('month', NOW())"
+            ) or 0
+            ruflo_section = (
+                f"\n*Ruflo (24h):*\n"
+                f"  Fixes validated: {ruflo_fixes}\n"
+                f"  In progress: {ruflo_pending}\n"
+                f"  Claude spend this month: ${float(ruflo_spend):.2f}/${config.ruflo.claude_monthly_cap:.0f}\n"
+            )
+    except Exception:
+        pass
+
     message = (
         f"*Good morning, Nico!*\n\n"
         f"*Yesterday:*\n"
@@ -386,7 +411,8 @@ async def send_morning_briefing() -> bool:
         f"  Total leads: {total_leads}\n"
         f"  Interested: {interested}\n\n"
         f"*Revenue:* ${revenue:.2f}\n"
-        f"*Pending review:* {pending_review}\n\n"
+        f"*Pending review:* {pending_review}\n"
+        f"{ruflo_section}\n"
         f"_Perseus is running. Titan is working._"
     )
 

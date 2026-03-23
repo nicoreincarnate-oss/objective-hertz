@@ -15,6 +15,7 @@ import logging
 import time
 from typing import Any
 
+from shared.config import config
 from shared.db import emit_event, get_config, set_config
 from shared.llm_client import llm
 
@@ -456,6 +457,18 @@ async def _store_and_act(findings: list[dict[str, Any]]) -> dict[str, int]:
                 tools_dispatched += 1
             except Exception as e:
                 logger.debug("Failed to dispatch tool finding: %s", e)
+
+            # Also dispatch to Ruflo for implementation evaluation
+            if config.ruflo.enabled:
+                try:
+                    await delegate_task(
+                        "scout", "ruflo", "implement_tool",
+                        {"discovery": {"summary": summary[:300], "url": url, "action_type": action_type},
+                         "source": "scout", "evaluation_only": True},
+                        priority=7,
+                    )
+                except Exception as e:
+                    logger.debug("Failed to dispatch tool to Ruflo: %s", e)
 
         # Act on technique findings — create a scout rule
         elif action_type == "technique_to_adopt" and value in ("medium", "high"):
