@@ -1,0 +1,15 @@
+{
+    "name": "cold-email",
+    "description": "Hyper-personalized cold email sequences for outbound sales",
+    "inputs": {
+        "business_name": "string",
+        "contact_name": "string",
+        "industry": "string",
+        "research_summary": "string",
+        "language": "string",
+        "lead_id": "string"
+    },
+    "required_inputs": ["business_name"],
+    "output_type": "json",
+    "timeout_seconds": 45
+}

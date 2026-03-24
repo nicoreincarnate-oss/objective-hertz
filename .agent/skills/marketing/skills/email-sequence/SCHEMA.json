@@ -1,0 +1,15 @@
+{
+    "name": "email-sequence",
+    "description": "Multi-step email sequence design for nurturing and follow-up",
+    "inputs": {
+        "business_name": "string",
+        "contact_name": "string",
+        "sequence_type": "string",
+        "num_steps": "int",
+        "industry": "string",
+        "language": "string"
+    },
+    "required_inputs": ["business_name", "sequence_type"],
+    "output_type": "json",
+    "timeout_seconds": 60
+}

@@ -179,6 +179,9 @@ CREATE TABLE IF NOT EXISTS task_queue (
     status VARCHAR(50) DEFAULT 'pending'
         CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     priority INTEGER DEFAULT 5,
+    risk_level VARCHAR(20) DEFAULT 'low'
+        CHECK (risk_level IN ('none', 'low', 'medium', 'high', 'critical')),
+    requires_approval BOOLEAN DEFAULT FALSE,
     assigned_agent VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
     started_at TIMESTAMP,
@@ -438,3 +441,35 @@ SELECT
     END AS health_status
 FROM outreach_metrics
 ORDER BY date DESC, domain;
+
+-- ── RISK-AWARE TASK DISPATCH ──────────────────────────────────────
+-- Add risk columns to task_queue for existing DBs (idempotent)
+ALTER TABLE task_queue ADD COLUMN IF NOT EXISTS risk_level VARCHAR(20) DEFAULT 'low';
+ALTER TABLE task_queue ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN DEFAULT FALSE;
+
+-- Autonomy thresholds: graduated autonomy per action type
+CREATE TABLE IF NOT EXISTS autonomy_policy (
+    action_type VARCHAR(100) PRIMARY KEY,
+    risk_level VARCHAR(20) NOT NULL DEFAULT 'low'
+        CHECK (risk_level IN ('none', 'low', 'medium', 'high', 'critical')),
+    min_sales_for_auto INTEGER NOT NULL DEFAULT 0,
+    max_value_auto DECIMAL(10,2) DEFAULT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Default autonomy policies: what needs approval and when
+INSERT INTO autonomy_policy (action_type, risk_level, min_sales_for_auto, max_value_auto, description) VALUES
+    ('lead_discovery',    'none',     0,  NULL,   'Always autonomous — no external effect'),
+    ('lead_research',     'none',     0,  NULL,   'Always autonomous — internal analysis'),
+    ('email_compose',     'none',     0,  NULL,   'Always autonomous — drafts only, not sent'),
+    ('email_send',        'medium',   3,  NULL,   'Autonomous after 3 successful sales'),
+    ('follow_up_compose', 'low',      1,  NULL,   'Autonomous after 1 successful sale'),
+    ('follow_up_send',    'medium',   3,  NULL,   'Autonomous after 3 successful sales'),
+    ('demo_build',        'low',      1,  NULL,   'Autonomous after 1 sale — low cost action'),
+    ('proposal_send',     'high',     5,  NULL,   'Autonomous after 5 sales — high-value action'),
+    ('invoice_create',    'high',     5,  500.00, 'Autonomous after 5 sales, up to $500'),
+    ('invoice_send',      'critical', 10, 500.00, 'Autonomous after 10 sales, up to $500'),
+    ('site_deploy',       'high',     5,  NULL,   'Autonomous after 5 sales'),
+    ('budget_spend',      'critical', 10, 200.00, 'Autonomous after 10 sales, up to $200/item')
+ON CONFLICT (action_type) DO NOTHING;

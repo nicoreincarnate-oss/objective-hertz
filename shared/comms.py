@@ -29,9 +29,13 @@ async def request_task(
     priority: int = 5,
     request_id: str = "",
     dedupe: bool = False,
+    risk_level: str = "low",
 ) -> int:
     """
     Insert a task into the shared queue for any daemon to pick up.
+
+    risk_level: "none", "low", "medium", "high", "critical"
+    Tasks marked high/critical may be held for approval by the risk gate.
 
     Examples:
         # Titan asks ClawdBot to scrape a URL
@@ -46,7 +50,7 @@ async def request_task(
     full_payload = payload or {}
     if request_id:
         full_payload["request_id"] = request_id
-    return await db.insert_task(task_type, full_payload, priority, dedupe=dedupe)
+    return await db.insert_task(task_type, full_payload, priority, dedupe=dedupe, risk_level=risk_level)
 
 
 async def request_task_result(

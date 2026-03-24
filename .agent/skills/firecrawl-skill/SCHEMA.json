@@ -1,0 +1,15 @@
+{
+    "name": "firecrawl-skill",
+    "description": "Web access via Firecrawl API — markdown extraction, screenshots, structured data extraction, web search, documentation crawling",
+    "inputs": {
+        "url": "string",
+        "query": "string",
+        "action": "string",
+        "limit": "int",
+        "schema_json": "string",
+        "output_dir": "string"
+    },
+    "required_inputs": [],
+    "output_type": "markdown",
+    "timeout_seconds": 60
+}

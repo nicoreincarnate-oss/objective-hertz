@@ -37,12 +37,21 @@ async def process_interested_leads():
 
 async def _build_demo_and_propose(lead: dict):
     """Build a free demo site for the lead and send a proposal."""
+    from shared.risk_gate import gate_or_queue, check_autonomy
+
     lead_id = lead["id"]
 
-    # Check if we need Nico's approval (first 10 sales)
-    sales_completed = await get_config("sales_completed", 0)
-    sales_threshold = await get_config("sales_before_autonomy", 10)
-    needs_approval = sales_completed < sales_threshold
+    # Risk gate: demo build is low-risk
+    demo_allowed = await check_autonomy("demo_build")
+    if not demo_allowed["allowed"]:
+        logger.info(f"Demo build gated for lead {lead_id}: {demo_allowed['reason']}")
+        await emit_event("review_needed", {
+            "type": "demo_site",
+            "client_id": lead_id,
+            "business_name": lead["business_name"],
+            "reason": demo_allowed["reason"],
+        })
+        return
 
     # Build a quick demo site
     demo_url = await _build_demo_site(lead)
@@ -62,23 +71,18 @@ async def _build_demo_and_propose(lead: dict):
         })
         return
 
-    # Generate proposal using Claude Sonnet (high quality)
+    # Generate proposal using Claude Sonnet (high quality, client-facing)
     proposal = await _generate_proposal(lead, demo_url)
 
-    if needs_approval:
-        # Queue for Nico's review
-        await execute(
-            """INSERT INTO review_queue (item_type, client_id, content, status)
-               VALUES ('proposal', %s, %s, 'pending_review')""",
-            (lead_id, json.dumps(proposal)),
-        )
-        await emit_event("review_needed", {
-            "type": "proposal",
-            "client_id": lead_id,
-            "business_name": lead["business_name"],
-        })
-        logger.info(f"Proposal for {lead['business_name']} queued for Nico's review")
-    else:
+    # Risk gate: proposal send is high-risk — graduated autonomy
+    can_send = await gate_or_queue(
+        "proposal_send",
+        client_id=lead_id,
+        content=proposal,
+        item_type="proposal",
+    )
+
+    if can_send:
         # Send proposal autonomously — only transition if actually sent
         sent = await _send_proposal(lead, proposal, demo_url)
         if sent:
@@ -90,6 +94,8 @@ async def _build_demo_and_propose(lead: dict):
                 "client_id": lead_id,
                 "business_name": lead["business_name"],
             })
+    else:
+        logger.info(f"Proposal for {lead['business_name']} queued for review (risk gate)")
 
 
 async def _build_demo_site(lead: dict) -> str:
@@ -324,14 +330,25 @@ async def mark_sale_closed(client_id: int):
     # Increment sales counter atomically so concurrent closes don't lose updates.
     sales = await increment_config_int("sales_completed", 1, default=0)
 
-    # Check if we should disable review mode
-    threshold = await get_config("sales_before_autonomy", 10)
-    if sales >= threshold:
-        await set_config("review_mode", False)
-        await emit_event("autonomy_unlocked", {
+    # Graduated autonomy: each sale unlocks more autonomous actions.
+    # Emit milestone events so Hermes can notify Nico of new autonomy levels.
+    from shared.risk_gate import refresh_policies
+    await refresh_policies()
+
+    milestones = {
+        1: "Follow-ups and demo builds now autonomous",
+        3: "Email sending now autonomous",
+        5: "Proposals, invoices (<$500), and deploys now autonomous",
+        10: "Full autonomy unlocked — all actions autonomous",
+    }
+    if sales in milestones:
+        await emit_event("autonomy_milestone", {
             "sales_completed": sales,
-            "message": "Review mode disabled — Titan is now fully autonomous!",
+            "unlocked": milestones[sales],
         })
+        # Keep legacy review_mode in sync for backwards compatibility
+        if sales >= 10:
+            await set_config("review_mode", False)
 
     await emit_event("deal_closed", {"client_id": client_id, "sale_number": sales})
     logger.info(f"Sale #{sales} closed for client {client_id}!")

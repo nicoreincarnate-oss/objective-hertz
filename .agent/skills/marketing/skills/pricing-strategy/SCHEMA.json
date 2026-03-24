@@ -1,0 +1,14 @@
+{
+    "name": "pricing-strategy",
+    "description": "Pricing analysis and strategy recommendations",
+    "inputs": {
+        "product": "string",
+        "market": "string",
+        "competitors": "list",
+        "current_price": "float",
+        "target_margin": "float"
+    },
+    "required_inputs": ["product"],
+    "output_type": "json",
+    "timeout_seconds": 30
+}

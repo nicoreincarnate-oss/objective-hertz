@@ -1,0 +1,14 @@
+{
+    "name": "copywriting",
+    "description": "Professional copywriting for sales, marketing, and client communication",
+    "inputs": {
+        "topic": "string",
+        "tone": "string",
+        "audience": "string",
+        "length": "string",
+        "language": "string"
+    },
+    "required_inputs": ["topic"],
+    "output_type": "text",
+    "timeout_seconds": 30
+}

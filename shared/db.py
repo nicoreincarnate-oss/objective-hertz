@@ -94,12 +94,16 @@ async def insert_task(
     payload: dict = None,
     priority: int = 5,
     dedupe: bool = True,
+    risk_level: str = "low",
 ) -> int | None:
     """Insert a task into the queue.
 
     Scheduled recurring work should dedupe by task type to avoid runaway spend.
     Daemon-to-daemon requests should set ``dedupe=False`` so distinct tasks do not
     collapse into one another.
+
+    risk_level: "none", "low", "medium", "high", "critical" — used by the risk gate
+    to decide if the task needs human approval before execution.
     """
     import json
     if dedupe:
@@ -114,9 +118,9 @@ async def insert_task(
             return None
 
     row = await fetch_one(
-        """INSERT INTO task_queue (task_type, payload, priority)
-           VALUES (%s, %s, %s) RETURNING id""",
-        (task_type, json.dumps(payload or {}), priority),
+        """INSERT INTO task_queue (task_type, payload, priority, risk_level)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (task_type, json.dumps(payload or {}), priority, risk_level),
     )
     return row["id"]
 

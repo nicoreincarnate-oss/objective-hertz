@@ -178,10 +178,10 @@ async def _scrape_business_info(lead: dict) -> str:
 
 
 async def _generate_research_data(prompt: str, lead: dict) -> dict:
-    """Run a local-first research pass, escalating to smart only for weak/high-value cases."""
-    data = await _run_research_prompt(prompt, model="fast", lead=lead)
+    """Run a local-first research pass, escalating to Claude only for weak/high-value cases."""
+    data = await _run_research_prompt(prompt, model="fast", lead=lead)  # 14B: internal research
     if _should_upgrade_research_pass(data):
-        upgraded = await _run_research_prompt(prompt, model="smart", lead=lead)
+        upgraded = await _run_research_prompt(prompt, model="fast-remote", lead=lead)  # Haiku: cheaper upgrade
         if upgraded.get("summary"):
             return upgraded
     return data

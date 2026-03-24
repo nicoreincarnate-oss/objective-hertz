@@ -1,0 +1,13 @@
+{
+    "name": "web-scraper",
+    "description": "Advanced web scraping with adaptive phased workflow — framework detection, traffic interception, anti-blocking",
+    "inputs": {
+        "url": "string",
+        "query": "string",
+        "extract_fields": "list",
+        "max_pages": "int"
+    },
+    "required_inputs": ["url"],
+    "output_type": "json",
+    "timeout_seconds": 90
+}

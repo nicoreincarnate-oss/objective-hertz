@@ -179,6 +179,7 @@ Return JSON:
 
 
 def _compose_model_for_lead(lead: dict) -> str:
-    """Reserve smart composition for the leads most likely to pay."""
+    """Always use Claude for client-facing emails — it sounds human.
+    Sonnet for high-value leads, Haiku for the rest (still Claude, still human-sounding)."""
     lead_score = float(lead.get("lead_score", 0) or 0)
-    return "smart" if lead_score >= 80 else "fast"
+    return "smart" if lead_score >= 70 else "fast-remote"

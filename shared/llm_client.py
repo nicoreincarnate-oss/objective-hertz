@@ -1,11 +1,22 @@
 """
 Unified LLM client for Perseus.
-Primary: Claude API (via Anthropic SDK) — high quality for emails, decisions, proposals.
-Fallback: Ollama (local) — for simple classification, extraction, when API is down or budget is tight.
+
+Model tiers:
+- "router"     : Ollama 3B — routing, classification, yes/no decisions (free, fast)
+- "fast"       : Ollama 14B — content generation, research summaries (free, local)
+- "smart"      : Claude Sonnet — client-facing writing: emails, proposals, follow-ups
+- "fast-remote": Claude Haiku — cheap remote fallback when Ollama is down
+- "local"      : alias for "fast" (Ollama 14B)
+- "local-small": alias for "router" (Ollama 3B)
+- "auto"       : routes to "router" for short prompts, "fast" otherwise
 
 Budget-aware: every Claude call estimates token cost and records it.
 When budget hits alert threshold, auto-downgrades to Ollama.
 When budget is exceeded, only Ollama is available.
+
+Design principle: Claude is reserved for text that humans read (emails, proposals,
+sales copy). All internal decisions — routing, classification, skill picking,
+yes/no gates — run on the local 3B model to minimize API spend.
 """
 
 import asyncio
@@ -26,9 +37,12 @@ _COST_PER_1K = {
     "sonnet": 0.006,   # ~$3/M input + $15/M output blended
 }
 
+# Prompts under this char count are "routing" tasks — use 3B model
+_ROUTER_PROMPT_THRESHOLD = 800
+
 
 class LLMClient:
-    """Unified interface to Claude API + Ollama. Budget-aware."""
+    """Unified interface to Claude API + Ollama. Budget-aware with tiered routing."""
 
     def __init__(self):
         self._http = httpx.AsyncClient(timeout=120.0)
@@ -43,21 +57,27 @@ class LLMClient:
         temperature: float = 0.7,
     ) -> str:
         """
-        Generate text. Model choices:
-        - "auto": local-first path for high-throughput work
-        - "fast": Ollama primary model (cheap, local, default fast path)
-        - "smart": Claude Sonnet (best quality)
+        Generate text. Model tiers:
+        - "auto"       : smart routing — 3B for short/simple, 14B for longer tasks
+        - "router"     : Ollama 3B (classification, routing, yes/no — free)
+        - "fast"       : Ollama 14B primary (content generation — free)
+        - "smart"      : Claude Sonnet (client-facing writing — $$)
         - "fast-remote": Claude Haiku (cheap remote fallback)
-        - "local": Ollama primary model (free)
-        - "local-small": Ollama secondary model (free)
+        - "local"      : alias for "fast"
+        - "local-small": alias for "router"
 
         Budget behavior:
-        - Over alert threshold (80%): "auto" and "fast" downgrade to Ollama
+        - Over alert threshold (80%): "fast-remote" downgrade to Ollama
         - Budget exceeded: all Claude calls downgrade to Ollama
         - "smart" downgrades only when budget is fully exceeded
         """
+        # Resolve aliases
         if model == "auto":
+            model = "router" if len(prompt) < _ROUTER_PROMPT_THRESHOLD else "fast"
+        elif model == "local":
             model = "fast"
+        elif model == "local-small":
+            model = "router"
 
         # Budget check — downgrade Claude to Ollama when needed
         if model in ("fast-remote", "smart"):
@@ -70,9 +90,11 @@ class LLMClient:
                 return result
             except Exception as e:
                 logger.warning(f"Claude API failed, falling back to Ollama: {e}")
-                return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
-        elif model in ("fast", "local", "local-small"):
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
+                return await self._ollama_generate(prompt, system, "fast", max_tokens, temperature)
+        elif model == "router":
+            return await self._ollama_generate(prompt, system, "router", max_tokens, temperature)
+        elif model == "fast":
+            return await self._ollama_generate(prompt, system, "fast", max_tokens, temperature)
         else:
             try:
                 result = await self._claude_generate(prompt, system, "fast-remote", max_tokens, temperature)
@@ -80,7 +102,7 @@ class LLMClient:
                 return result
             except Exception as e:
                 logger.warning(f"Claude API failed, falling back to Ollama: {e}")
-                return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
+                return await self._ollama_generate(prompt, system, "fast", max_tokens, temperature)
 
     async def _budget_gate(self, requested_model: str) -> str:
         """Check budget and downgrade Claude to Ollama if needed."""
@@ -177,7 +199,7 @@ class LLMClient:
         self, prompt: str, system: str, model: str, max_tokens: int, temperature: float
     ) -> str:
         """Call local Ollama API."""
-        model_name = config.ollama.model if model == "local" else config.ollama.secondary
+        model_name = config.ollama.secondary if model == "router" else config.ollama.model
         body = {
             "model": model_name,
             "prompt": prompt,
@@ -195,16 +217,20 @@ class LLMClient:
         return resp.json()["response"]
 
     async def classify(self, text: str, categories: list[str]) -> str:
-        """Quick classification using fast model."""
+        """Quick classification using 3B router model (free, fast)."""
         cats = ", ".join(categories)
         prompt = f"Classify this text into exactly one category: [{cats}]\n\nText: {text}\n\nCategory:"
-        result = await self.generate(prompt, model="local-small", max_tokens=50, temperature=0.0)
+        result = await self.generate(prompt, model="router", max_tokens=50, temperature=0.0)
         # Extract the category from the response
         result = result.strip().strip('"').strip("'")
         for cat in categories:
             if cat.lower() in result.lower():
                 return cat
         return categories[0]  # default to first category
+
+    async def route(self, prompt: str, max_tokens: int = 100, temperature: float = 0.2) -> str:
+        """Quick routing/decision using 3B model. For yes/no, pick-from-list, simple JSON."""
+        return await self.generate(prompt, model="router", max_tokens=max_tokens, temperature=temperature)
 
     async def embed(self, text: str) -> list[float]:
         """Generate embedding via Ollama nomic-embed-text (free, local)."""

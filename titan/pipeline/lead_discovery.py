@@ -270,7 +270,7 @@ Return JSON:
   "reasoning": "why this order"
 }}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.3)
+    result = await llm.route(prompt, max_tokens=200, temperature=0.3)
 
     try:
         start = result.find("{")
@@ -340,7 +340,7 @@ Return JSON:
     "reasoning": "why these targets"
 }}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.8)
+    result = await llm.generate(prompt, model="fast", temperature=0.8)  # 14B: internal strategy, not client-facing
     try:
         # Extract JSON from response
         start = result.find("{")
