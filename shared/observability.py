@@ -25,7 +25,7 @@ logger = logging.getLogger("perseus.observability")
 try:
     import sentry_sdk
 except Exception:  # pragma: no cover - optional dependency
-    sentry_sdk = None
+    sentry_sdk = None  # type: ignore[assignment]
 
 try:
     from prometheus_client import (
@@ -37,20 +37,20 @@ try:
         start_http_server,
     )
 except Exception:  # pragma: no cover - optional dependency
-    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"  # type: ignore[misc]
 
-    class _NoOpMetric:
+    class _NoOpMetric:  # type: ignore[no-redef]
         """Stub metric that silently discards all operations."""
-        def labels(self, **kw): return self
+        def labels(self, **kw): return self  # type: ignore[empty-body]
         def inc(self, *a, **kw): pass
         def dec(self, *a, **kw): pass
         def set(self, *a, **kw): pass
         def observe(self, *a, **kw): pass
         def __init__(self, *a, **kw): pass
 
-    Counter = Gauge = Histogram = _NoOpMetric
-    def generate_latest(): return b""  # noqa: E704
-    def start_http_server(*a, **kw): return None  # noqa: E704
+    Counter = Gauge = Histogram = _NoOpMetric  # type: ignore[misc,assignment]
+    def generate_latest(): return b""  # type: ignore[no-redef]  # noqa: E704
+    def start_http_server(*a, **kw): return None  # type: ignore[no-redef]  # noqa: E704
 
 
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
@@ -76,20 +76,14 @@ def _enabled_in_tests() -> bool:
 
 
 def _metric_counter(name: str, documentation: str, labels: tuple[str, ...]):
-    if Counter is None:
-        return None
     return Counter(name, documentation, labels)
 
 
 def _metric_gauge(name: str, documentation: str, labels: tuple[str, ...]):
-    if Gauge is None:
-        return None
     return Gauge(name, documentation, labels)
 
 
 def _metric_histogram(name: str, documentation: str, labels: tuple[str, ...]):
-    if Histogram is None:
-        return None
     return Histogram(
         name,
         documentation,
@@ -372,8 +366,6 @@ def capture_exception(
 
 def render_prometheus_metrics() -> bytes:
     """Return Prometheus exposition data for the current process."""
-    if generate_latest is None:
-        return b"# prometheus_client not installed\n"
     return generate_latest()
 
 

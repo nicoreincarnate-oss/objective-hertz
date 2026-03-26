@@ -116,5 +116,9 @@ ignore_errors = true
 module = ["tools.firecrawl_client", "requests", "requests.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "shared.observability"
+warn_unused_ignores = false
+
 [dependency-groups]
 dev = ["maturin>=1.12.6"]
