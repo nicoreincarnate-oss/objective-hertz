@@ -1,6 +1,10 @@
 # Perseus Agentic Engineering Command Launcher
 # Usage: just <command>
 # NOTE: Makefile handles infrastructure. Justfile handles agentic operations.
+# SCOPE: Optional Claude Code helper commands. Not the canonical way to
+# operate the system — use Makefile targets or direct daemon commands
+# for production operations. These are convenience shortcuts for
+# development sessions.
 
 # Default: show available commands
 default:

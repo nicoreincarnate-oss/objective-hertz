@@ -1,24 +1,18 @@
-# PERSEUS
+# Objective Hertz
 
 Fully autonomous AI revenue system. Finds businesses without websites globally, emails them custom outreach, follows up, closes, builds websites, delivers, invoices, and learns from every interaction. Runs 24/7 on Mac M4 32GB.
 
 ## Architecture
 
-```
-                    PERSEUS (Master Scheduler)
-                   /       |        \         \
-              TITAN  HERMES AGENT CLAWDBOT   (Postgres + Mem0)
-           (revenue) (interface)  (skills)    shared memory
-```
+OpenJarvis is the orchestrator framework. Five daemons run under it:
 
-Official Hermes + 3 worker daemons + dashboard:
-
-- **Perseus** — Master orchestrator. Schedules work, monitors health, enforces budget.
+- **Perseus** — Master scheduler. Inserts tasks into the pipeline queue, monitors health, enforces budget.
 - **Titan** — Revenue engine. 10-stage pipeline: discover → research → email → follow up → demo → close → build → deploy → invoice → learn.
-- **Hermes Agent** — Nico's primary interface. Official Hermes gateway, memory, skills, cron, voice, delegation, and coordination.
-- **ClawdBot** — Specialist execution brain. Runs installed skills, scrapes websites, verifies deployments, enriches leads, and handles heavier implementation/research tasks.
+- **Hermes** — Alerts and dashboard. Dispatches Telegram notifications, serves the War Room web UI, exposes the FastAPI API.
+- **ClawdBot** — Site builder and browser automation. Builds sites using Recraft for AI-generated images, deploys to Netlify, runs scraping and verification skills.
+- **Conway** — Economics daemon. Manages agent wallets (Base L2 USDC), x402 micropayments, survival-tier enforcement, team collaboration via `ask_agent` / `delegate`.
 
-Perseus, Titan, and ClawdBot communicate through Postgres (task_queue, events, titan_learnings, system_config) and Mem0 vector memory. Official Hermes runs alongside them, using synced local skills plus the dashboard API to observe and operate the system. Hermes and ClawdBot are meant to help each other whenever that improves the business: Hermes coordinates and synthesizes, ClawdBot executes and verifies. See `shared/comms.py`.
+All daemons communicate via A2A (agent-to-agent), Postgres (shared task queue + 23 tables), and Mem0 vector memory. See `shared/comms.py`.
 
 ## Quick Start
 
@@ -58,9 +52,9 @@ For bigger expansions:
 
 | Service | Price | Notes |
 |---------|-------|-------|
-| 5-page website | $299 | AI-built via v0.dev API |
+| 5-page website | $299 | AI-built via ClawdBot + Recraft |
 | Landing page | $149 | Single-page variant |
-| Hosting | $52/mo | Managed via Netlify/Vercel |
+| Hosting | $52/mo | Managed via Netlify |
 | AI receptionist | $398/mo | Optional recurring upsell |
 
 ## Budget: $800/month
@@ -77,10 +71,10 @@ $200 Claude Max + ~$100 Instantly.ai + tools/domains + GPU training buffer.
 | Skills | ClawdBot (26 capabilities, 3 registries, safety vetting) |
 | Email | Instantly.ai (campaign-based, warmup, account rotation) |
 | Scraping | Firecrawl + browser-use |
-| Sites | v0.dev Platform API (project → chat → deploy) |
+| Sites | ClawdBot (site_builder.py) + Recraft (images) + Netlify (deploy) |
 | Payments | Stripe (primary) + Wise (fallback) |
 | DB | Postgres + Qdrant + Mem0 |
-| Orchestration | Python daemons + Postgres task queue |
+| Orchestration | OpenJarvis framework + Python daemons + Postgres task queue |
 
 ## Commands
 
@@ -107,14 +101,16 @@ make down     # Stop Docker
 ## Directory Structure
 
 ```
-shared/           Config, LLM client (Claude+Ollama), DB pool, comms layer, skill loader
-perseus/          Master daemon, scheduler (15 schedules), agent registry
+openjarvis/       Orchestrator framework (A2A, agents, WorkflowEngine, security, tools)
+shared/           LLM client (Claude+Ollama), DB pool, comms layer, skill loader, MAGMA
+perseus/          Scheduler daemon, agent registry, health, self-audit
 titan/            Pipeline (10 stages), state machine, memory, training, review mode
-hermes/           Dashboard backend + frontend + local Perseus skills for official Hermes
-clawdbot/         Skills executor, web scraper, site verifier, lead enricher
-tools/            Instantly, Firecrawl, payments, budget guard, runtime honesty
+hermes/           Telegram alerts, FastAPI API, War Room web UI
+clawdbot/         Site builder, Recraft images, Netlify deploy, browser scraping
+conway/           Agent wallets (Base L2 USDC), x402 payments, survival tiers
+tools/            Instantly, Firecrawl, Recraft, payments, budget guard
 soul/             Personality, autonomy rules, copywriting guidelines
 scripts/          Start/stop, install scripts, LaunchAgent plists, DB schema
 templates/        Industry website templates (dentist, plumber, restaurant)
-.agent/skills/    Installed skill collections (marketing, firecrawl, web-scraper, voltagent)
+orchestrator.py   Top-level entry point (replaces Perseus daemon for local runs)
 ```

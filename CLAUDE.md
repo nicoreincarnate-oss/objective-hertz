@@ -1,41 +1,32 @@
-# Perseus — Project Memory
+# Objective Hertz — Project Memory
 
 ## What This Is
-Perseus is a fully autonomous AI revenue system that orchestrates a 4-daemon autonomous pipeline to generate consistent, verifiable revenue. It combines intelligent task scheduling, multi-stage revenue generation, event dispatch, and browser automation into a cohesive agentic engineering platform running 24/7.
+Objective Hertz is a fully autonomous AI revenue system running on OpenJarvis as the orchestrator framework. Five daemons (Perseus, Titan, Hermes, ClawdBot, Conway) handle scheduling, revenue pipeline, alerts, site building, and agent economics. Runs 24/7 on Mac M4 32GB.
 
 ## Architecture
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ PERSEUS (Master Scheduler)                                      │
-│ ├─ Inserts tasks into task_queue every 10 seconds              │
-│ └─ Reads config, manages pipeline lifecycle                    │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ task_queue (shared state)
-                     ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ TITAN (Revenue Engine)                                          │
-│ ├─ Polls task_queue continuously                               │
-│ ├─ Executes 10-stage revenue generation pipeline               │
-│ └─ Writes results to postgres + triggers events                │
-└────────────────┬──────────────────────┬───────────────────────────┘
-                 │ events               │ postgres (shared state)
-                 ↓                      ↓
-┌────────────────────────────────┐  ┌──────────────────────────────┐
-│ HERMES (Alerts + Web)          │  │ Persistent Data Layer        │
-│ ├─ Listens for TITAN events    │  │ ├─ Tasks, results, metrics   │
-│ ├─ Dispatches Telegram alerts  │  │ └─ API key management        │
-│ └─ Serves Next.js dashboard    │  │                              │
-└────────────────────────────────┘  └──────────────────────────────┘
-         ↑                                    ↑
-         └────────────┬──────────────────────┘
-                      │
-         ┌────────────↓──────────────────┐
-         │ CLAWDBOT (Skills + Browser)   │
-         │ ├─ Executes remote skills     │
-         │ ├─ Runs browser automation    │
-         │ ├─ Scrapes and verifies       │
-         │ └─ Reports back to HERMES     │
-         └───────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ OPENJARVIS (Orchestrator Framework)                              │
+│ ├─ WorkflowEngine DAG, A2A agent comms, security, tools         │
+│ └─ orchestrator.py — top-level entry point                      │
+└───────────────────────┬──────────────────────────────────────────┘
+                        │ A2A + Postgres task_queue
+          ┌─────────────┼───────────────┬──────────────┐
+          ↓             ↓               ↓              ↓
+┌─────────────┐ ┌────────────┐ ┌─────────────┐ ┌────────────────┐
+│ PERSEUS     │ │ TITAN      │ │ HERMES      │ │ CLAWDBOT       │
+│ Scheduler   │ │ Revenue    │ │ Alerts +    │ │ Site builder   │
+│ daemon.py   │ │ daemon.py  │ │ Dashboard   │ │ + browser      │
+│ scheduler.py│ │ pipeline/  │ │ daemon.py   │ │ daemon.py      │
+└─────────────┘ └────────────┘ │ web/app.py  │ │ site_builder.py│
+                               └─────────────┘ └────────────────┘
+                                      ↕ A2A + Postgres
+                               ┌─────────────┐
+                               │ CONWAY      │
+                               │ Economics   │
+                               │ wallet.py   │
+                               │ x402_client │
+                               └─────────────┘
 ```
 
 ## The Core 4 Framework
@@ -47,79 +38,79 @@ Everything reduces to: **Context + Model + Prompt + Tools**
 
 ## Directory Structure
 ```
-perseus/
-├── main.py              → Master scheduler daemon
-├── config.yaml          → Task generation config
-├── timing.py            → Schedule management
-└── monitoring.py        → Health checks
+orchestrator.py          → Top-level entry point (replaces legacy Perseus daemon)
 
-titan/
-├── main.py              → Revenue engine core
-├── pipeline.py          → 10-stage revenue pipeline
-├── stages/              → Individual pipeline stages
-└── processors.py        → Data processing logic
+openjarvis/              → Orchestrator framework
+├── a2a/                 → Agent-to-agent communication layer
+├── agents/              → Agent base classes and loop guard
+├── core/                → WorkflowEngine, DAG runner
+├── security/            → Injection scanner, SSRF, rate limiter, capabilities
+├── tools/               → File, git, http, calculator, think tools
+└── system.py            → System bootstrap
 
-hermes/
-├── main.py              → Event dispatcher daemon
-├── telegram.py          → Telegram integration
-├── api.py               → FastAPI server
-└── dashboard/           → Next.js web interface
+perseus/                 → Scheduler daemon
+├── daemon.py            → Main scheduler loop
+├── scheduler.py         → 15 scheduled task definitions
+├── agent_registry.py    → Agent registration
+└── health.py            → Health checks
 
-clawdbot/
-├── main.py              → Skill + browser automation daemon
-├── skills/              → Reusable skill library
-├── browser/             → Browser automation layer
-└── verification.py      → Result verification
+titan/                   → Revenue engine
+├── daemon.py            → Main pipeline daemon
+├── pipeline/            → 10-stage pipeline stages
+├── workflow_pipeline.py → WorkflowEngine-based pipeline
+└── state_machine.py     → Task state management
 
-shared/
-├── models.py            → Pydantic schemas
-├── queue.py             → Task queue implementation
-├── db.py                → Postgres connection pool
-└── events.py            → Event schema and dispatch
+hermes/                  → Alerts + dashboard
+├── daemon.py            → Main event listener
+├── alerts.py            → Alert dispatch
+├── telegram_bot.py      → Telegram integration
+├── a2a_server.py        → A2A endpoint
+└── web/                 → FastAPI + War Room frontend
+    ├── app.py
+    └── frontend/
 
-tools/
-├── cli.py               → CLI utilities
-├── deployment.py        → Deployment helpers
-├── monitoring.py        → Metrics and logging
-└── backup.py            → Data backup utilities
+clawdbot/                → Site builder + browser automation
+├── daemon.py            → Main daemon
+├── site_builder.py      → AI site construction
+├── netlify_deploy.py    → Netlify deployment
+├── brain.py             → Skill routing
+└── a2a_server.py        → A2A endpoint
 
-tests/
-├── test_perseus.py      → Scheduler tests
-├── test_titan.py        → Pipeline tests
-├── test_hermes.py       → API and alerts tests
-├── test_clawdbot.py     → Browser automation tests
-└── conftest.py          → Pytest fixtures
+conway/                  → Agent economics
+├── wallet.py            → Base L2 USDC wallets
+├── x402_client.py       → Micropayment client
+├── ledger.py            → Transaction ledger
+└── survival.py          → Survival-tier enforcement
 
-.claude/
-├── settings.local.json  → Hook wiring, local config
-├── hooks/               → Validation and damage control
-│   ├── validators/      → Post-tool validation scripts
-│   └── patterns.yaml    → Protected paths and blocked commands
-└── commands/            → Specialized prompts
-    ├── plan.md          → Planning template
-    ├── build.md         → Build execution
-    ├── review.md        → Code review
-    └── test_*.md        → Testing commands
+shared/                  → Shared runtime layer
+├── db.py                → Postgres connection pool (23 tables)
+├── comms.py             → A2A + event bus
+├── llm_client.py        → Claude + Ollama client
+├── skill_loader.py      → Skill loading and vetting
+└── magma.py             → MAGMA learning engine
+
+tools/                   → External integrations
+├── instantly_client.py  → Email campaigns
+├── firecrawl_client.py  → Web scraping
+├── recraft_client.py    → AI image generation
+├── payment_router.py    → Stripe + Wise
+└── budget_guard.py      → Spend enforcement
 
 scripts/
-├── init-db.sql          → Production schema
-├── migrate.py           → Database migrations
+├── init-db.sql          → Production schema (23 tables)
+├── migrations/          → DB migration scripts
 ├── health-check.sh      → System health verification
-└── local-setup.sh       → Development environment setup
+└── install-launchagents.sh → macOS LaunchAgent setup
 
-logs/
-├── perseus.log          → Scheduler logs
-├── titan.log            → Revenue engine logs
-├── hermes.log           → Event dispatcher logs
-└── clawdbot.log         → Automation logs
-
-.env                    → LIVE API KEYS (DO NOT EDIT)
-.env.local              → Development overrides
-docker-compose.yml      → Service dependencies
-Justfile                → Standardized commands
-README.md               → Project overview
-HANDOFF.md              → Context and status
-CLAUDE.md               → This file
+tests/                   → Pytest test suite
+logs/                    → Daemon logs (perseus, titan, hermes, clawdbot)
+soul/                    → Personality, autonomy rules, copywriting guidelines
+templates/               → Industry website templates (dentist, plumber, restaurant)
+.env                     → LIVE API KEYS (DO NOT EDIT)
+docker-compose.yaml      → Service dependencies (Postgres, Qdrant, Mem0, N8N)
+Makefile / justfile      → Standardized commands
+CLAUDE.md                → This file
+HANDOFF.md               → Context and status
 ```
 
 ## Agent Instructions
@@ -208,9 +199,9 @@ CLAUDE.md               → This file
 - Running daemon processes (require `make stop` before modification)
 
 ## Infrastructure
-- **Stack**: Python 3.11+, FastAPI, Postgres (psycopg v3), Mem0, Ollama, Claude API, Next.js
+- **Stack**: Python 3.11+, OpenJarvis, FastAPI, Postgres (psycopg v3), Mem0, Ollama, Claude API, React (War Room)
 - **Deployment**: Docker Compose (local), systemd daemons (production)
-- **Database**: Postgres with 5 core tables (tasks, results, metrics, api_keys, events)
+- **Database**: Postgres with 23 tables (tasks, results, metrics, api_keys, events, agent wallets, leads, campaigns, and more)
 - **Budget**: $800/month (Claude API calls, Postgres, Telegram)
 - **Hardware**: Mac M4 32GB (development), scalable to cloud (production)
 - **Monitoring**: Daemon health checks every 30 seconds, alerting via Telegram

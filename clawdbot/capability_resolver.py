@@ -13,6 +13,7 @@ Every step is recorded in agent_decisions for auditability.
 
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -151,6 +152,9 @@ async def resolve_capability(need: str, context: dict | None = None) -> dict:
     )
 
 
+_ALLOW_RUNTIME_INSTALL = os.environ.get("ALLOW_RUNTIME_INSTALL", "").strip().lower() in ("1", "true", "yes")
+
+
 async def _search_and_install_from_registry(skill_name: str) -> bool:
     """
     Search external skill registries for a skill, clone the repo if needed,
@@ -159,7 +163,17 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
     Registries are git repos containing skill directories with SKILL.md files.
     We shallow-clone the whole repo into SKILL_INSTALL_DIR on first use,
     then subsequent lookups are instant (just check if the directory exists).
+
+    Requires ALLOW_RUNTIME_INSTALL=true (default: false) as a safety gate.
     """
+    if not _ALLOW_RUNTIME_INSTALL:
+        logger.warning(
+            "Runtime git clone blocked for skill '%s': "
+            "set ALLOW_RUNTIME_INSTALL=true to enable registry clones.",
+            skill_name,
+        )
+        return False
+
     SKILL_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
 
     for registry in SKILL_REGISTRIES:
@@ -211,7 +225,18 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
 
 
 async def _pip_install(package: str) -> bool:
-    """Install a Python package with retry + backoff. Returns True on success."""
+    """Install a Python package with retry + backoff. Returns True on success.
+
+    Requires ALLOW_RUNTIME_INSTALL=true (default: false) as a safety gate.
+    """
+    if not _ALLOW_RUNTIME_INSTALL:
+        logger.warning(
+            "Runtime pip install blocked for package '%s': "
+            "set ALLOW_RUNTIME_INSTALL=true to enable runtime installs.",
+            package,
+        )
+        return False
+
     logger.info(f"Attempting pip install: {package}")
     rc, err = await _run_with_retry(
         [sys.executable, "-m", "pip", "install", "--quiet", package],

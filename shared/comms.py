@@ -413,15 +413,51 @@ async def delegate_task(
     payload: dict | None = None,
     priority: int = 3,
 ) -> int | str | None:
-    """Delegate a task to a specific agent with priority override."""
+    """Delegate a task to a specific agent with priority override.
+
+    Unlike request_task(), this function routes directly to ``to_agent``
+    instead of consulting TASK_ROUTING.  The caller explicitly chose the
+    target agent and that choice is enforced here.
+
+    Falls back to the DB task_queue (with ``delegated_to`` tag) only when
+    A2A is unavailable so the task still lands in the right agent's queue.
+    """
     full_payload = payload or {}
     full_payload["delegated_by"] = from_agent
-    task_id = await request_task(
-        task_type=task_type,
-        payload=full_payload,
-        priority=priority,
+    full_payload = enrich_payload_with_context(full_payload)
+
+    # Primary: A2A direct call to the named agent (bypass TASK_ROUTING)
+    if _USE_A2A:
+        try:
+            from shared.oj_bridge import call_agent_async
+            result = await call_agent_async(to_agent, task_type, full_payload)
+            if "error" not in result:
+                task_id = result.get("task_id")
+                if not task_id:
+                    status = result.get("status", "unknown")
+                    task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
+                logger.info(
+                    "Delegated %s from %s → %s via A2A (priority=%s, id=%s)",
+                    task_type, from_agent, to_agent, priority, task_id,
+                )
+                return task_id
+            logger.warning(
+                "A2A delegation %s → %s returned error: %s",
+                task_type, to_agent, result.get("error"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "A2A delegation %s → %s failed, falling back to DB: %s",
+                task_type, to_agent, exc,
+            )
+
+    # Fallback: DB task_queue tagged so the target agent can filter by it
+    full_payload["delegated_to"] = to_agent
+    task_id = await db.insert_task(task_type, full_payload, priority, dedupe=False)
+    logger.info(
+        "Delegated %s from %s → %s via DB fallback (priority=%s, id=%s)",
+        task_type, from_agent, to_agent, priority, task_id,
     )
-    logger.info(f"Delegated {task_type} from {from_agent} → {to_agent} (priority={priority}, id={task_id})")
     return task_id
 
 

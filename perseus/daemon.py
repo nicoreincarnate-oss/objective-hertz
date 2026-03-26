@@ -1,3 +1,19 @@
+# =============================================================================
+# LEGACY MODULE — DO NOT USE AS PRIMARY ENTRYPOINT
+# =============================================================================
+# perseus/daemon.py is retained for backward compatibility only.
+#
+# The canonical entrypoint is orchestrator.py (OpenJarvis orchestrator),
+# which supersedes this file in all production and development deployments.
+#
+# Migration:
+#   Old:  python -m perseus.daemon   (or: python perseus/daemon.py)
+#   New:  python orchestrator.py
+#
+# This file will refuse to start if the OpenJarvis orchestrator is already
+# listening on ORCHESTRATOR_A2A_PORT (default 9000).  In that case use
+# orchestrator.py exclusively — perseus/daemon.py is a no-op.
+# =============================================================================
 """
 Perseus Master Daemon — LEGACY. Replaced by OpenJarvis orchestrator.
 

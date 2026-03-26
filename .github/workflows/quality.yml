@@ -17,6 +17,13 @@ jobs:
       - name: Lint
         run: python -m ruff check shared perseus titan hermes clawdbot tests
       - name: Type check
+        # OpenJarvis is excluded: it requires a compiled Rust extension
+        # (openjarvis_rust) that needs maturin + Rust toolchain to build.
+        # OpenJarvis type errors are suppressed via pyproject.toml overrides.
         run: python -m mypy shared perseus titan hermes clawdbot
       - name: Test
+        # OpenJarvis tests excluded: 177 of them require openjarvis_rust
+        # (Rust extension not compiled in CI). Remaining failures are
+        # missing test fixtures and pre-existing framework issues.
+        # Perseus product tests run in full.
         run: python -m pytest tests/ --ignore=tests/openjarvis -v
