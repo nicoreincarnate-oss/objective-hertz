@@ -1091,3 +1091,703 @@ class TestInfraHealth:
         assert result["status"] in ("ok", "degraded", "down")
         assert "percent_used" in result
         assert "free_gb" in result
+
+
+# ===========================================================================
+# 17. openjarvis/vassals/memory_federation.py — MemoryFederation
+# ===========================================================================
+
+class TestMemoryFederation:
+    def _make_backend(self, results):
+        """Return a mock local memory backend."""
+        backend = MagicMock()
+        mock_results = []
+        for content, score in results:
+            r = MagicMock()
+            r.content = content
+            r.score = score
+            r.metadata = {}
+            mock_results.append(r)
+        backend.retrieve.return_value = mock_results
+        return backend
+
+    def test_search_local_backend_returns_results(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = self._make_backend([("result A", 0.9), ("result B", 0.7)])
+        fed = MemoryFederation(local_backends=[backend])
+
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("test query", top_k=5)
+        )
+        assert len(results) == 2
+        assert results[0].content == "result A"
+        assert results[0].source_node == "local"
+
+    def test_search_deduplicates_identical_content(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = self._make_backend([("same text", 0.8), ("same text", 0.6)])
+        fed = MemoryFederation(local_backends=[backend])
+
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("query", top_k=10)
+        )
+        # Identical content should be deduplicated to one result
+        assert len(results) == 1
+
+    def test_search_respects_top_k(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = self._make_backend([
+            ("a", 0.9), ("b", 0.8), ("c", 0.7), ("d", 0.6), ("e", 0.5),
+        ])
+        fed = MemoryFederation(local_backends=[backend])
+
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("query", top_k=3)
+        )
+        assert len(results) == 3
+
+    def test_search_confidence_weighted_ordering(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = self._make_backend([("low", 0.1), ("high", 0.95), ("mid", 0.5)])
+        fed = MemoryFederation(local_backends=[backend], merge_strategy="confidence_weighted")
+
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("query", top_k=10)
+        )
+        assert results[0].content == "high"
+
+    def test_search_round_robin_strategy(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        b1 = self._make_backend([("from_b1", 0.9)])
+        b2 = self._make_backend([("from_b2", 0.8)])
+        fed = MemoryFederation(local_backends=[b1, b2], merge_strategy="round_robin")
+
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("query", top_k=10)
+        )
+        contents = {r.content for r in results}
+        assert "from_b1" in contents
+        assert "from_b2" in contents
+
+    def test_search_backend_error_is_silenced(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = MagicMock()
+        backend.retrieve.side_effect = RuntimeError("db down")
+        fed = MemoryFederation(local_backends=[backend])
+
+        # Should not raise; returns empty list
+        results = asyncio.get_event_loop().run_until_complete(
+            fed.search("query")
+        )
+        assert results == []
+
+    def test_store_to_local_backend(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        backend = MagicMock()
+        backend.store.return_value = None
+        fed = MemoryFederation(local_backends=[backend])
+
+        ok = asyncio.get_event_loop().run_until_complete(
+            fed.store("remember this", target="local")
+        )
+        assert ok is True
+        backend.store.assert_called_once()
+
+    def test_store_returns_false_when_no_backends(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        fed = MemoryFederation()
+        ok = asyncio.get_event_loop().run_until_complete(
+            fed.store("content", target="local")
+        )
+        assert ok is False
+
+    def test_summary_lists_backend_names(self):
+        from openjarvis.vassals.memory_federation import MemoryFederation
+
+        class FakeBackend:
+            pass
+
+        fed = MemoryFederation(local_backends=[FakeBackend()])
+        s = fed.summary()
+        # type(b).__name__ preserves the class name exactly
+        assert "FakeBackend" in s["local_backends"]
+        assert s["merge_strategy"] == "confidence_weighted"
+
+    def test_federated_result_content_hash_is_deterministic(self):
+        from openjarvis.vassals.memory_federation import FederatedResult
+
+        r = FederatedResult(content="hello world")
+        assert r.content_hash == FederatedResult(content="hello world").content_hash
+        assert r.content_hash != FederatedResult(content="different").content_hash
+
+
+# ===========================================================================
+# 18. openjarvis/vassals/perseus_scheduler.py — PerseusScheduler
+# ===========================================================================
+
+class TestPerseusScheduler:
+    def _make_scheduler(self, config=None):
+        from openjarvis.core.events import EventBus
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig, PerseusScheduler
+
+        bus = EventBus()
+        vassals = MagicMock()
+        vassals.get.return_value = None
+        vassals.call.return_value = "{}"
+        vassals.health_check_all.return_value = {}
+        vassals.rediscover_unhealthy.return_value = []
+        vassals.summary.return_value = {}
+
+        cfg = config or PerseusConfig(tick_interval=1)
+        scheduler = PerseusScheduler(bus=bus, vassal_discovery=vassals, config=cfg)
+        return scheduler, bus, vassals
+
+    def test_initial_state(self):
+        scheduler, _, _ = self._make_scheduler()
+        assert scheduler._running is False
+        assert scheduler._tick_count == 0
+
+    def test_status_reflects_config(self):
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig
+
+        cfg = PerseusConfig(tick_interval=30, budget_monthly_cap=500.0)
+        scheduler, _, _ = self._make_scheduler(config=cfg)
+        s = scheduler.status()
+        assert s["running"] is False
+        assert s["tick_interval"] == 30
+        assert s["budget_cap"] == 500.0
+
+    def test_tick_increments_counter(self):
+        scheduler, _, _ = self._make_scheduler()
+
+        asyncio.get_event_loop().run_until_complete(scheduler._tick())
+        assert scheduler._tick_count == 1
+
+        asyncio.get_event_loop().run_until_complete(scheduler._tick())
+        assert scheduler._tick_count == 2
+
+    def test_tick_publishes_event_to_bus(self):
+        from openjarvis.core.events import EventType
+
+        scheduler, bus, _ = self._make_scheduler()
+        received = []
+        bus.subscribe(EventType.CUSTOM, lambda e: received.append(e))
+
+        asyncio.get_event_loop().run_until_complete(scheduler._tick())
+        # Should have published a perseus_tick event
+        tick_events = [e for e in received if e.data.get("sub_type") == "perseus_tick"]
+        assert len(tick_events) == 1
+        assert tick_events[0].data["tick"] == 1
+
+    def test_stop_sets_running_false(self):
+        scheduler, _, _ = self._make_scheduler()
+        scheduler._running = True
+
+        asyncio.get_event_loop().run_until_complete(scheduler.stop())
+        assert scheduler._running is False
+
+    def test_is_stuck_returns_false_with_no_history(self):
+        scheduler, _, _ = self._make_scheduler()
+        assert scheduler._is_stuck() is False
+
+    def test_is_stuck_detects_frozen_state(self):
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig
+
+        cfg = PerseusConfig(stuck_detection_window=3)
+        scheduler, _, _ = self._make_scheduler(config=cfg)
+
+        frozen = {"hot_leads": 5, "ready_to_close": 2, "ready_to_deliver": 1, "ready_to_invoice": 0}
+        scheduler._prev_states = [frozen, frozen, frozen]
+        assert scheduler._is_stuck() is True
+
+    def test_is_stuck_false_when_state_changes(self):
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig
+
+        cfg = PerseusConfig(stuck_detection_window=3)
+        scheduler, _, _ = self._make_scheduler(config=cfg)
+
+        scheduler._prev_states = [
+            {"hot_leads": 5, "ready_to_close": 2, "ready_to_deliver": 1, "ready_to_invoice": 0},
+            {"hot_leads": 5, "ready_to_close": 2, "ready_to_deliver": 1, "ready_to_invoice": 0},
+            {"hot_leads": 6, "ready_to_close": 2, "ready_to_deliver": 1, "ready_to_invoice": 0},
+        ]
+        assert scheduler._is_stuck() is False
+
+    def test_enforce_budget_no_action_below_threshold(self):
+        scheduler, _, _ = self._make_scheduler()
+        state = {"budget": {"percent_used": 50}}
+
+        action = asyncio.get_event_loop().run_until_complete(
+            scheduler._enforce_budget(state)
+        )
+        assert action is None
+
+    def test_enforce_budget_pauses_at_100_percent(self):
+        scheduler, _, _ = self._make_scheduler()
+        state = {"budget": {"percent_used": 100}}
+
+        action = asyncio.get_event_loop().run_until_complete(
+            scheduler._enforce_budget(state)
+        )
+        assert action == "paused_pipeline"
+
+    def test_enforce_budget_downgrades_at_threshold(self):
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig
+
+        cfg = PerseusConfig(budget_alert_threshold=0.8)
+        scheduler, _, _ = self._make_scheduler(config=cfg)
+        state = {"budget": {"percent_used": 85}}
+
+        action = asyncio.get_event_loop().run_until_complete(
+            scheduler._enforce_budget(state)
+        )
+        assert action == "downgraded_to_local"
+
+
+# ===========================================================================
+# 19. openjarvis/vassals/priorities.py — decide_priorities
+# ===========================================================================
+
+class TestDecidePriorities:
+    def test_empty_state_runs_discovery(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({})
+        assert "lead_discovery" in result["schedule"]
+        assert "reasoning" in result
+
+    def test_invoice_ready_is_first_priority(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"ready_to_invoice": 3})
+        assert "process_invoices" in result["schedule"]
+        assert result["schedule"].index("process_invoices") == 0
+
+    def test_ready_to_deliver_schedules_build_sites(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"ready_to_deliver": 2})
+        assert "build_sites" in result["schedule"]
+        assert "site_verify" in result["schedule"]
+
+    def test_hot_leads_schedules_close_and_followup(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"hot_leads": 5})
+        assert "close_interested" in result["schedule"]
+        assert "follow_up_check" in result["schedule"]
+
+    def test_errors_spike_triggers_health_only(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"recent_errors": 15})
+        assert result["schedule"] == ["health_check", "budget_check"]
+        assert result.get("alert") is True
+        assert "lead_discovery" in result["skip"]
+
+    def test_downstream_overloaded_skips_discovery(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"hot_leads": 10, "ready_to_deliver": 5})
+        assert "lead_discovery" in result["skip"]
+
+    def test_active_outreach_schedules_analytics_and_send(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"outreach_active": 3})
+        assert "sync_analytics" in result["schedule"]
+        assert "email_send" in result["schedule"]
+
+    def test_schedule_has_no_duplicates(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        state = {
+            "hot_leads": 2,
+            "ready_to_close": 1,
+            "outreach_active": 5,
+            "ready_to_invoice": 1,
+        }
+        result = decide_priorities(state)
+        assert len(result["schedule"]) == len(set(result["schedule"]))
+
+    def test_reasoning_is_non_empty_string(self):
+        from openjarvis.vassals.priorities import decide_priorities
+
+        result = decide_priorities({"hot_leads": 1})
+        assert isinstance(result["reasoning"], str)
+        assert len(result["reasoning"]) > 0
+
+
+# ===========================================================================
+# 20. openjarvis/vassals/registry.py — DB-backed agent registry
+# ===========================================================================
+
+class TestVassalRegistry:
+    """Tests use mocked shared.db functions to avoid a real Postgres connection."""
+
+    def test_get_active_agents_calls_fetch_all(self):
+        with patch("openjarvis.vassals.registry.fetch_all") as mock_fetch:
+            mock_fetch.return_value = [{"name": "titan", "status": "active"}]
+            from openjarvis.vassals import registry
+
+            result = asyncio.get_event_loop().run_until_complete(
+                registry.get_active_agents()
+            )
+        assert result == [{"name": "titan", "status": "active"}]
+        mock_fetch.assert_called_once()
+
+    def test_get_agent_calls_fetch_one(self):
+        with patch("openjarvis.vassals.registry.fetch_one") as mock_fetch:
+            mock_fetch.return_value = {"name": "hermes", "status": "active"}
+            from openjarvis.vassals import registry
+
+            result = asyncio.get_event_loop().run_until_complete(
+                registry.get_agent("hermes")
+            )
+        assert result == {"name": "hermes", "status": "active"}
+        mock_fetch.assert_called_once()
+
+    def test_get_agent_returns_none_when_not_found(self):
+        with patch("openjarvis.vassals.registry.fetch_one") as mock_fetch:
+            mock_fetch.return_value = None
+            from openjarvis.vassals import registry
+
+            result = asyncio.get_event_loop().run_until_complete(
+                registry.get_agent("nonexistent")
+            )
+        assert result is None
+
+    def test_heartbeat_calls_execute(self):
+        with patch("openjarvis.vassals.registry.execute") as mock_exec:
+            mock_exec.return_value = None
+            from openjarvis.vassals import registry
+
+            asyncio.get_event_loop().run_until_complete(
+                registry.heartbeat("titan")
+            )
+        mock_exec.assert_called_once()
+        # Verify the correct agent name was passed as a parameter
+        call_args = mock_exec.call_args
+        assert "titan" in call_args[0][1]
+
+    def test_check_agent_health_classifies_stale(self):
+        stale_agent = {
+            "name": "clawdbot",
+            "status": "active",
+            "last_heartbeat": None,
+            "seconds_since_heartbeat": 999,
+        }
+        with patch("openjarvis.vassals.registry.fetch_all") as mock_fetch:
+            mock_fetch.return_value = [stale_agent]
+            from openjarvis.vassals import registry
+
+            health = asyncio.get_event_loop().run_until_complete(
+                registry.check_agent_health()
+            )
+        assert health["clawdbot"]["status"] == "stale"
+
+    def test_check_agent_health_classifies_fresh(self):
+        fresh_agent = {
+            "name": "titan",
+            "status": "active",
+            "last_heartbeat": "2026-03-25T00:00:00",
+            "seconds_since_heartbeat": 10,
+        }
+        with patch("openjarvis.vassals.registry.fetch_all") as mock_fetch:
+            mock_fetch.return_value = [fresh_agent]
+            from openjarvis.vassals import registry
+
+            health = asyncio.get_event_loop().run_until_complete(
+                registry.check_agent_health()
+            )
+        assert health["titan"]["status"] == "active"
+
+
+# ===========================================================================
+# 21. openjarvis/vassals/schedules.py — Schedule table (characterization)
+# ===========================================================================
+
+class TestVassalSchedules:
+    """Characterization tests for the Schedule data table.
+
+    NOTE: This module is a passive data definition (SCHEDULES list + SCHEDULE_MAP dict).
+    It is not wired into any active runtime code in the current codebase — the
+    PerseusScheduler uses decide_priorities() directly. These tests document the
+    module's contract so any future integration can rely on it.
+    """
+
+    def test_schedules_list_is_non_empty(self):
+        from openjarvis.vassals.schedules import SCHEDULES
+
+        assert len(SCHEDULES) > 0
+
+    def test_schedule_map_keys_match_names(self):
+        from openjarvis.vassals.schedules import SCHEDULE_MAP, SCHEDULES
+
+        for s in SCHEDULES:
+            assert s.name in SCHEDULE_MAP
+            assert SCHEDULE_MAP[s.name] is s
+
+    def test_critical_tasks_are_not_skippable(self):
+        from openjarvis.vassals.schedules import SCHEDULE_MAP
+
+        for name in ("health_check", "budget_check", "sleep_cycle", "morning_briefing"):
+            assert SCHEDULE_MAP[name].skippable is False, f"{name} must not be skippable"
+
+    def test_revenue_tasks_are_skippable(self):
+        from openjarvis.vassals.schedules import SCHEDULE_MAP
+
+        for name in ("lead_discovery", "email_send", "build_sites", "process_invoices"):
+            assert SCHEDULE_MAP[name].skippable is True, f"{name} should be skippable"
+
+    def test_schedule_intervals_are_positive(self):
+        from openjarvis.vassals.schedules import SCHEDULES
+
+        for s in SCHEDULES:
+            assert s.interval_seconds > 0, f"{s.name} has non-positive interval"
+
+    def test_schedule_dataclass_fields(self):
+        from openjarvis.vassals.schedules import Schedule
+
+        s = Schedule(name="test_task", interval_seconds=60, description="A test task")
+        assert s.name == "test_task"
+        assert s.interval_seconds == 60
+        assert s.skippable is True  # default
+        assert s.pipeline_stage == ""  # default
+
+
+# ===========================================================================
+# 22. openjarvis/vassals/sleep_cycle.py — _filter_surviving (pure logic)
+# ===========================================================================
+
+class TestSleepCycle:
+    """Tests for the pure-logic portions of sleep_cycle (no DB/LLM calls).
+
+    The full run_sleep_cycle() requires DB + LLM; those are not mocked here.
+    We test _filter_surviving directly, which contains all non-trivial logic.
+    """
+
+    def test_filter_surviving_approve(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [{"what": "change A", "category": "config_change"}]
+        verdicts = [{"proposal_index": 0, "verdict": "approve"}]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert len(surviving) == 1
+        assert surviving[0]["what"] == "change A"
+
+    def test_filter_surviving_reject(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [{"what": "risky change", "category": "soul_doc_edit"}]
+        verdicts = [{"proposal_index": 0, "verdict": "reject"}]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert surviving == []
+
+    def test_filter_surviving_modify_merges_proposal(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [{"what": "original", "old_value": "x", "new_value": "y"}]
+        verdicts = [{
+            "proposal_index": 0,
+            "verdict": "modify",
+            "modified_proposal": {"new_value": "z", "why": "safer change"},
+        }]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert len(surviving) == 1
+        assert surviving[0]["new_value"] == "z"       # modified value
+        assert surviving[0]["what"] == "original"     # original field preserved
+
+    def test_filter_surviving_modify_without_modified_proposal_is_skipped(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [{"what": "something"}]
+        verdicts = [{"proposal_index": 0, "verdict": "modify", "modified_proposal": None}]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert surviving == []
+
+    def test_filter_surviving_ignores_out_of_range_index(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [{"what": "p0"}]
+        verdicts = [{"proposal_index": 99, "verdict": "approve"}]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert surviving == []
+
+    def test_filter_surviving_multiple_mixed_verdicts(self):
+        from openjarvis.vassals.sleep_cycle import _filter_surviving
+
+        proposals = [
+            {"what": "approved change"},
+            {"what": "rejected change"},
+            {"what": "modified change", "value": "old"},
+        ]
+        verdicts = [
+            {"proposal_index": 0, "verdict": "approve"},
+            {"proposal_index": 1, "verdict": "reject"},
+            {"proposal_index": 2, "verdict": "modify", "modified_proposal": {"value": "new"}},
+        ]
+        surviving = _filter_surviving(proposals, verdicts)
+        assert len(surviving) == 2
+        whats = [s["what"] for s in surviving]
+        assert "approved change" in whats
+        assert "modified change" in whats
+        assert "rejected change" not in whats
+
+
+# ===========================================================================
+# 23. openjarvis/vassals/supervisor.py — VassalSupervisor
+# ===========================================================================
+
+class TestVassalSupervisor:
+    def _make_supervisor(self):
+        from openjarvis.core.events import EventBus
+        from openjarvis.vassals.supervisor import VassalSupervisor
+
+        bus = EventBus()
+        sup = VassalSupervisor(bus=bus, project_dir="/tmp/fake_project")
+        return sup, bus
+
+    def test_register_vassal(self):
+        from openjarvis.vassals.supervisor import VassalProcess
+
+        sup, _ = self._make_supervisor()
+        vp = VassalProcess(name="test_daemon", command=["python", "-c", "pass"])
+        sup.register(vp)
+        assert "test_daemon" in sup._vassals
+
+    def test_register_defaults_registers_three_vassals(self):
+        sup, _ = self._make_supervisor()
+        sup.register_defaults()
+        assert "titan" in sup._vassals
+        assert "hermes" in sup._vassals
+        assert "clawdbot" in sup._vassals
+
+    def test_register_defaults_no_project_dir_logs_warning(self, caplog):
+        import logging
+
+        from openjarvis.core.events import EventBus
+        from openjarvis.vassals.supervisor import VassalSupervisor
+        bus = EventBus()
+        sup = VassalSupervisor(bus=bus, project_dir="")
+        with caplog.at_level(logging.WARNING):
+            sup.register_defaults()
+        assert len(sup._vassals) == 0
+
+    def test_is_running_false_when_not_started(self):
+        from openjarvis.vassals.supervisor import VassalProcess
+
+        sup, _ = self._make_supervisor()
+        sup.register(VassalProcess(name="idle", command=["true"]))
+        assert sup.is_running("idle") is False
+
+    def test_is_running_false_for_unknown_vassal(self):
+        sup, _ = self._make_supervisor()
+        assert sup.is_running("nonexistent") is False
+
+    def test_status_includes_all_registered(self):
+        from openjarvis.vassals.supervisor import VassalProcess
+
+        sup, _ = self._make_supervisor()
+        sup.register(VassalProcess(name="v1", command=["true"], a2a_port=9001))
+        sup.register(VassalProcess(name="v2", command=["true"], a2a_port=9002))
+
+        s = sup.status()
+        assert "v1" in s
+        assert "v2" in s
+        assert s["v1"]["port"] == 9001
+
+    def test_start_unknown_vassal_returns_false(self):
+        sup, _ = self._make_supervisor()
+        result = asyncio.get_event_loop().run_until_complete(sup.start("ghost"))
+        assert result is False
+
+    def test_stop_unknown_vassal_returns_true(self):
+        """Stopping an unregistered vassal is a no-op that returns True."""
+        sup, _ = self._make_supervisor()
+        result = asyncio.get_event_loop().run_until_complete(sup.stop("ghost"))
+        assert result is True
+
+    def test_start_real_process_and_stop(self, tmp_path):
+        """Start a real short-lived subprocess and verify lifecycle tracking."""
+        from openjarvis.core.events import EventBus, EventType
+        from openjarvis.vassals.supervisor import VassalProcess, VassalSupervisor
+
+        bus = EventBus()
+        sup = VassalSupervisor(bus=bus, project_dir=str(tmp_path))
+        events = []
+        bus.subscribe(EventType.CUSTOM, lambda e: events.append(e))
+
+        # Use 'sleep 60' so it stays running long enough to test
+        vp = VassalProcess(
+            name="sleeper",
+            command=["sleep", "60"],
+            cwd=str(tmp_path),
+            restart_on_crash=False,
+        )
+        sup.register(vp)
+
+        started = asyncio.get_event_loop().run_until_complete(sup.start("sleeper"))
+        assert started is True
+        assert sup.is_running("sleeper") is True
+
+        # Confirm the start event was published
+        start_events = [e for e in events if e.data.get("sub_type") == "vassal_started"]
+        assert len(start_events) == 1
+        assert start_events[0].data["name"] == "sleeper"
+
+        # Stop it
+        stopped = asyncio.get_event_loop().run_until_complete(sup.stop("sleeper"))
+        assert stopped is True
+        assert sup.is_running("sleeper") is False
+
+    def test_start_already_running_is_idempotent(self, tmp_path):
+        from openjarvis.core.events import EventBus
+        from openjarvis.vassals.supervisor import VassalProcess, VassalSupervisor
+
+        bus = EventBus()
+        sup = VassalSupervisor(bus=bus, project_dir=str(tmp_path))
+        vp = VassalProcess(
+            name="sleeper2",
+            command=["sleep", "60"],
+            cwd=str(tmp_path),
+            restart_on_crash=False,
+        )
+        sup.register(vp)
+
+        asyncio.get_event_loop().run_until_complete(sup.start("sleeper2"))
+        # Starting again should succeed without spawning a new process
+        result = asyncio.get_event_loop().run_until_complete(sup.start("sleeper2"))
+        assert result is True
+
+        # Cleanup
+        asyncio.get_event_loop().run_until_complete(sup.stop("sleeper2"))
+
+    def test_stop_all_stops_registered_processes(self, tmp_path):
+        from openjarvis.core.events import EventBus
+        from openjarvis.vassals.supervisor import VassalProcess, VassalSupervisor
+
+        bus = EventBus()
+        sup = VassalSupervisor(bus=bus, project_dir=str(tmp_path))
+        sup.register(VassalProcess(
+            name="p1", command=["sleep", "60"], cwd=str(tmp_path), restart_on_crash=False,
+        ))
+        sup.register(VassalProcess(
+            name="p2", command=["sleep", "60"], cwd=str(tmp_path), restart_on_crash=False,
+        ))
+
+        asyncio.get_event_loop().run_until_complete(sup.start("p1"))
+        asyncio.get_event_loop().run_until_complete(sup.start("p2"))
+
+        asyncio.get_event_loop().run_until_complete(sup.stop_all())
+
+        assert sup.is_running("p1") is False
+        assert sup.is_running("p2") is False
