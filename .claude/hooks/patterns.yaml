@@ -1,0 +1,95 @@
+# Perseus Damage Control Patterns
+# Three tiers of path protection
+
+zero_access_paths:
+  - .ssh
+  - .env
+  - .env.*
+  - secrets/
+  - credentials/
+  - "*.pem"
+  - "*.key"
+  - id_rsa
+  - id_ed25519
+
+readonly_paths:
+  - .claude/settings.local.json
+  - .claude/hooks/
+  - .claude/scripts/bash_tool_damage_control.sh
+  - .claude/scripts/edit_tool_damage_control.sh
+  - scripts/init-db.sql
+  - .gitignore
+  - LICENSE
+
+no_delete_paths:
+  - CLAUDE.md
+  - HANDOFF.md
+  - README.md
+  - Makefile
+  - justfile
+  - requirements.txt
+  - pyproject.toml
+  - docker-compose.yaml
+  - ".github/"
+
+blocked_commands:
+  - pattern: "rm -rf /"
+    action: block
+  - pattern: "rm -rf ~"
+    action: block
+  - pattern: "rm -rf \\."
+    action: block
+  - pattern: "rm -rf \\*"
+    action: block
+  - pattern: "DROP DATABASE"
+    action: block
+  - pattern: "DROP TABLE"
+    action: block
+  - pattern: "TRUNCATE TABLE"
+    action: block
+  - pattern: "git push.*--force.*main"
+    action: block
+  - pattern: "git push.*--force.*master"
+    action: block
+  - pattern: "chmod 777"
+    action: block
+  - pattern: ":(){ :|:& };:"
+    action: block
+  - pattern: "mkfs\\."
+    action: block
+  - pattern: "dd if=/dev"
+    action: block
+  - pattern: "shutdown"
+    action: block
+  - pattern: "reboot"
+    action: block
+  - pattern: "> /dev/sda"
+    action: block
+  - pattern: "pkill -9 -u"
+    action: block
+  - pattern: "launchctl unload.*perseus"
+    action: block
+  - pattern: "curl.*| bash"
+    action: ask
+  - pattern: "curl.*| sh"
+    action: ask
+  - pattern: "wget.*| bash"
+    action: ask
+  - pattern: "docker rm"
+    action: ask
+  - pattern: "docker volume rm"
+    action: ask
+  - pattern: "docker compose down -v"
+    action: ask
+  - pattern: "DELETE FROM"
+    action: ask
+  - pattern: "git reset --hard"
+    action: ask
+  - pattern: "git clean -fd"
+    action: ask
+  - pattern: "pip install.*--force"
+    action: ask
+  - pattern: "stripe.*delete"
+    action: ask
+  - pattern: "stripe.*cancel"
+    action: ask

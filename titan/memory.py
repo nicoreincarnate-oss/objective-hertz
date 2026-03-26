@@ -55,13 +55,16 @@ async def store_memory(
     }
     if metadata:
         mem_metadata.update(metadata)
+    # Namespace by client_id so each client's memories are isolated in Mem0.
+    # "titan" is the fallback for system-level memories (reflections, strategies).
+    mem0_user_id = f"client:{client_id}" if client_id else "titan"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            await http.post(
                 f"{config.memory.mem0_host}/v1/memories/",
                 json={
                     "messages": [{"role": "assistant", "content": content}],
-                    "user_id": "titan",
+                    "user_id": mem0_user_id,
                     "metadata": mem_metadata,
                 },
             )
@@ -75,21 +78,40 @@ async def store_memory(
         )
 
 
-async def search_memory(query: str, limit: int = 5) -> list[str]:
-    """Search vector memory for relevant past experiences."""
+async def search_memory(query: str, limit: int = 5, client_id: int | None = None) -> list[str]:
+    """Search vector memory for relevant past experiences.
+
+    When client_id is provided, searches the client's namespace first,
+    then backfills remaining slots from the system ("titan") namespace.
+    This gives client-specific memories priority while still surfacing
+    general technique learnings (email tips, pricing strategies, etc.).
+    """
     import httpx
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{config.memory.mem0_host}/v1/memories/search/",
-                json={"query": query, "user_id": "titan", "limit": limit},
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-            return [r.get("memory", "") for r in results if r.get("memory")]
-    except Exception as e:
-        logger.debug(f"Mem0 search failed (non-critical): {e}")
-        return []
+
+    async def _search_ns(user_id: str, n: int) -> list[str]:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http:
+                resp = await http.post(
+                    f"{config.memory.mem0_host}/v1/memories/search/",
+                    json={"query": query, "user_id": user_id, "limit": n},
+                )
+                resp.raise_for_status()
+                results = resp.json().get("results", [])
+                return [r.get("memory", "") for r in results if r.get("memory")]
+        except Exception as e:
+            logger.debug(f"Mem0 search failed for {user_id} (non-critical): {e}")
+            return []
+
+    if client_id is not None:
+        # Client-specific memories first, then backfill from system pool
+        client_results = await _search_ns(f"client:{client_id}", limit)
+        remaining = limit - len(client_results)
+        if remaining > 0:
+            system_results = await _search_ns("titan", remaining)
+            return client_results + system_results
+        return client_results
+    else:
+        return await _search_ns("titan", limit)
 
 
 # ── Temporal Memory (Zep/Graphiti) — 3rd backend ─────────────────────
@@ -104,8 +126,12 @@ async def store_temporal_fact(
     valid_days: int = 30,
     source_lead_id: int | None = None,
     metadata: dict | None = None,
+    client_id: int | None = None,
 ) -> bool:
     """Store a fact with expiry. Facts auto-expire and stop appearing in searches.
+
+    client_id scopes the fact to a per-client Zep session. System-level
+    facts (no client_id) go to the "titan" session.
 
     Returns True if stored, False if Zep unavailable (graceful degradation).
     """
@@ -125,10 +151,13 @@ async def store_temporal_fact(
     if metadata:
         fact_metadata.update(metadata)
 
+    # Per-client Zep session, or "titan" for system-level facts
+    zep_session = f"client_{client_id}" if client_id is not None else "titan"
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{config.memory.zep_url}/api/v2/memory/titan/messages",
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.post(
+                f"{config.memory.zep_url}/api/v2/memory/{zep_session}/messages",
                 json={
                     "messages": [{"role": "assistant", "content": content, "metadata": fact_metadata}],
                 },
@@ -140,29 +169,53 @@ async def store_temporal_fact(
         return False
 
 
-async def search_temporal_facts(query: str, limit: int = 5) -> list[dict]:
+async def search_temporal_facts(
+    query: str, limit: int = 5, client_id: int | None = None,
+) -> list[dict]:
     """Search temporal facts, auto-excluding expired ones.
 
-    Returns list of {"content": str, "valid_until": str, "category": str}.
+    When client_id is provided, searches the client session first and
+    backfills remaining slots from the system ("titan") session.
+
+    Returns list of {"content": str, "valid_until": str, "category": str,
+    "magma_node_id": str (optional)}.
     """
     if not config.memory.zep_enabled:
         return []
 
     import httpx
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{config.memory.zep_url}/api/v2/memory/titan/search",
-                json={"text": query, "limit": limit * 2},  # over-fetch then filter
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-    except Exception as e:
-        logger.debug(f"Zep search failed (non-critical): {e}")
-        return []
+    async def _search_session(session_id: str, n: int) -> list:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http:
+                resp = await http.post(
+                    f"{config.memory.zep_url}/api/v2/memory/{session_id}/search",
+                    json={"text": query, "limit": n * 2},  # over-fetch then filter
+                )
+                resp.raise_for_status()
+                return resp.json().get("results", [])
+        except Exception as e:
+            logger.debug(f"Zep search failed for session {session_id} (non-critical): {e}")
+            return []
 
-    # Filter out expired facts
+    if client_id is not None:
+        raw_client = await _search_session(f"client_{client_id}", limit * 2)
+        # Filter expired BEFORE deciding on backfill. Without this,
+        # expired client hits inflate the count and suppress system
+        # backfill, then get removed below — leaving too few results.
+        now = datetime.now().isoformat()
+        results = [
+            r for r in raw_client
+            if not (r.get("metadata", {}).get("valid_until", "") and r.get("metadata", {}).get("valid_until", "") < now)
+        ]
+        # Backfill from system session if live client results are sparse
+        if len(results) < limit:
+            system_results = await _search_session("titan", (limit - len(results)) * 2)
+            results.extend(system_results)
+    else:
+        results = await _search_session("titan", limit * 2)
+
+    # Filter out expired facts (system results may also be expired)
     now = datetime.now().isoformat()
     facts = []
     for r in results:
@@ -172,11 +225,18 @@ async def search_temporal_facts(query: str, limit: int = 5) -> list[dict]:
             continue  # Expired — skip
         content = r.get("content", r.get("message", {}).get("content", ""))
         if content:
-            facts.append({
+            fact = {
                 "content": content,
                 "valid_until": valid_until,
                 "category": meta.get("category", ""),
-            })
+            }
+            # Preserve magma_node_id for RRF identity linkage —
+            # without this, MAGMA falls back to fake zep_{rank} IDs
+            # and cannot fuse Zep hits with their graph/vector twins.
+            magma_nid = meta.get("magma_node_id")
+            if magma_nid:
+                fact["magma_node_id"] = magma_nid
+            facts.append(fact)
         if len(facts) >= limit:
             break
 
@@ -249,37 +309,62 @@ async def _emit_mem0_alert(kind: str, message: str, *, error: Exception, context
     })
 
 
-async def get_relevant_learnings(context: str, limit: int = 10) -> str:
+async def get_relevant_learnings(
+    context: str, limit: int = 10, client_id: int | None = None,
+    query_type: str = "",
+) -> str:
     """
     Get relevant learnings for a specific context.
 
     If MAGMA is enabled, routes through the intent-aware 4-graph retriever.
     Otherwise falls back to the 3-source stack (Zep + Postgres + Qdrant).
+
+    client_id scopes retrieval to a single client's memories, preventing
+    cross-client leakage across Mem0, MAGMA graph, and Postgres.
+
+    query_type (e.g. "email_compose", "lead_research") selects ALMA
+    meta-learned retrieval parameters when MAGMA is enabled.
     """
-    # Try MAGMA first — intent-aware retrieval across all 4 graphs
+    # Try MAGMA first — intent-aware retrieval across all 4 graphs.
+    # magma_retrieve returns "" when graph is unavailable (no driver,
+    # no anchors, low confidence) so we fall through to the flat stack
+    # instead of recursing back into this function.
+    magma_prefix = ""
     if config.memory.magma_enabled:
         try:
             from shared.magma import magma_retrieve
-            result = await magma_retrieve(context, limit=limit)
-            if result and result != "No relevant memories found.":
+            result = await magma_retrieve(context, limit=limit, client_id=client_id, query_type=query_type)
+            if result and not result.startswith("[LOW CONFIDENCE"):
                 return result
+            if result and result.startswith("[LOW CONFIDENCE"):
+                # Carry the warning, but still use flat-stack data below
+                magma_prefix = result + "\n"
         except Exception as e:
             logger.debug(f"MAGMA retrieval failed, falling back to flat stack: {e}")
 
     # Fallback: 3-source stack (Zep + Postgres + Qdrant)
     # 1. Temporal facts from Zep (only non-expired, freshest data)
-    temporal_facts = await search_temporal_facts(context, limit=5)
+    temporal_facts = await search_temporal_facts(context, limit=5, client_id=client_id)
 
     # 2. Structured learnings from Postgres (high confidence first)
-    db_learnings = await fetch_all(
-        """SELECT category, insight FROM titan_learnings
-           WHERE confidence > 0.5
-           ORDER BY confidence DESC, created_at DESC LIMIT %s""",
-        (limit,),
-    )
+    #    Scoped to client_id when provided to prevent cross-client leakage.
+    if client_id is not None:
+        db_learnings = await fetch_all(
+            """SELECT category, insight FROM titan_learnings
+               WHERE confidence > 0.5 AND client_id = %s
+               ORDER BY confidence DESC, created_at DESC LIMIT %s""",
+            (client_id, limit),
+        )
+    else:
+        db_learnings = await fetch_all(
+            """SELECT category, insight FROM titan_learnings
+               WHERE confidence > 0.5
+               ORDER BY confidence DESC, created_at DESC LIMIT %s""",
+            (limit,),
+        )
 
     # 3. Vector search from Mem0 — filter stale entries against Zep
-    raw_vector = await search_memory(context, limit=limit)
+    raw_vector = await search_memory(context, limit=limit, client_id=client_id)
     vector_memories = _filter_stale_qdrant(raw_vector, temporal_facts)
 
     # Combine with merge priority: Zep > Postgres > Qdrant
@@ -298,7 +383,8 @@ async def get_relevant_learnings(context: str, limit: int = 10) -> str:
         for m in vector_memories:
             parts.append(f"  - {m}")
 
-    return "\n".join(parts) if parts else "No prior learnings yet."
+    flat_result = "\n".join(parts) if parts else "No prior learnings yet."
+    return magma_prefix + flat_result
 
 
 # ── Daily Reflection ──────────────────────────────────────────────────
@@ -1036,8 +1122,38 @@ async def graphrag_consolidation() -> dict:
     """Weekly: cluster Mem0 entries by category, consolidate into high-signal nodes.
 
     Reduces context noise: 400 raw memories → 20 high-signal summaries.
+    Consolidates BOTH the shared "titan" namespace AND per-client namespaces,
+    so client-specific memory growth is also managed.
     Must run BEFORE prospect state and re-enrichment inject into prompts.
     """
+    import httpx
+
+    stats = {"categories_consolidated": 0, "memories_consumed": 0, "summaries_created": 0}
+
+    # Collect all user_ids to consolidate: shared "titan" + active client namespaces
+    user_ids = ["titan"]
+    try:
+        client_rows = await fetch_all(
+            "SELECT id FROM clients WHERE status NOT IN ('lost', 'unsubscribed') LIMIT 100"
+        )
+        for row in (client_rows or []):
+            user_ids.append(f"client:{row['id']}")
+    except Exception as e:
+        logger.debug(f"graphrag_consolidation: could not list client namespaces: {e}")
+
+    for user_id in user_ids:
+        ns_stats = await _consolidate_namespace(user_id)
+        stats["categories_consolidated"] += ns_stats["categories_consolidated"]
+        stats["memories_consumed"] += ns_stats["memories_consumed"]
+        stats["summaries_created"] += ns_stats["summaries_created"]
+
+    logger.info(f"graphrag_consolidation complete ({len(user_ids)} namespaces): {stats}")
+    await emit_event("graphrag_consolidation_complete", stats)
+    return stats
+
+
+async def _consolidate_namespace(user_id: str) -> dict:
+    """Consolidate Mem0 memories for a single user_id namespace."""
     import httpx
 
     stats = {"categories_consolidated": 0, "memories_consumed": 0, "summaries_created": 0}
@@ -1047,16 +1163,15 @@ async def graphrag_consolidation() -> dict:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{config.memory.mem0_host}/v1/memories/search/",
-                json={"query": "all recent learnings", "user_id": "titan", "limit": 200},
+                json={"query": "all recent learnings", "user_id": user_id, "limit": 200},
             )
             resp.raise_for_status()
             all_memories = resp.json().get("results", [])
     except Exception as e:
-        logger.warning(f"graphrag_consolidation: could not fetch memories from Mem0: {e}")
+        logger.debug(f"graphrag_consolidation[{user_id}]: could not fetch memories: {e}")
         return stats
 
     if len(all_memories) < 10:
-        logger.info("graphrag_consolidation: fewer than 10 memories, skipping")
         return stats
 
     # 2. Group by category
@@ -1104,10 +1219,18 @@ async def graphrag_consolidation() -> dict:
             if not insight:
                 continue
 
-            # Store as high-importance consolidated memory
+            # Store as high-importance consolidated memory.
+            # Extract client_id from user_id for client namespaces.
+            consolidation_client_id = None
+            if user_id.startswith("client:"):
+                try:
+                    consolidation_client_id = int(user_id.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
             await store_memory(
                 f"[CONSOLIDATED from {based_on} memories] {insight}",
                 category=f"{category}_consolidated",
+                client_id=consolidation_client_id,
                 metadata={
                     "consolidated": True,
                     "based_on_count": based_on,
@@ -1129,13 +1252,11 @@ async def graphrag_consolidation() -> dict:
                     async with httpx.AsyncClient(timeout=5.0) as client:
                         await client.delete(
                             f"{config.memory.mem0_host}/v1/memories/{mem_id}/",
-                            params={"user_id": "titan"},
+                            params={"user_id": user_id},
                         )
                 except Exception:
                     pass  # Best-effort cleanup
 
-    logger.info(f"graphrag_consolidation complete: {stats}")
-    await emit_event("graphrag_consolidation_complete", stats)
     return stats
 
 
@@ -1285,18 +1406,18 @@ async def attribute_reply_cause(original_email: str, reply_body: str, outcome: s
     if not trigger:
         return
 
-    # Store as structured learning
+    # Store as structured learning with proper client_id column
     await execute(
-        """INSERT INTO titan_learnings (category, insight, confidence)
-           VALUES ('sentence_attribution', %s, %s)""",
+        """INSERT INTO titan_learnings (category, insight, confidence, client_id)
+           VALUES ('sentence_attribution', %s, %s, %s)""",
         (
             json.dumps({
                 "trigger_sentence": trigger[:200],
                 "trigger_type": trigger_type,
                 "effect": effect,
-                "client_id": client_id,
             }),
             confidence,
+            client_id,
         ),
     )
 
@@ -1362,16 +1483,16 @@ async def _attribute_silence(client_id: int, email_seq_id: int | None = None):
         return
 
     await execute(
-        """INSERT INTO titan_learnings (category, insight, confidence)
-           VALUES ('sentence_attribution', %s, %s)""",
+        """INSERT INTO titan_learnings (category, insight, confidence, client_id)
+           VALUES ('sentence_attribution', %s, %s, %s)""",
         (
             json.dumps({
                 "likely_cause": cause[:200],
                 "trigger_type": trigger_type,
                 "effect": "silence",
-                "client_id": client_id,
             }),
             confidence,
+            client_id,
         ),
     )
     logger.info(f"Silence attribution: type={trigger_type}, cause={cause[:60]}")
@@ -1450,6 +1571,7 @@ async def re_enrich_active_leads() -> dict:
                 category="lead_re_enrichment",
                 valid_days=7,
                 source_lead_id=lead_id,
+                client_id=lead_id,
             )
 
             stats["enriched"] += 1

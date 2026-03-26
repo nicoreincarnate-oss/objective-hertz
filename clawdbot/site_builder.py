@@ -858,6 +858,9 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
         return await _v0_build_and_deploy(brief, business_name, site_type)
 
     # Phase 4: Deploy
+    # Track the actual deploy method — not just what we attempted.
+    actual_method = "5_agent_process"
+    deployed_pages = ["index.html"]
     if page_count > 1:
         # Multi-page full site → generate inner pages + deploy to Netlify
         try:
@@ -868,9 +871,13 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
                 business_name,
                 client_id=lead.get("id"),
             )
+            actual_method = "multipage_netlify"
+            deployed_pages = list(pages.keys())
         except Exception as e:
             logger.warning("Multi-page deploy failed (%s), falling back to v0.dev with index only", e)
             url = await _deploy_to_v0(final_html, business_name, site_type)
+            actual_method = "v0_fallback_from_netlify_failure"
+            deployed_pages = ["index.html"]
     else:
         # Single-page demo → deploy to v0.dev
         url = await _deploy_to_v0(final_html, business_name, site_type)
@@ -882,11 +889,11 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
             "url": url,
             "site_type": site_type,
             "variants_built": len(variants),
-            "method": "multipage_netlify" if page_count > 1 else "5_agent_process",
+            "method": actual_method,
             "build_mode": build_plan.get("build_mode"),
             "runtime_profile": build_plan.get("runtime_profile"),
             "assets_generated": asset_pack.get("assets_generated", 0),
-            "pages": list(pages.keys()) if page_count > 1 else ["index.html"],
+            "pages": deployed_pages,
         })
         return url
 

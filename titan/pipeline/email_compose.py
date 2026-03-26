@@ -58,7 +58,8 @@ async def compose_emails(batch_size: int = 20):
 
     # Get relevant learnings from structured DB + vector memory
     learned_tips = await get_relevant_learnings(
-        "cold email composition, subject lines, copywriting, what gets replies"
+        "cold email composition, subject lines, copywriting, what gets replies",
+        query_type="email_compose",
     )
 
     # Get proven rules (deterministic, data-backed constraints)
@@ -134,11 +135,16 @@ Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}"
         )
         return
 
-    await fetch_one(
+    row = await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
-           VALUES (%s, 1, %s, %s, 'pending', %s) RETURNING id""",
+           VALUES (%s, 1, %s, %s, 'pending', %s)
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
         (lead_id, subject, body, prompt_hash),
     )
+    if not row:
+        logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
+        return
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email via skill '{skill_name}' for lead {lead_id} (prompt_v={prompt_hash[:8]})")
 
@@ -207,12 +213,17 @@ Return JSON:
         )
         return  # Don't store invalid content
 
-    # Store the email draft
-    await fetch_one(
+    # Store the email draft — ON CONFLICT prevents duplicate step 1
+    row = await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
-           VALUES (%s, 1, %s, %s, 'pending', %s) RETURNING id""",
+           VALUES (%s, 1, %s, %s, 'pending', %s)
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
         (lead_id, subject, body, prompt_hash),
     )
+    if not row:
+        logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
+        return
 
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email for lead {lead_id}: {lead['business_name']} (prompt_v={prompt_hash[:8]})")

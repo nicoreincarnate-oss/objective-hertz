@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Bot, Zap, Shield, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import useSWR, { mutate } from 'swr'
+import { authHeaders } from '@/hooks/use-token'
 
 interface Message {
   id: string
@@ -34,9 +35,9 @@ export function AgentChat({ token }: { token: string | null }) {
   const [message, setMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
 
-  const fetcher = (url: string) => fetch(url).then(res => res.json())
+  const fetcher = (url: string) => fetch(url, { headers: token ? authHeaders(token) : {} }).then(res => res.json())
   const { data: messages = [] } = useSWR<Message[]>(
-    token ? `/api/operator-chat?token=${token}` : null,
+    token ? '/api/operator-chat' : null,
     fetcher,
     { refreshInterval: 5000 }
   )
@@ -52,13 +53,14 @@ export function AgentChat({ token }: { token: string | null }) {
       formData.append('priority', selectedPriority)
       formData.append('message', message)
 
-      await fetch(`/api/operator-chat?token=${token}`, {
+      await fetch('/api/operator-chat', {
         method: 'POST',
+        headers: authHeaders(token),
         body: formData
       })
 
       setMessage('')
-      mutate(`/api/operator-chat?token=${token}`)
+      mutate('/api/operator-chat')
     } finally {
       setIsSending(false)
     }

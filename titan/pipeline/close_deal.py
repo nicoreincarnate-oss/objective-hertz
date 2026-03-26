@@ -156,10 +156,12 @@ async def _build_demo_and_propose(lead: dict):
 
 
 async def _build_demo_site(lead: dict) -> str:
-    """Build a demo landing page using ClawdBot's competitive build process via A2A."""
-    from shared.comms import ask_agent
-    result = await ask_agent("titan", "clawdbot", "build_demo_site", context=lead, timeout=120)
-    if not result or "error" in result:
+    """Build a demo landing page using ClawdBot's build_demo_site capability via A2A."""
+    from shared.comms import call_agent_capability
+    result = await call_agent_capability(
+        "clawdbot", "build_demo_site", {"lead": lead}, timeout=120,
+    )
+    if not result or result.get("status") == "error":
         raise RuntimeError(f"ClawdBot demo site build failed: {result}")
     return result.get("url", "")
 
@@ -208,9 +210,11 @@ async def _generate_proposal(lead: dict, demo_url: str = "") -> dict:
     """Generate a custom proposal using Claude Sonnet with dynamic pricing."""
     demo_mention = f"\nI already built a demo site for you: {demo_url}" if demo_url else ""
 
-    # Get learnings about what closes deals
+    # Get learnings about what closes deals (scoped to this client + system techniques)
     learnings = await get_relevant_learnings(
-        "sales proposals, closing deals, pricing objections, what converts interested leads"
+        "sales proposals, closing deals, pricing objections, what converts interested leads",
+        client_id=lead.get("id"),
+        query_type="proposal_generation",
     )
 
     # Dynamic pricing based on lead quality, industry, region

@@ -205,6 +205,7 @@ def call_agent(agent_name: str, capability: str, params: Optional[dict] = None, 
                 "X-Request-Id": meta["request_id"],
             },
             metadata=meta,
+            timeout=timeout,
         )
         if task.state in ("completed", "working"):
             try:

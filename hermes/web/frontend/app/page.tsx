@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { useToken } from '@/hooks/use-token'
+import { useToken, authHeaders } from '@/hooks/use-token'
 import { HeroCard } from '@/components/hero-card'
 import { MetricsRow } from '@/components/metrics-row'
 import { AgentChat } from '@/components/agent-chat'
@@ -15,7 +15,14 @@ import { LeadsTable } from '@/components/leads-table'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { TokenInput } from '@/components/token-input'
 
-const fetcher = (url: string) => fetch(url).then(res => res.json())
+/**
+ * SWR fetcher that sends the token via Authorization: Bearer header.
+ * NEVER sends tokens as query parameters.
+ */
+function createAuthFetcher(token: string) {
+  return (url: string) =>
+    fetch(url, { headers: authHeaders(token) }).then(res => res.json())
+}
 
 interface HealthData {
   error?: string
@@ -70,52 +77,50 @@ interface Event {
 }
 
 export default function PerseusWarRoom() {
-  const { token, isLoading: tokenLoading } = useToken()
+  const { token, isLoading: tokenLoading, setToken } = useToken()
   const [lastSync, setLastSync] = useState('--:--')
 
-  // Auto-refresh every 30 seconds
   const refreshInterval = 30000
+  const fetcher = token ? createAuthFetcher(token) : null
 
   const { data: health, error: healthFetchError, isLoading: healthLoading } = useSWR<HealthData>(
-    token ? `/api/health?token=${token}` : null,
-    fetcher,
+    fetcher ? '/api/health' : null,
+    fetcher!,
     { refreshInterval }
   )
 
   const { data: pipeline } = useSWR<PipelineData>(
-    token ? `/api/pipeline?token=${token}` : null,
-    fetcher,
+    fetcher ? '/api/pipeline' : null,
+    fetcher!,
     { refreshInterval }
   )
 
   const { data: leads } = useSWR<Lead[]>(
-    token ? `/api/leads?token=${token}` : null,
-    fetcher,
+    fetcher ? '/api/leads' : null,
+    fetcher!,
     { refreshInterval }
   )
 
   const { data: events } = useSWR<Event[]>(
-    token ? `/api/events?token=${token}` : null,
-    fetcher,
+    fetcher ? '/api/events' : null,
+    fetcher!,
     { refreshInterval }
   )
 
-  // Update last sync time
   useEffect(() => {
     const updateSync = () => {
       const now = new Date()
       setLastSync(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }))
     }
-    
+
     if (health) {
       updateSync()
     }
-    
+
     const interval = setInterval(updateSync, refreshInterval)
     return () => clearInterval(interval)
   }, [health])
 
-  // Show loading while checking for token
   if (tokenLoading) {
     return (
       <div className="relative min-h-screen bg-background aurora-bg noise-overlay flex items-center justify-center overflow-hidden">
@@ -135,12 +140,10 @@ export default function PerseusWarRoom() {
     )
   }
 
-  // Token required screen with input form
   if (!token) {
-    return <TokenInput />
+    return <TokenInput onTokenSubmit={setToken} />
   }
 
-  // Real metrics from backend — no invented numbers
   const revenueCleared = health?.metrics?.revenue_cleared ?? 0
   const pendingRevenue = health?.metrics?.revenue_pending ?? 0
   const totalLeads = health?.metrics?.total_leads ?? 0
@@ -174,7 +177,6 @@ export default function PerseusWarRoom() {
           </section>
         )}
 
-        {/* Hero Card */}
         <section className="mb-6">
           <HeroCard
             mode={health?.mode || 'review'}
@@ -186,7 +188,6 @@ export default function PerseusWarRoom() {
           />
         </section>
 
-        {/* Metrics Row */}
         <section className="mb-6">
           <MetricsRow
             revenueCleared={revenueCleared}
@@ -197,12 +198,8 @@ export default function PerseusWarRoom() {
           />
         </section>
 
-        {/* Two Column Layout */}
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {/* Agent Chat */}
           <AgentChat token={token} />
-
-          {/* Pipeline Pulse */}
           {pipeline && <PipelinePulse data={pipeline} />}
         </div>
 
@@ -210,17 +207,14 @@ export default function PerseusWarRoom() {
           <StrategicView token={token} />
         </section>
 
-        {/* Signal Ledger */}
         <section className="mb-6">
           {events && <SignalLedger events={events} />}
         </section>
 
-        {/* Leads Table */}
         <section>
           {leads && <LeadsTable leads={leads} />}
         </section>
 
-        {/* Footer */}
         <footer className="mt-8 pt-6 border-t border-border text-center">
           <p className="text-xs text-muted-foreground">
             PERSEUS War Room • Autonomous AI Revenue System • v1.0.0

@@ -99,9 +99,11 @@ async def build_sites():
 
 
 async def _build_full_site(lead: dict) -> str:
-    """Build a full website using ClawdBot's 5-agent competitive process via A2A."""
-    from shared.comms import ask_agent
-    result = await ask_agent("titan", "clawdbot", "build_full_site", context=lead, timeout=120)
-    if not result or "error" in result:
+    """Build a full website using ClawdBot's build_full_site capability via A2A."""
+    from shared.comms import call_agent_capability
+    result = await call_agent_capability(
+        "clawdbot", "build_full_site", {"lead": lead}, timeout=120,
+    )
+    if not result or result.get("status") == "error":
         raise RuntimeError(f"ClawdBot site build failed: {result}")
     return result.get("url", "")

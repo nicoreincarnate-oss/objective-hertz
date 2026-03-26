@@ -12,8 +12,10 @@ The A2A server runs alongside the daemon's existing async loop via asyncio.gathe
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -98,14 +100,28 @@ def create_a2a_app(
 
     @app.post("/a2a/tasks")
     async def handle_task(request: Request):
-        """Handle JSON-RPC 2.0 A2A task requests."""
+        """Handle JSON-RPC 2.0 A2A task requests.
+
+        When A2A_SHARED_SECRET is set, all callers must include a matching
+        X-A2A-Secret header. This prevents unauthenticated local processes
+        from impersonating operator messages or sending commands to daemons.
+        """
+        a2a_secret = os.getenv("A2A_SHARED_SECRET", "").strip()
+        if a2a_secret:
+            caller_secret = request.headers.get("x-a2a-secret", "")
+            if not hmac.compare_digest(caller_secret, a2a_secret):
+                return JSONResponse(
+                    {"jsonrpc": "2.0", "error": {"code": -32000, "message": "A2A authentication failed"}, "id": ""},
+                    status_code=401,
+                )
+
         body = await request.json()
         method = body.get("method", "")
         params = body.get("params", {})
         req_id = body.get("id", "")
 
         if method == "tasks/send":
-            return await _handle_send(params, req_id)
+            return await _handle_send(params, req_id, request)
         elif method == "tasks/get":
             return await _handle_get(params, req_id)
         elif method == "tasks/cancel":
@@ -117,7 +133,7 @@ def create_a2a_app(
                 "id": req_id,
             })
 
-    async def _handle_send(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_send(params: dict, req_id: str, request: Request) -> JSONResponse:
         """Handle tasks/send — extract text, call handler, return result.
 
         Security: scans input for prompt injection before processing.

@@ -32,6 +32,8 @@ CLAWDBOT_CARD = AgentCard(
         "browser_task",
         "agent_orchestration",
         "android_automation",
+        "build_demo_site", "build_full_site",
+        "set_custom_domain", "provision_domain",
         "site_verify", "site_verify_batch", "verify_demo_site", "visual_site_review",
         "enrich_lead", "enrich_leads_batch",
         "voice_call",
@@ -308,17 +310,108 @@ async def _event_relay(type: str = "", payload: dict = None, source: str = "", *
     return {"status": "relayed", "type": type, "source": source}
 
 
+async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+    """Review a self-audit finding against actual code.
+
+    ClawdBot reviews for: browser automation reliability, skill execution safety,
+    subprocess/timeout bugs, web scraping correctness, and infrastructure issues.
+    """
+    if not finding or not code_snippet:
+        return {"vote": "defer", "reason": "no finding or code provided", "from": "clawdbot"}
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are ClawdBot, the skills and browser automation agent. A self-audit found an issue. "
+        f"Review the ACTUAL CODE and the proposed fix.\n\n"
+        f"FILE: {finding.get('file', '?')}\n"
+        f"ISSUE: {finding.get('issue', '?')}\n"
+        f"SEVERITY: {finding.get('severity', '?')}\n"
+        f"FAILURE MODE: {finding.get('failure_mode', '?')}\n"
+        f"PROPOSED FIX: {finding.get('proposed_fix', 'none')}\n"
+        f"REASONING: {finding.get('reasoning', '?')}\n\n"
+        f"ACTUAL CODE:\n```python\n{code_snippet[:4000]}\n```\n\n"
+        f"Review from your perspective:\n"
+        f"1. Does this code affect browser automation, skill execution, or infrastructure?\n"
+        f"2. Is the reported issue real? Can you see the bug in the code above?\n"
+        f"3. Could the proposed fix break subprocess handling, timeouts, or scraping?\n"
+        f"4. Are there safety issues (command injection, unescaped input, missing timeouts)?\n\n"
+        f"Vote: approve (issue is real AND fix is safe), reject (false positive OR fix is dangerous), "
+        f"or defer (not in your domain). Include your reasoning."
+    )
+
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    lower = answer.lower()
+    if "reject" in lower[:100] or "false positive" in lower[:200]:
+        vote = "reject"
+    elif "approve" in lower[:100] or "issue is real" in lower[:200]:
+        vote = "approve"
+    else:
+        vote = "defer"
+
+    return {"vote": vote, "reason": answer[:500], "from": "clawdbot"}
+
+
+async def _build_demo_site(lead: dict = None, **_) -> dict:
+    """Build a demo landing page via site_builder. Returns {"url": ..., "status": ...}."""
+    from clawdbot.site_builder import build_demo_site
+    try:
+        url = await build_demo_site(lead or {})
+        return {"url": url, "status": "built" if url else "failed"}
+    except Exception as e:
+        logger.error("build_demo_site failed: %s", e)
+        return {"url": "", "status": "error", "error": str(e)}
+
+
+async def _build_full_site(lead: dict = None, **_) -> dict:
+    """Build a full 5-page website via site_builder. Returns {"url": ..., "status": ...}."""
+    from clawdbot.site_builder import build_full_site
+    try:
+        url = await build_full_site(lead or {})
+        return {"url": url, "status": "built" if url else "failed"}
+    except Exception as e:
+        logger.error("build_full_site failed: %s", e)
+        return {"url": "", "status": "error", "error": str(e)}
+
+
+async def _set_custom_domain(site_id: str = "", domain: str = "", **_) -> dict:
+    """Set a custom domain on a Netlify site."""
+    from clawdbot.netlify_deploy import set_custom_domain
+    try:
+        return await set_custom_domain(site_id, domain)
+    except Exception as e:
+        logger.error("set_custom_domain failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def _provision_domain(
+    domain: str = "", netlify_site_id: str = "", netlify_subdomain: str = "", **_,
+) -> dict:
+    """Full domain provisioning: Cloudflare CNAME + Netlify custom domain."""
+    from tools.domain_manager import provision_custom_domain
+    try:
+        return await provision_custom_domain(domain, netlify_site_id, netlify_subdomain)
+    except Exception as e:
+        logger.error("provision_domain failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 CAPABILITY_HANDLERS = {
     "ask": _ask,
+    "review_finding": _review_finding,
     "skill_execute": _skill_execute,
     "skill_list": _skill_list,
     "skill_find": _skill_find,
     "web_scrape": _web_scrape,
     "scrape_company": _scrape_company,
     "browser_task": _browser_task,
+    "build_demo_site": _build_demo_site,
+    "build_full_site": _build_full_site,
+    "set_custom_domain": _set_custom_domain,
+    "provision_domain": _provision_domain,
     "agent_orchestration": _agent_orchestration,
     "android_automation": _android_automation,
     "site_verify": _site_verify,
+    "verify_single_site": _site_verify,
     "site_verify_batch": _site_verify_batch,
     "verify_demo_site": _verify_demo_site,
     "visual_site_review": _visual_site_review,

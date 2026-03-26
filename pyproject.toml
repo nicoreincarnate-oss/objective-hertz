@@ -40,6 +40,7 @@ dev = [
 inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = ["openai>=1.30", "anthropic>=0.30"]
+memory-graph = ["neo4j>=5.0"]
 inference-google = ["google-genai>=1.0"]
 inference-litellm = ["litellm>=1.40"]
 tools-search = ["tavily-python>=0.3", "ddgs>=9.11.4"]

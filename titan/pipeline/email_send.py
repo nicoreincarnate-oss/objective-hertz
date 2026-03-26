@@ -373,16 +373,20 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
     if not success:
         return False
 
-    # Update our tracking atomically so a crash can't partially advance state.
+    # Update our tracking atomically.
+    # Mark as 'queued' (accepted by Instantly campaign), NOT 'sent'.
+    # Instantly handles actual delivery later on its own schedule.
+    # The analytics sync in sync_campaign_analytics() updates to 'sent'
+    # when Instantly confirms the email was actually dispatched.
     async with transaction() as conn:
         await conn.execute(
-            "UPDATE email_sequences SET status = 'sent', sent_at = NOW() WHERE id = %s",
+            "UPDATE email_sequences SET status = 'queued' WHERE id = %s",
             (lead["seq_id"],),
         )
         if lead.get("step", 1) == 1:
             await conn.execute(
                 """UPDATE clients
-                   SET status = 'email_sent', last_contact_at = NOW(), updated_at = NOW()
+                   SET status = 'email_queued', last_contact_at = NOW(), updated_at = NOW()
                    WHERE id = %s""",
                 (lead["client_id"],),
             )
@@ -432,7 +436,23 @@ async def _queue_for_review(batch_size: int):
         (batch_size,),
     )
 
+    queued_count = 0
     for lead in leads:
+        # Dedupe: skip if this sequence already has a pending review item.
+        # Without this, every cycle re-selects the same pending drafts and
+        # piles up duplicate review_queue rows.
+        existing = await fetch_one(
+            """SELECT id FROM review_queue
+               WHERE item_type = 'email_draft'
+                 AND client_id = %s
+                 AND content->>'seq_id' = %s
+                 AND status = 'pending_review'
+               LIMIT 1""",
+            (lead["client_id"], str(lead["seq_id"])),
+        )
+        if existing:
+            continue
+
         content = {
             "seq_id": lead["seq_id"],
             "step": lead.get("step", 1),
@@ -444,12 +464,13 @@ async def _queue_for_review(batch_size: int):
                VALUES ('email_draft', %s, %s, 'pending_review')""",
             (lead["client_id"], Jsonb(content)),
         )
+        queued_count += 1
         if lead.get("step", 1) == 1:
             await transition_lead(lead["client_id"], "email_queued")
 
-    if leads:
-        await emit_event("review_needed", {"type": "email_drafts", "count": len(leads)})
-        logger.info(f"Queued {len(leads)} emails for review")
+    if queued_count:
+        await emit_event("review_needed", {"type": "email_drafts", "count": queued_count})
+        logger.info(f"Queued {queued_count} emails for review")
 
 
 async def sync_campaign_analytics():

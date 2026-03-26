@@ -139,7 +139,7 @@ class TitanDaemon(AgentBase):
         self._cycle_interval = 30  # seconds between task queue checks
 
     async def start(self):
-        """Start Titan's main loop — polls task_queue from Perseus + runs pipeline."""
+        """Start Titan's main loop — polls task_queue from Perseus."""
         logger.info("Titan starting up...")
         await db.init_pool()
         from titan.compliance import assert_compliance_ready
@@ -164,8 +164,8 @@ class TitanDaemon(AgentBase):
                     # Process tasks from Perseus scheduler
                     await self._process_task_queue()
 
-                    # Also run the full pipeline cycle (Titan is self-driven too)
-                    await self._run_pipeline_cycle()
+                    # Consume recommendations from other agents
+                    await self._consume_recommendations()
 
                     # Heartbeat so Perseus knows we're alive
                     await heartbeat(self.name)
@@ -199,9 +199,23 @@ class TitanDaemon(AgentBase):
             "status": "running" if self._running else "stopped",
         }
 
+    # Service dependencies per pipeline stage. If a required service is
+    # down, the task is skipped (left in queue) rather than claimed and
+    # failed, so Perseus will retry on the next schedule tick.
+    STAGE_DEPENDENCIES: dict[str, list[str]] = {
+        "lead_discovery": ["ollama"],
+        "lead_research": ["ollama"],
+        "email_compose": ["ollama"],
+        "email_send": ["instantly"],
+        "follow_up_check": ["instantly", "ollama"],
+        "close_interested": ["ollama"],
+    }
+
     async def _process_task_queue(self):
         """Process pending tasks dispatched by Perseus."""
         tasks = await self.get_pending_tasks()
+        infra = await db.get_config("infra_health", {})
+
         for task in tasks:
             if self._shutdown_requested:
                 break
@@ -209,6 +223,21 @@ class TitanDaemon(AgentBase):
             handler = TASK_HANDLERS.get(task_type)
             if not handler:
                 continue  # Not a Titan task
+
+            # Check service dependencies before claiming
+            required = self.STAGE_DEPENDENCIES.get(task_type, [])
+            deps_ok = True
+            for svc in required:
+                try:
+                    from openjarvis.vassals.infra_health import is_service_ok
+                    if not is_service_ok(infra, svc):
+                        logger.warning(f"Skipping task {task_type}: {svc} is down")
+                        deps_ok = False
+                        break
+                except ImportError:
+                    pass
+            if not deps_ok:
+                continue  # Leave in queue for next cycle
 
             claimed = await self.claim_task(task["id"])
             if not claimed:
@@ -220,17 +249,48 @@ class TitanDaemon(AgentBase):
                 payload = task.get("payload", {})
                 if isinstance(payload, str):
                     payload = json.loads(payload)
-                if task_type == "titan_operator_message":
-                    await handler(payload)
-                else:
-                    await handler()
+                await self._invoke_handler(handler, task_type, payload)
                 await self.complete_task(task["id"])
                 logger.debug(f"Task {task['id']} ({task_type}) completed")
             except Exception as e:
                 await self.fail_task(task["id"], str(e))
                 logger.error(f"Task {task['id']} ({task_type}) failed: {e}")
+                await self._ask_team_for_help(task_type, e)
             finally:
                 self.finish_work(work_id)
+
+    async def _invoke_handler(self, handler, task_type: str, payload: dict) -> None:
+        """Call a task handler, forwarding payload parameters it accepts.
+
+        Inspects the handler's signature and passes matching keys from
+        the task payload as keyword arguments. This ensures callers who
+        set batch_size, overrides, or other params in the payload actually
+        have them honored instead of silently dropped.
+        """
+        import inspect
+
+        if task_type == "titan_operator_message":
+            # Operator messages pass the full payload as a single arg
+            await handler(payload)
+            return
+
+        if not payload:
+            await handler()
+            return
+
+        # Match payload keys to handler parameters
+        try:
+            sig = inspect.signature(handler)
+            accepted = set(sig.parameters.keys())
+            kwargs = {k: v for k, v in payload.items() if k in accepted}
+        except (ValueError, TypeError):
+            kwargs = {}
+
+        if kwargs:
+            logger.debug(f"Forwarding payload params to {task_type}: {list(kwargs.keys())}")
+            await handler(**kwargs)
+        else:
+            await handler()
 
     async def _consume_recommendations(self) -> None:
         """Read and ACT on recommendations from other agents."""
@@ -306,55 +366,13 @@ class TitanDaemon(AgentBase):
         except Exception as help_err:
             logger.debug(f"Team help-seeking for '{stage_name}': {help_err}")
 
-    async def _run_pipeline_cycle(self):
-        """One full cycle of the pipeline. Checks infra health before each stage."""
-        # Consume ClawdBot recommendations
-        await self._consume_recommendations()
-
-        # Check infrastructure health — skip stages whose dependencies are down
-        infra = await db.get_config("infra_health", {})
-
-        stages = [
-            ("discover", discover_leads, ["ollama"]),
-            ("research", research_leads, ["ollama"]),
-            ("compose", compose_emails, ["ollama"]),
-            ("send", send_emails, ["instantly"]),
-            ("follow_up", process_follow_ups, ["instantly", "ollama"]),
-            ("close", process_interested_leads, ["ollama"]),
-            ("build", build_sites, []),
-            ("deploy", deploy_sites, []),
-            ("invoice", process_invoices, []),
-        ]
-
-        for stage_name, stage_fn, required_services in stages:
-            if self._shutdown_requested:
-                break
-
-            # Check required services
-            skip = False
-            for svc in required_services:
-                from openjarvis.vassals.infra_health import is_service_ok
-                if not is_service_ok(infra, svc):
-                    logger.warning(f"Skipping stage '{stage_name}': {svc} is down")
-                    skip = True
-                    break
-            if skip:
-                continue
-
-            work_id = f"stage:{stage_name}"
-            self.begin_work(work_id)
-            try:
-                await stage_fn()
-            except Exception as e:
-                logger.error(f"Stage '{stage_name}' failed: {e}")
-                await self.emit_event("pipeline_stage_error", {
-                    "stage": stage_name,
-                    "error": str(e),
-                })
-                # Ask teammates for help instead of just logging
-                await self._ask_team_for_help(stage_name, e)
-            finally:
-                self.finish_work(work_id)
+    # NOTE: _run_pipeline_cycle was removed. It duplicated every pipeline
+    # stage that Perseus already schedules via the task queue. Every stage
+    # (discover, research, compose, send, follow_up, close, build, deploy,
+    # invoice) is dispatched by Perseus scheduler with proper intervals and
+    # processed via _process_task_queue → TASK_HANDLERS. Running them a
+    # second time unconditionally caused double-discovery, double-send, and
+    # double-invoice when stages weren't idempotent under concurrent execution.
 
 
 async def main():

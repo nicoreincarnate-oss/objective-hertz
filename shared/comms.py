@@ -66,8 +66,15 @@ async def request_task(
                 from shared.oj_bridge import call_agent_async
                 result = await call_agent_async(agent_name, task_type, full_payload)
                 if "error" not in result:
-                    logger.debug("A2A dispatch: %s → %s (ok)", task_type, agent_name)
-                    return result.get("task_id", f"a2a_{uuid.uuid4().hex[:8]}")
+                    task_id = result.get("task_id")
+                    if not task_id:
+                        # Store the full result so callers can inspect status.
+                        # Generate an ID for tracking but tag it with the actual
+                        # status so callers don't confuse "dispatched" with "succeeded".
+                        status = result.get("status", "unknown")
+                        task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
+                    logger.debug("A2A dispatch: %s → %s (status=%s)", task_type, agent_name, result.get("status", "ok"))
+                    return task_id
                 logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
             except Exception as exc:
                 logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
@@ -375,6 +382,27 @@ async def ask_agent(
         return result
     except Exception as e:
         logger.warning(f"ask_agent({from_agent}→{to_agent}) failed: {e}")
+        return None
+
+
+async def call_agent_capability(
+    to_agent: str,
+    capability: str,
+    params: dict,
+    timeout: int = 30,
+) -> dict | None:
+    """Call a specific capability on an agent via A2A."""
+    try:
+        from shared.oj_bridge import call_agent_async
+        result = await call_agent_async(
+            to_agent,
+            capability,
+            params,
+            timeout=timeout,
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"call_agent_capability({to_agent}.{capability}) failed: {e}")
         return None
 
 

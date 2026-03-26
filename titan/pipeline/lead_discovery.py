@@ -317,7 +317,8 @@ async def _get_discovery_strategy() -> dict:
     """Ask AI what to search for based on learnings and proven rules."""
     # Get relevant learnings from structured DB + vector memory
     insights = await get_relevant_learnings(
-        "lead discovery, target industries, regions that convert, businesses without websites"
+        "lead discovery, target industries, regions that convert, businesses without websites",
+        query_type="lead_research",
     )
 
     # Get proven targeting rules
@@ -415,35 +416,30 @@ async def _store_lead(business: dict) -> int | None:
     if not name and not email:
         return None  # Need at least a name or email
 
-    # Check for duplicate
-    if email:
-        existing = await fetch_one(
-            "SELECT id FROM clients WHERE email = %s", (email,)
+    # Insert with conflict handling — the DB unique index is the real
+    # dedup enforcement. ON CONFLICT DO NOTHING handles races where two
+    # workers discover the same lead concurrently.
+    try:
+        row = await fetch_one(
+            """INSERT INTO clients (business_name, contact_name, email, phone, industry,
+                                   website_url, status, country, city, source, source_campaign)
+               VALUES (%s, %s, %s, %s, %s, %s, 'discovered', %s, %s, %s, %s)
+               ON CONFLICT DO NOTHING
+               RETURNING id""",
+            (
+                name,
+                business.get("contact_name", ""),
+                email,
+                business.get("phone", ""),
+                business.get("industry", ""),
+                business.get("website_url", ""),
+                business.get("country", ""),
+                business.get("city", ""),
+                source,
+                source_campaign,
+            ),
         )
-    else:
-        existing = await fetch_one(
-            "SELECT id FROM clients WHERE business_name = %s AND source = %s AND email = ''",
-            (name, source),
-        )
-    if existing:
+        return row["id"] if row else None
+    except Exception as e:
+        logger.debug(f"Lead insert failed (likely duplicate): {e}")
         return None
-
-    row = await fetch_one(
-        """INSERT INTO clients (business_name, contact_name, email, phone, industry,
-                               website_url, status, country, city, source, source_campaign)
-           VALUES (%s, %s, %s, %s, %s, %s, 'discovered', %s, %s, %s, %s)
-           RETURNING id""",
-        (
-            name,
-            business.get("contact_name", ""),
-            email,
-            business.get("phone", ""),
-            business.get("industry", ""),
-            business.get("website_url", ""),
-            business.get("country", ""),
-            business.get("city", ""),
-            source,
-            source_campaign,
-        ),
-    )
-    return row["id"] if row else None

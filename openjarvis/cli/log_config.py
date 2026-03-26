@@ -22,9 +22,8 @@ def setup_logging(
     quiet:
         Set log level to ERROR (overrides verbose if both set).
     log_file:
-        Path for a rotating file handler.  When *verbose* is ``True``
-        and no *log_file* is given, defaults to
-        ``~/.openjarvis/cli.log``.
+        Path for a rotating file handler.  Only adds a file handler
+        when an explicit path is provided (no implicit defaults).
 
     Returns
     -------
@@ -51,12 +50,9 @@ def setup_logging(
     console_handler.setFormatter(fmt)
     logger.addHandler(console_handler)
 
-    # File handler (verbose or explicit path)
-    if verbose or log_file is not None:
-        if log_file is None:
-            log_dir = Path.home() / ".openjarvis"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = log_dir / "cli.log"
+    # File handler (only when an explicit path is given — never auto-create
+    # files under the user's home directory, which breaks test hermeticity)
+    if log_file is not None:
         file_handler = RotatingFileHandler(
             str(log_file), maxBytes=5 * 1024 * 1024, backupCount=3,
         )

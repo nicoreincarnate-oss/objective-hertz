@@ -96,7 +96,7 @@ class MemoryConfig:
     zep_enabled: bool = _env_bool("ZEP_ENABLED", False)
     neo4j_uri: str = _env("NEO4J_URI", "bolt://localhost:7687")
     neo4j_user: str = _env("NEO4J_USER", "neo4j")
-    neo4j_password: str = _env("NEO4J_PASSWORD", "perseus_graph_2026")
+    neo4j_password: str = _env("NEO4J_PASSWORD")
     magma_enabled: bool = _env_bool("MAGMA_ENABLED", False)
 
 
@@ -169,6 +169,12 @@ class RufloConfig:
 
 
 @dataclass(frozen=True)
+class TrainingConfig:
+    """LoRA training and weight directive settings."""
+    seal_directives: bool = _env_bool("SEAL_DIRECTIVES", False)
+
+
+@dataclass(frozen=True)
 class PerseusConfig:
     root_dir: Path = _ROOT
     log_level: str = _env("LOG_LEVEL", "INFO")
@@ -195,6 +201,7 @@ class PerseusConfig:
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     site_build: SiteBuildConfig = field(default_factory=SiteBuildConfig)
     ruflo: RufloConfig = field(default_factory=RufloConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
 
 # Singleton

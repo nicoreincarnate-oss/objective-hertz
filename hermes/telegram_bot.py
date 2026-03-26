@@ -12,8 +12,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from shared.config import config
-from shared.db import fetch_all, fetch_val, get_config
-from titan.review_mode import approve_review, get_pending_reviews, reject_review
+from shared.comms import call_agent_capability
+from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val, get_config
 
 logger = logging.getLogger("perseus.hermes.telegram")
 
@@ -132,20 +132,27 @@ async def cmd_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show items pending review."""
     if not await _require_chat_access(update):
         return
-    items = await get_pending_reviews()
+    items = await fetch_all(
+        """SELECT rq.id, rq.item_type, c.business_name
+           FROM review_queue rq
+           JOIN clients c ON c.id = rq.client_id
+           WHERE rq.status = 'pending_review'
+           ORDER BY rq.created_at ASC
+           LIMIT 10"""
+    )
     if not items:
         await _reply(update, "No items pending review.")
         return
 
     text = f"*{len(items)} items pending review:*\n\n"
-    for item in items[:10]:
+    for item in items:
         text += f"  [{item.get('id', '?')}] {item['item_type']} — {item.get('business_name', 'unknown')}\n"
     text += "\nUse /approve <id> or /reject <id>"
     await _reply(update, text, parse_mode="Markdown")
 
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Approve a review queue item."""
+    """Approve a review queue item by delegating to Titan via A2A."""
     if not await _require_destructive_auth(
         update,
         context,
@@ -157,17 +164,21 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args = _args(context)
         review_id = int(args[0])
         notes = " ".join(args[2:]) if len(args) > 2 else ""
-        result = await approve_review(review_id, notes)
-        if result:
+        result = await call_agent_capability(
+            "titan", "review_approve",
+            {"review_id": review_id, "notes": notes},
+        )
+        if result and result.get("success"):
             await _reply(update, f"Approved #{review_id}")
         else:
-            await _reply(update, f"Review #{review_id} not found")
+            error = (result or {}).get("error", "not found or action failed")
+            await _reply(update, f"Review #{review_id}: {error}")
     except ValueError:
         await _reply(update, "Invalid ID")
 
 
 async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reject a review queue item."""
+    """Reject a review queue item by delegating to Titan via A2A."""
     if not await _require_destructive_auth(
         update,
         context,
@@ -179,11 +190,15 @@ async def cmd_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
         args = _args(context)
         review_id = int(args[0])
         notes = " ".join(args[2:]) if len(args) > 2 else ""
-        result = await reject_review(review_id, notes)
-        if result:
+        result = await call_agent_capability(
+            "titan", "review_reject",
+            {"review_id": review_id, "notes": notes},
+        )
+        if result and result.get("success"):
             await _reply(update, f"Rejected #{review_id}")
         else:
-            await _reply(update, f"Review #{review_id} not found")
+            error = (result or {}).get("error", "not found or action failed")
+            await _reply(update, f"Review #{review_id}: {error}")
     except ValueError:
         await _reply(update, "Invalid ID")
 
@@ -278,7 +293,6 @@ async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info(f"Operator message (forwarding to boss): {text[:100]}")
 
     # Store the message as an event
-    from shared.db import execute
     await execute(
         "INSERT INTO events (event_type, payload) VALUES (%s, %s)",
         ("operator_message", json.dumps({"text": text[:500], "source": "telegram"})),
@@ -286,9 +300,8 @@ async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Forward to OpenJarvis as a boss command
     try:
-        from shared.comms import delegate_task
-        await delegate_task("hermes", "orchestrator", "operator_command",
-            {"text": text}, priority=1)
+        await call_agent_capability("orchestrator", "operator_command",
+            {"text": text})
         await _reply(update, f"Got it. Forwarded to OpenJarvis.")
     except Exception as e:
         logger.error(f"Failed to forward to boss: {e}")

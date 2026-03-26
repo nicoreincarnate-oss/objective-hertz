@@ -71,19 +71,18 @@ class LLMClient:
         # "fast" and "smart" both use Claude (Haiku and Sonnet respectively)
         # Only "local" and "local-small" go directly to Ollama
         if model in ("local", "local-small"):
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
 
         # If no API key, fall back to Ollama for everything
         if not config.claude.api_key:
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
 
         # Budget check — downgrade Claude to Ollama when needed
         model = await self._budget_gate(model)
 
-
         if model in ("local", "local-small"):
             # Budget gate downgraded us
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
 
         try:
             result = await self._claude_generate(prompt, system, model, max_tokens, temperature)
@@ -98,7 +97,7 @@ class LLMClient:
             return result
         except Exception as e:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
 
     async def generate_with_images(
         self,
@@ -323,11 +322,25 @@ class LLMClient:
             self._last_usage = usage
         return data["content"][0]["text"]
 
+    async def _resolve_ollama_model(self, model: str, pipeline_stage: str = "") -> str:
+        """Pick the best Ollama model: fine-tuned adapter if available, else base."""
+        if pipeline_stage:
+            try:
+                from shared.db import get_config
+                ft_model = await get_config("fine_tuned_model")
+                if ft_model:
+                    logger.debug("Using fine-tuned model %s for stage %s", ft_model, pipeline_stage)
+                    return ft_model
+            except Exception:
+                pass  # Fall through to base model
+        return config.ollama.model if model == "local" else config.ollama.secondary
+
     async def _ollama_generate(
-        self, prompt: str, system: str, model: str, max_tokens: int, temperature: float
+        self, prompt: str, system: str, model: str, max_tokens: int, temperature: float,
+        pipeline_stage: str = "",
     ) -> str:
         """Call local Ollama API."""
-        model_name = config.ollama.model if model == "local" else config.ollama.secondary
+        model_name = await self._resolve_ollama_model(model, pipeline_stage)
         body = {
             "model": model_name,
             "prompt": prompt,

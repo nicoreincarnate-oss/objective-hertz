@@ -71,11 +71,15 @@ function normalizeChatEvents(events: BackendEvent[]) {
 }
 
 export async function GET(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get('token')
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authHeader = request.headers.get('authorization') || ''
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  // Chat history comes from events API
-  const res = await fetch(`${BACKEND}/api/events?token=${token}`, { cache: 'no-store' })
+  const res = await fetch(`${BACKEND}/api/events`, {
+    headers: { Authorization: authHeader },
+    cache: 'no-store',
+  })
   const events = await res.json()
   const chatEvents = Array.isArray(events)
     ? normalizeChatEvents(
@@ -88,8 +92,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get('token')
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authHeader = request.headers.get('authorization') || ''
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const body = await request.formData()
@@ -101,20 +107,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Forward to FastAPI backend as form data
     const formData = new URLSearchParams()
     formData.set('target_agent', target_agent)
     formData.set('priority', priority || 'priority')
     formData.set('message', message)
 
-    const res = await fetch(`${BACKEND}/api/operator-chat?token=${token}`, {
+    const res = await fetch(`${BACKEND}/api/operator-chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: authHeader,
+      },
       body: formData.toString(),
       redirect: 'manual',
     })
 
-    // FastAPI returns a 303 redirect on success
     if (res.status === 303 || res.status === 200) {
       return NextResponse.json({ success: true })
     }

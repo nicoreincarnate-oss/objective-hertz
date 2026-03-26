@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Brain, Loader2, Search } from 'lucide-react'
+import { authHeaders } from '@/hooks/use-token'
 
 interface InsightResponse {
   answer: string
@@ -24,9 +25,9 @@ export function StrategicView({ token }: { token: string | null }) {
     setError('')
 
     try {
-      const res = await fetch(`/api/insights?token=${token}`, {
+      const res = await fetch('/api/insights', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? authHeaders(token) : {}) },
         body: JSON.stringify({ question }),
       })
 

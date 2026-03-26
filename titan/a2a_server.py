@@ -40,6 +40,7 @@ TITAN_CARD = AgentCard(
         "config_get", "config_set",
         "task_dispatch", "health_check",
         "events_recent", "event_relay",
+        "review_approve", "review_reject", "review_finding",
         "deliverability_check", "daily_reflection",
         "morning_briefing",
     ],
@@ -233,6 +234,48 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "titan"}
 
 
+async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+    """Review a self-audit finding against actual code.
+
+    Titan reviews for: revenue impact, data integrity, pipeline correctness,
+    SQL safety, and financial calculation bugs.
+    """
+    if not finding or not code_snippet:
+        return {"vote": "defer", "reason": "no finding or code provided", "from": "titan"}
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are Titan, the revenue pipeline agent. A self-audit found an issue "
+        f"in code you depend on. Review the ACTUAL CODE and the proposed fix.\n\n"
+        f"FILE: {finding.get('file', '?')}\n"
+        f"ISSUE: {finding.get('issue', '?')}\n"
+        f"SEVERITY: {finding.get('severity', '?')}\n"
+        f"FAILURE MODE: {finding.get('failure_mode', '?')}\n"
+        f"PROPOSED FIX: {finding.get('proposed_fix', 'none')}\n"
+        f"REASONING: {finding.get('reasoning', '?')}\n\n"
+        f"ACTUAL CODE:\n```python\n{code_snippet[:4000]}\n```\n\n"
+        f"Review from your perspective:\n"
+        f"1. Does this code affect revenue, payments, lead data, or pipeline correctness?\n"
+        f"2. Is the reported issue real? Can you see the bug in the code above?\n"
+        f"3. Will the proposed fix break anything you depend on?\n"
+        f"4. Is the severity rating accurate?\n\n"
+        f"Vote: approve (issue is real AND fix is safe), reject (false positive OR fix is dangerous), "
+        f"or defer (not in your domain). Include your reasoning."
+    )
+
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    # Parse structured vote from the response
+    lower = answer.lower()
+    if "reject" in lower[:100] or "false positive" in lower[:200]:
+        vote = "reject"
+    elif "approve" in lower[:100] or "issue is real" in lower[:200]:
+        vote = "approve"
+    else:
+        vote = "defer"
+
+    return {"vote": vote, "reason": answer[:500], "from": "titan"}
+
+
 async def _events_recent(limit: int = 20, **_) -> list:
     """Return recent events for this agent."""
     rows = await db.fetch_all(
@@ -254,8 +297,31 @@ async def _event_relay(type: str = "", payload: dict = None, source: str = "", *
     return {"status": "relayed", "type": type, "source": source}
 
 
+async def _review_approve(review_id: int = 0, notes: str = "", **_) -> dict:
+    """Approve a review queue item (called via A2A from Hermes)."""
+    from titan.review_mode import approve_review
+    if not review_id:
+        return {"success": False, "error": "review_id is required"}
+    result = await approve_review(review_id, notes)
+    if result:
+        return {"success": True, "review_id": review_id}
+    return {"success": False, "error": "not found or action failed"}
+
+
+async def _review_reject(review_id: int = 0, notes: str = "", **_) -> dict:
+    """Reject a review queue item (called via A2A from Hermes)."""
+    from titan.review_mode import reject_review
+    if not review_id:
+        return {"success": False, "error": "review_id is required"}
+    result = await reject_review(review_id, notes)
+    if result:
+        return {"success": True, "review_id": review_id}
+    return {"success": False, "error": "not found or action failed"}
+
+
 CAPABILITY_HANDLERS = {
     "ask": _ask,
+    "review_finding": _review_finding,
     "pipeline_status": _pipeline_status,
     "lead_discovery": _run_lead_discovery,
     "lead_research": _run_lead_research,
@@ -282,6 +348,8 @@ CAPABILITY_HANDLERS = {
     "health_check": _health_check,
     "events_recent": _events_recent,
     "event_relay": _event_relay,
+    "review_approve": _review_approve,
+    "review_reject": _review_reject,
     "deliverability_check": _run_deliverability_check,
     "daily_reflection": _run_daily_reflection,
     "morning_briefing": lambda **p: _dispatch_task("morning_briefing", p),

@@ -232,10 +232,21 @@ async def _operator_pending_approvals(**_) -> dict:
         return {"pending": [], "count": 0}
 
 
-async def _operator_send_message(text: str = "", target: str = "perseus", priority: str = "normal", **_) -> dict:
-    """Send an operator-style message to a target daemon."""
+async def _operator_send_message(text: str = "", target: str = "perseus", priority: str = "normal", _caller: str = "", **_) -> dict:
+    """Send an operator-style message to a target daemon.
+
+    FAIL-CLOSED: caller identity is REQUIRED. If _caller is missing or
+    not in the allowlist, the request is rejected. This prevents any
+    process with the A2A transport secret from silently impersonating
+    operator commands by omitting the caller field.
+    """
+    allowed_callers = {"war_room", "operator", "openjarvis", "hermes"}
+    if not _caller or _caller not in allowed_callers:
+        logger.warning("operator_send_message rejected: caller '%s' is not operator-privileged (must be one of %s)", _caller or "<missing>", allowed_callers)
+        return {"sent": False, "error": f"caller identity required and must be one of {sorted(allowed_callers)}"}
+
     task_type = f"{target}_operator_message"
-    await db.insert_task(task_type, {"message": text, "priority": priority, "source": "openjarvis"})
+    await db.insert_task(task_type, {"message": text, "priority": priority, "source": _caller})
     return {"sent": True, "target": target}
 
 
@@ -306,8 +317,50 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "hermes"}
 
 
+async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+    """Review a self-audit finding against actual code.
+
+    Hermes reviews for: alerting reliability, event dispatch correctness,
+    Telegram/notification bugs, operator communication safety, and logging gaps.
+    """
+    if not finding or not code_snippet:
+        return {"vote": "defer", "reason": "no finding or code provided", "from": "hermes"}
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are Hermes, the operator communication agent. A self-audit found an issue. "
+        f"Review the ACTUAL CODE and the proposed fix.\n\n"
+        f"FILE: {finding.get('file', '?')}\n"
+        f"ISSUE: {finding.get('issue', '?')}\n"
+        f"SEVERITY: {finding.get('severity', '?')}\n"
+        f"FAILURE MODE: {finding.get('failure_mode', '?')}\n"
+        f"PROPOSED FIX: {finding.get('proposed_fix', 'none')}\n"
+        f"REASONING: {finding.get('reasoning', '?')}\n\n"
+        f"ACTUAL CODE:\n```python\n{code_snippet[:4000]}\n```\n\n"
+        f"Review from your perspective:\n"
+        f"1. Does this code affect alerting, event dispatch, Telegram, or operator comms?\n"
+        f"2. Is the reported issue real? Can you see the bug in the code above?\n"
+        f"3. Could the proposed fix cause silent alert failures or missed notifications?\n"
+        f"4. Are there logging gaps that would hide problems?\n\n"
+        f"Vote: approve (issue is real AND fix is safe), reject (false positive OR fix is dangerous), "
+        f"or defer (not in your domain). Include your reasoning."
+    )
+
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    lower = answer.lower()
+    if "reject" in lower[:100] or "false positive" in lower[:200]:
+        vote = "reject"
+    elif "approve" in lower[:100] or "issue is real" in lower[:200]:
+        vote = "approve"
+    else:
+        vote = "defer"
+
+    return {"vote": vote, "reason": answer[:500], "from": "hermes"}
+
+
 CAPABILITY_HANDLERS = {
     "ask": _ask,
+    "review_finding": _review_finding,
     "event_forward": _event_forward,
     "message_send": _message_send,
     "message_broadcast": _message_broadcast,

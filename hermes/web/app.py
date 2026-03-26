@@ -2,14 +2,21 @@
 Perseus Web Dashboard — pipeline, revenue, leads, system health.
 Simple FastAPI + Jinja2 templates.
 
-Auth: Bearer token via DASHBOARD_SECRET env var.
-Pass as ?token=<secret> in the URL or Authorization: Bearer <secret> header.
+Auth: DASHBOARD_SECRET env var is REQUIRED. Without it, the dashboard
+refuses all requests (fail-closed).
+
+Login: POST /login with the secret to get an HttpOnly session cookie.
+API clients can use the Authorization: Bearer <secret> header instead.
+Tokens are NEVER accepted from query parameters (they leak into logs,
+browser history, Referer headers, and analytics).
 """
 
+import hashlib
 import hmac
 import json as _json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
@@ -32,12 +39,27 @@ from shared.observability import (
 )
 
 logger = logging.getLogger("hermes.web")
-_PUBLIC_PATHS = {"/api/health", "/metrics"}  # health and metrics stay unauthenticated
+_PUBLIC_PATHS = {"/api/liveness", "/metrics", "/login"}
+_SESSION_COOKIE = "perseus_session"
+# HMAC key for signing session cookies — random per process, so a restart
+# invalidates all sessions (acceptable for a single-operator dashboard).
+_COOKIE_SIGNING_KEY = secrets.token_bytes(32)
 
 
 def _get_dashboard_secret() -> str:
     """Read secret at call time so tests and env changes take effect without reimport."""
     return os.getenv("DASHBOARD_SECRET", "").strip()
+
+
+def _sign_session(secret: str) -> str:
+    """Create an HMAC-signed session token from the dashboard secret."""
+    return hmac.new(_COOKIE_SIGNING_KEY, secret.encode(), hashlib.sha256).hexdigest()
+
+
+def _verify_session(cookie_value: str, secret: str) -> bool:
+    """Verify a session cookie was signed by us for the current secret."""
+    expected = _sign_session(secret)
+    return hmac.compare_digest(cookie_value, expected)
 
 
 @asynccontextmanager
@@ -50,40 +72,118 @@ async def lifespan(app: FastAPI):
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
-    """Simple bearer-token auth. Token comes from env DASHBOARD_SECRET."""
+    """Auth middleware. Requires DASHBOARD_SECRET to be set (fail-closed).
+
+    Accepts auth via:
+    1. Session cookie (set by POST /login) — for browser access
+    2. Authorization: Bearer <secret> header — for API clients
+
+    NEVER accepts tokens from query parameters.
+    """
 
     async def dispatch(self, request: Request, call_next) -> Response:
         secret = _get_dashboard_secret()
+
+        # Fail-closed: no secret configured → block everything except health/metrics
         if not secret:
-            # No secret configured — dashboard is open (dev/local only)
-            return await call_next(request)
+            if request.url.path in _PUBLIC_PATHS:
+                return await call_next(request)
+            logger.error("DASHBOARD_SECRET not set — blocking dashboard access")
+            return JSONResponse(
+                {"error": "Dashboard disabled: DASHBOARD_SECRET not configured"},
+                status_code=503,
+            )
 
         if request.url.path in _PUBLIC_PATHS:
             return await call_next(request)
 
-        # Allow static files through (CSS, etc.)
+        # Allow static files through (CSS, JS, etc.)
         if request.url.path.startswith("/static"):
             return await call_next(request)
 
-        # Check token from query param or Authorization header
-        token = request.query_params.get("token", "")
-        if not token:
-            auth_header = request.headers.get("authorization", "")
-            if auth_header.lower().startswith("bearer "):
-                token = auth_header[7:].strip()
+        # 1. Check session cookie
+        session_cookie = request.cookies.get(_SESSION_COOKIE, "")
+        if session_cookie and _verify_session(session_cookie, secret):
+            return await call_next(request)
 
-        if not token or not hmac.compare_digest(token, secret):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        # 2. Check Authorization header (for API clients)
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+            if token and hmac.compare_digest(token, secret):
+                return await call_next(request)
 
-        return await call_next(request)
+        # No valid auth — redirect browsers to login, return 401 for API
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return RedirectResponse("/login", status_code=303)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
 
 app = FastAPI(title="Perseus Dashboard", lifespan=lifespan)
 app.add_middleware(TokenAuthMiddleware)
 
 _DIR = Path(__file__).parent
-templates = Jinja2Templates(directory=str(_DIR / "templates"))
-app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
+
+# Lazy template initialization — avoids hard crash when jinja2 is not
+# installed (e.g. in test environments that only exercise API routes).
+_templates = None
+
+
+def _get_templates():
+    global _templates
+    if _templates is None:
+        _templates = Jinja2Templates(directory=str(_DIR / "templates"))
+    return _templates
+
+
+try:
+    app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
+except Exception:
+    pass  # Static dir may not exist in test environments
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Minimal login form."""
+    return HTMLResponse("""<!DOCTYPE html>
+<html><head><title>Perseus — Login</title>
+<style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#111;color:#eee}
+form{background:#1a1a1a;padding:2rem;border-radius:8px;min-width:300px}
+input{width:100%;padding:8px;margin:8px 0;box-sizing:border-box;border:1px solid #333;border-radius:4px;background:#222;color:#eee}
+button{width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:1rem}
+button:hover{background:#1d4ed8}.err{color:#ef4444;font-size:0.85rem}</style></head>
+<body><form method="POST" action="/login"><h2>Perseus Dashboard</h2>
+<input type="password" name="secret" placeholder="Dashboard secret" required autocomplete="current-password">
+<button type="submit">Login</button></form></body></html>""")
+
+
+@app.post("/login")
+async def login_submit(secret: str = Form(...)):
+    """Validate secret and set a signed session cookie."""
+    dashboard_secret = _get_dashboard_secret()
+    if not dashboard_secret:
+        return JSONResponse({"error": "Dashboard disabled"}, status_code=503)
+
+    if not hmac.compare_digest(secret, dashboard_secret):
+        return HTMLResponse(
+            '<html><body style="font-family:system-ui;display:flex;justify-content:center;'
+            'align-items:center;height:100vh;margin:0;background:#111;color:#eee">'
+            '<div style="text-align:center"><p class="err" style="color:#ef4444">Invalid secret</p>'
+            '<a href="/login" style="color:#60a5fa">Try again</a></div></body></html>',
+            status_code=401,
+        )
+
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        key=_SESSION_COOKIE,
+        value=_sign_session(dashboard_secret),
+        httponly=True,
+        samesite="lax",
+        secure=os.getenv("ENVIRONMENT", "development") != "development",
+        max_age=86400,  # 24 hours
+    )
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -151,7 +251,7 @@ async def dashboard(request: Request):
         operator_error=operator_error,
     )
 
-    return templates.TemplateResponse(
+    return _get_templates().TemplateResponse(
         request,
         "dashboard.html",
         {
@@ -285,9 +385,20 @@ async def api_events():
     return JSONResponse(content=[dict(e) for e in events])
 
 
+@app.get("/api/liveness")
+async def api_liveness():
+    """Public liveness probe — returns only up/down status, no business data."""
+    db_ok = True
+    try:
+        await fetch_val("SELECT 1")
+    except Exception:
+        db_ok = False
+    return JSONResponse({"status": "ok" if db_ok else "degraded", "db_ok": db_ok})
+
+
 @app.get("/api/health")
 async def api_health():
-    """System health."""
+    """Authenticated system health — includes operator telemetry and business metrics."""
     db_ok = True
     db_error = ""
     try:

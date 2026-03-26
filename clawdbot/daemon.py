@@ -966,7 +966,14 @@ async def handle_operator_message(payload: dict):
 
 
 async def handle_site_verify(payload: dict):
-    """Verify a deployed site is live and functional."""
+    """Verify a deployed site is reachable and has real content.
+
+    This is an HTTP reachability + content check, not full functional
+    validation. The result distinguishes:
+    - is_reachable: HTTP 2xx/3xx response received
+    - has_content: response body is >= 500 bytes (not an error page stub)
+    - is_live: both reachable AND has content
+    """
     url = payload.get("url", "")
     client_id = payload.get("client_id")
     request_id = payload.get("request_id", "")
@@ -979,16 +986,24 @@ async def handle_site_verify(payload: dict):
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get(url)
             status_code = resp.status_code
-            is_live = 200 <= status_code < 400
+            is_reachable = 200 <= status_code < 400
             content_length = len(resp.content)
+            # A real deployed site should have meaningful content (>= 500 bytes).
+            # Tiny responses are likely error pages, placeholder stubs, or
+            # hosting provider "site not found" pages.
+            has_content = content_length >= 500
+            is_live = is_reachable and has_content
 
             result = {
                 "url": url,
                 "status_code": status_code,
+                "is_reachable": is_reachable,
+                "has_content": has_content,
                 "is_live": is_live,
                 "content_length": content_length,
                 "client_id": client_id,
                 "request_id": request_id,
+                "verification_level": "reachability_plus_content",
             }
 
             if client_id and is_live:

@@ -70,9 +70,9 @@ async def deploy_static_site(
             site_data = resp.json()
             site_id = site_data["id"]
             site_url = site_data.get("ssl_url") or site_data.get("url", "")
-
-            if client_id:
-                await _store_site_id(client_id, site_id, site_url)
+            # NOTE: Do NOT persist hosting state here. The site is created
+            # but no deploy has succeeded yet. _store_site_id is called
+            # after all uploads complete successfully (see Step 4 below).
         else:
             site_url = ""
 
@@ -98,18 +98,32 @@ async def deploy_static_site(
             "Content-Type": "application/octet-stream",
         }
 
+        failed_uploads = []
         for path, digest in file_digests.items():
             if required and path not in required:
                 continue
             filename = path.lstrip("/")
             body = pages.get(filename, pages.get(path, ""))
-            await http.put(
+            upload_resp = await http.put(
                 f"{NETLIFY_API}/deploys/{deploy_id}/files{path}",
                 content=body.encode("utf-8"),
                 headers=upload_headers,
             )
+            if upload_resp.status_code >= 400:
+                failed_uploads.append((path, upload_resp.status_code))
+                logger.error(f"Netlify file upload failed: {path} → HTTP {upload_resp.status_code}")
 
-        # Step 4: Return the live URL
+        if failed_uploads:
+            raise RuntimeError(
+                f"Netlify deploy incomplete: {len(failed_uploads)}/{len(file_digests)} "
+                f"uploads failed: {failed_uploads[:5]}"
+            )
+
+        # Step 4: Deploy succeeded — now persist hosting state
+        if client_id:
+            await _store_site_id(client_id, site_id, site_url)
+
+        # Step 5: Return the live URL
         live_url = deploy_data.get("ssl_url") or deploy_data.get("url") or site_url
         if not live_url:
             # Poll deploy for URL
@@ -151,4 +165,71 @@ async def _store_site_id(client_id: int, site_id: str, site_url: str) -> None:
             (client_id, site_id, site_url),
         )
     except Exception as e:
-        logger.debug("Failed to store Netlify site ID: %s", e)
+        logger.warning("Failed to store Netlify site ID for client %s: %s", client_id, e)
+
+
+async def set_custom_domain(site_id: str, domain: str) -> dict:
+    """Configure a custom domain on an existing Netlify site.
+
+    Steps:
+    1. Add the custom domain to the Netlify site
+    2. Netlify auto-provisions a Let's Encrypt SSL certificate
+    3. Return the domain status for the caller to set up DNS
+
+    The caller (or tools/domain_manager.py) is responsible for creating
+    the DNS CNAME record pointing `domain` → the Netlify subdomain.
+    """
+    token = config.hosting.netlify_token
+    if not token:
+        raise RuntimeError("NETLIFY_AUTH_TOKEN not configured")
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        # Add custom domain to the Netlify site
+        resp = await http.put(
+            f"{NETLIFY_API}/sites/{site_id}",
+            json={"custom_domain": domain},
+            headers=headers,
+        )
+        if resp.status_code >= 400:
+            error = resp.text[:300]
+            logger.error("Netlify set_custom_domain failed for %s: %s", domain, error)
+            return {"ok": False, "error": error, "domain": domain}
+
+        site_data = resp.json()
+        ssl_url = site_data.get("ssl_url", "")
+        domain_aliases = site_data.get("domain_aliases", [])
+
+        # Enable HTTPS (Netlify auto-provisions Let's Encrypt)
+        ssl_resp = await http.post(
+            f"{NETLIFY_API}/sites/{site_id}/ssl",
+            headers=headers,
+        )
+        ssl_provisioned = ssl_resp.status_code < 400
+
+        logger.info(
+            "Custom domain %s set on site %s (ssl=%s, url=%s)",
+            domain, site_id, ssl_provisioned, ssl_url,
+        )
+
+        # Persist domain to hosting_subscriptions
+        try:
+            from shared.db import execute
+            await execute(
+                """UPDATE hosting_subscriptions
+                   SET domain = %s
+                   WHERE netlify_site_id = %s""",
+                (domain, site_id),
+            )
+        except Exception as e:
+            logger.warning("Failed to persist domain for site %s: %s", site_id, e)
+
+        return {
+            "ok": True,
+            "domain": domain,
+            "ssl_url": ssl_url,
+            "ssl_provisioned": ssl_provisioned,
+            "dns_target": f"{site_data.get('name', '')}.netlify.app",
+            "domain_aliases": domain_aliases,
+        }

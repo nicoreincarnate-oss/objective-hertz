@@ -17,6 +17,7 @@ def load_follow_up_module():
     fake_db.fetch_one = AsyncMock()
     fake_db.execute = AsyncMock()
     fake_db.emit_event = AsyncMock()
+    fake_db.get_config = AsyncMock(return_value=None)
 
     fake_llm = types.ModuleType("shared.llm_client")
     fake_llm.llm = types.SimpleNamespace(

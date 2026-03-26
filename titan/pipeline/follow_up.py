@@ -6,7 +6,7 @@ AI decides persistence per lead. Handle replies, multi-step sequences.
 import json
 import logging
 
-from shared.db import emit_event, execute, fetch_all, fetch_one
+from shared.db import emit_event, execute, fetch_all, fetch_one, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.memory import format_rules_for_prompt, get_relevant_learnings
@@ -92,7 +92,7 @@ async def _process_reply(reply: dict) -> bool:
     if not email:
         logger.warning("Reply missing lead email — skipping: reply_id=%s", reply.get("id", "?"))
         return False
-    lead = await fetch_one("SELECT id, status FROM clients WHERE email = %s", (email,))
+    lead = await fetch_one("SELECT id, status FROM clients WHERE LOWER(email) = LOWER(%s)", (email,))
     if not lead:
         return False
 
@@ -110,10 +110,13 @@ async def _process_reply(reply: dict) -> bool:
     outcome = outcome_map.get(intent, "")
 
     # Find the email sequence that triggered this reply
+    # Match 'queued', 'sent', or 'opened' — the sequence may have been
+    # queued but not yet confirmed sent, or analytics may have already
+    # advanced it to 'opened'. We still need attribution in all cases.
     email_seq = await fetch_one(
         """SELECT id FROM email_sequences
-           WHERE client_id = %s AND status = 'sent'
-           ORDER BY sent_at DESC LIMIT 1""",
+           WHERE client_id = %s AND status IN ('queued', 'sent', 'opened')
+           ORDER BY created_at DESC LIMIT 1""",
         (lead["id"],),
     )
     if email_seq and outcome:
@@ -221,18 +224,72 @@ async def _classify_reply(body: str, subject: str) -> str:
     )
 
 
+# Default follow-up delays in days, indexed by follow_up_count (0 = first follow-up).
+# Configurable via system_config key "follow_up_timing_days".
+DEFAULT_FOLLOW_UP_TIMING_DAYS = [3, 3, 7, 14, 21, 28, 35]
+
+# Per-step prompt angles to vary the approach across the sequence.
+STEP_ANGLES = [
+    "value reminder — restate the core benefit",
+    "social proof — mention how many businesses you've helped",
+    "curiosity — ask a question about their business",
+    "scarcity — mention limited availability this month",
+    "case study — share a quick success story from their industry",
+    "direct ask — simple yes/no question",
+    "breakup — friendly last-chance message",
+]
+
+
+async def _get_follow_up_delay_days(step: int) -> int:
+    """Get the delay in days before sending follow-up at this step."""
+    timing = await get_config("follow_up_timing_days", None)
+    if timing and isinstance(timing, list) and step < len(timing):
+        return int(timing[step])
+    if step < len(DEFAULT_FOLLOW_UP_TIMING_DAYS):
+        return DEFAULT_FOLLOW_UP_TIMING_DAYS[step]
+    return 35  # fallback for steps beyond the configured list
+
+
 async def _send_follow_ups():
     """Send follow-ups for leads that haven't responded."""
-    # Get leads that need follow-up (sent but no reply, enough time passed)
+    max_steps = len(DEFAULT_FOLLOW_UP_TIMING_DAYS)
+    timing_config = await get_config("follow_up_timing_days", None)
+    if timing_config and isinstance(timing_config, list):
+        max_steps = len(timing_config)
+
+    # Fetch all eligible leads; we filter by per-step timing in Python
+    # since each lead may have a different follow_up_count and thus a different delay.
     leads = await fetch_all(
         """SELECT c.id, c.business_name, c.email, c.follow_up_count,
-                  c.last_contact_at, c.research_summary, c.language
+                  c.last_contact_at, c.research_summary, c.language, c.lead_score
            FROM clients c
-           WHERE c.status IN ('email_sent', 'followed_up')
-           AND c.last_contact_at < NOW() - INTERVAL '3 days'
-           AND c.follow_up_count < 7
-           ORDER BY c.lead_score DESC LIMIT 20"""
+           WHERE c.status IN ('email_sent', 'email_queued', 'followed_up')
+           AND c.follow_up_count < %s
+           ORDER BY c.lead_score DESC LIMIT 20""",
+        (max_steps,),
     )
+
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    filtered = []
+    for lead in leads:
+        step = lead.get("follow_up_count", 0)
+        delay_days = await _get_follow_up_delay_days(step)
+        last_contact = lead.get("last_contact_at")
+        if last_contact is None:
+            filtered.append(lead)
+            continue
+        if isinstance(last_contact, str):
+            try:
+                last_contact = datetime.fromisoformat(last_contact)
+            except ValueError:
+                filtered.append(lead)
+                continue
+        if last_contact.tzinfo is None:
+            last_contact = last_contact.replace(tzinfo=timezone.utc)
+        if now - last_contact >= timedelta(days=delay_days):
+            filtered.append(lead)
+    leads = filtered
 
     for lead in leads:
         try:
@@ -272,17 +329,25 @@ async def _compose_and_queue_follow_up(lead: dict):
     step = lead.get("follow_up_count", 0) + 1
     lang = lead.get("language", "en")
 
-    # Get learnings about what follow-up approaches work
+    # Get learnings about what follow-up approaches work (scoped to this client + system techniques)
     learnings = await get_relevant_learnings(
-        "follow-up emails, re-engagement, what gets replies on second/third contact"
+        "follow-up emails, re-engagement, what gets replies on second/third contact",
+        client_id=lead.get("id"),
+        query_type="email_compose",
     )
 
     # Get proven rules (data-backed constraints)
     rules_block = await format_rules_for_prompt(["email_performance", "copywriting", "timing"])
 
+    # Pick a step-specific angle for variety across the sequence
+    angle_idx = min(step - 1, len(STEP_ANGLES) - 1)
+    angle = STEP_ANGLES[angle_idx] if angle_idx >= 0 else "value reminder"
+
     prompt = f"""Write follow-up email #{step} for {lead['business_name']}.
 Previous emails got no response. This is a cold outreach about building them a website.
 Language: {'Spanish' if lang == 'es' else 'English'}
+
+APPROACH FOR THIS EMAIL: {angle}
 
 WHAT WE'VE LEARNED WORKS:
 {learnings}
@@ -290,6 +355,7 @@ WHAT WE'VE LEARNED WORKS:
 {rules_block}
 
 Key rules:
+- Use the "{angle}" approach above
 - Different angle from previous emails
 - Even shorter than the first email (under 80 words)
 - Reference something specific about their business
@@ -311,10 +377,12 @@ Return JSON: {{"subject": "...", "body": "..."}}"""
         )
         return
 
-    # Store follow-up and only advance the lead if the sequence row exists.
+    # Store follow-up — ON CONFLICT prevents duplicate step entries from races
     queued_email = await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status)
-           VALUES (%s, %s, %s, %s, 'pending') RETURNING id""",
+           VALUES (%s, %s, %s, %s, 'pending')
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
         (lead["id"], step, email_data.get("subject", ""), email_data.get("body", "")),
     )
     if not queued_email or not queued_email.get("id"):
@@ -327,10 +395,12 @@ Return JSON: {{"subject": "...", "body": "..."}}"""
         )
         return
 
-    # Update lead
+    # Update lead — increment follow_up_count and record last_contact_at,
+    # but do NOT transition to 'followed_up'. The email is only drafted and
+    # queued at this point. The actual transition to 'followed_up' happens
+    # in email_send.py when the email is accepted by Instantly.
     await execute(
-        "UPDATE clients SET follow_up_count = %s WHERE id = %s",
+        "UPDATE clients SET follow_up_count = %s, updated_at = NOW() WHERE id = %s",
         (step, lead["id"]),
     )
-    await transition_lead(lead["id"], "followed_up")
-    logger.info(f"Queued follow-up #{step} for lead {lead['id']}")
+    logger.info(f"Queued follow-up #{step} for lead {lead['id']} (pending send)")
