@@ -67,7 +67,7 @@ async def _research_one(lead: dict):
     if not quality_assessment["ok"]:
         error = LeadResearchQualityError(
             f"Rejected low-quality research payload for {business_name}: "
-            + ", ".join(quality_assessment["reasons"])
+            + ", ".join(quality_assessment["reasons"])  # type: ignore[arg-type]
         )
         await emit_pipeline_error(
             "lead_research_quality",
@@ -86,7 +86,7 @@ async def _research_one(lead: dict):
             "Lead %s research rejected by quality gate: score=%s reasons=%s",
             lead_id,
             quality_assessment["quality_score"],
-            ", ".join(quality_assessment["reasons"]),
+            ", ".join(quality_assessment["reasons"]),  # type: ignore[arg-type]
         )
         return
     reference_sites = _select_reference_sites(research_payload.get("search_results", []), lead)

@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -197,7 +197,7 @@ def create_a2a_app(
                 )
                 task["output"] = json.dumps({"error": "Request blocked by injection scanner"})
                 task["state"] = TaskState.FAILED.value
-                task["metadata"]["blocked_by"] = "injection_scanner"
+                task["metadata"]["blocked_by"] = "injection_scanner"  # type: ignore[index]
                 return JSONResponse({"jsonrpc": "2.0", "result": task, "id": req_id})
         except ImportError as e:
             logger.debug("Injection scan failed: %s", e)
@@ -207,7 +207,7 @@ def create_a2a_app(
             result = await handler(input_text)
             task["output"] = result
             task["state"] = TaskState.COMPLETED.value
-            task["history"].append({"role": "agent", "content": result})
+            cast(list, task["history"]).append({"role": "agent", "content": result})
         except Exception as exc:
             logger.error("A2A handler error: %s", exc, exc_info=True)
             task["output"] = str(exc)

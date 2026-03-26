@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from shared import db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
 from shared.skill_loader import find_skill, list_installed_skills
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger("perseus.clawdbot.a2a")
 
@@ -232,7 +237,7 @@ async def _infra_health(**_) -> dict:
     # Mem0
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{config.memory.mem0_host}/v1/memories/search/",
+            resp = await client.post(f"{config.memory.mem0_host}/v1/memories/search/",
                 json={"query": "health", "user_id": "titan", "limit": 1})
             results["mem0"] = {"status": "ok" if resp.status_code < 500 else f"http_{resp.status_code}"}
     except Exception as e:
@@ -264,7 +269,7 @@ async def _health_check(**_) -> dict:
     return {"status": "running", "agent": "clawdbot", "skills_count": len(skills)}
 
 
-async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
     """Handle a question from another agent about skills/infra/research."""
     from shared.db import fetch_val
     from shared.skill_loader import list_installed_skills
@@ -299,7 +304,7 @@ async def _events_recent(limit: int = 20, **_) -> list:
     return [dict(r) for r in rows]
 
 
-async def _event_relay(type: str = "", payload: dict = None, source: str = "", **_) -> dict:
+async def _event_relay(type: str = "", payload: dict | None = None, source: str = "", **_) -> dict:
     """Accept a relayed event from OpenJarvis and store it."""
     if not type:
         return {"error": "event type is required"}
@@ -311,7 +316,7 @@ async def _event_relay(type: str = "", payload: dict = None, source: str = "", *
     return {"status": "relayed", "type": type, "source": source}
 
 
-async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+async def _review_finding(finding: dict | None = None, code_snippet: str = "", **_) -> dict:
     """Review a self-audit finding against actual code.
 
     ClawdBot reviews for: browser automation reliability, skill execution safety,
@@ -352,7 +357,7 @@ async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> 
     return {"vote": vote, "reason": answer[:500], "from": "clawdbot"}
 
 
-async def _build_demo_site(lead: dict = None, **_) -> dict:
+async def _build_demo_site(lead: dict | None = None, **_) -> dict:
     """Build a demo landing page via site_builder. Returns {"url": ..., "status": ...}."""
     from clawdbot.site_builder import build_demo_site
     try:
@@ -363,7 +368,7 @@ async def _build_demo_site(lead: dict = None, **_) -> dict:
         return {"url": "", "status": "error", "error": str(e)}
 
 
-async def _build_full_site(lead: dict = None, **_) -> dict:
+async def _build_full_site(lead: dict | None = None, **_) -> dict:
     """Build a full 5-page website via site_builder. Returns {"url": ..., "status": ...}."""
     from clawdbot.site_builder import build_full_site
     try:
@@ -395,8 +400,7 @@ async def _provision_domain(
         logger.error("provision_domain failed: %s", e)
         return {"ok": False, "error": str(e)}
 
-
-CAPABILITY_HANDLERS = {
+CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "ask": _ask,
     "review_finding": _review_finding,
     "skill_execute": _skill_execute,

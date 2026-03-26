@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from shared import comms, db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 from shared.pipeline import assess_pipeline_state
 
 logger = logging.getLogger("perseus.titan.a2a")
@@ -68,8 +73,8 @@ async def _budget_status(**_) -> dict:
 
 
 async def _lead_search(status: str = "", industry: str = "", min_score: float = 0, limit: int = 20, **_) -> list:
-    conditions = []
-    params = []
+    conditions: list[str] = []
+    params: list[str | float | int] = []
     if status:
         conditions.append("status = %s")
         params.append(status)
@@ -204,7 +209,7 @@ async def _run_daily_reflection(**_) -> dict:
     return {"reflected": True}
 
 
-async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
     """Handle a question from another agent about pipeline/lead/budget state."""
     from shared.db import fetch_all, fetch_val
     from shared.llm_client import llm
@@ -234,7 +239,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "titan"}
 
 
-async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+async def _review_finding(finding: dict | None = None, code_snippet: str = "", **_) -> dict:
     """Review a self-audit finding against actual code.
 
     Titan reviews for: revenue impact, data integrity, pipeline correctness,
@@ -285,7 +290,7 @@ async def _events_recent(limit: int = 20, **_) -> list:
     return [dict(r) for r in rows]
 
 
-async def _event_relay(type: str = "", payload: dict = None, source: str = "", **_) -> dict:
+async def _event_relay(type: str = "", payload: dict | None = None, source: str = "", **_) -> dict:
     """Accept a relayed event from OpenJarvis and store it."""
     if not type:
         return {"error": "event type is required"}
@@ -318,8 +323,7 @@ async def _review_reject(review_id: int = 0, notes: str = "", **_) -> dict:
         return {"success": True, "review_id": review_id}
     return {"success": False, "error": "not found or action failed"}
 
-
-CAPABILITY_HANDLERS = {
+CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "ask": _ask,
     "review_finding": _review_finding,
     "pipeline_status": _pipeline_status,

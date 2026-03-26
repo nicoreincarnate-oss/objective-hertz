@@ -460,7 +460,7 @@ async def _apply_approved_fixes(
                 key = finding.get("config_key", filepath)
                 value = finding.get("proposed_value", finding.get("proposed_fix", ""))
                 reason = f"Self-audit {cycle_id}: {finding.get('issue', '')}"
-                success = await apply_config_change(key, value, reason, cycle_id)
+                success = await apply_config_change(key, value, reason, 0)
                 if success:
                     applied += 1
                 else:
@@ -475,7 +475,7 @@ async def _apply_approved_fixes(
                 rule_id = finding.get("rule_id", 0)
                 active = finding.get("proposed_active", True)
                 reason = f"Self-audit {cycle_id}: {finding.get('issue', '')}"
-                success = await apply_rule_change(rule_id, active, reason, cycle_id)
+                success = await apply_rule_change(rule_id, active, reason, 0)
                 if success:
                     applied += 1
                 else:

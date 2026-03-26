@@ -623,7 +623,7 @@ def _extract_shared_shell(index_html: str) -> str:
 def _build_page_brief(page_name: str, lead: dict) -> str:
     """Build a content brief for an inner page using lead data."""
     spec = INNER_PAGE_SPECS.get(page_name, {})
-    title = spec.get("title", page_name.replace(".html", "").title())
+    title: str = str(spec.get("title", page_name.replace(".html", "").title()))
     description = spec.get("description", f"Content for the {title} page.")
 
     context_parts = []
@@ -747,13 +747,13 @@ async def _generate_additional_pages(
                 logger.info("Generated %s (%d chars)", page_name, len(html))
             else:
                 # Minimal fallback — shared shell with a heading
-                title = INNER_PAGE_SPECS[page_name]["title"]
+                title = str(INNER_PAGE_SPECS[page_name]["title"])
                 pages[page_name] = _minimal_fallback_page(shared_shell, title, lead)
                 logger.warning("Using minimal fallback for %s", page_name)
 
         except Exception as e:
             logger.warning("Failed to generate %s: %s — using fallback", page_name, e)
-            title = INNER_PAGE_SPECS[page_name]["title"]
+            title = str(INNER_PAGE_SPECS[page_name]["title"])
             pages[page_name] = _minimal_fallback_page(shared_shell, title, lead)
 
     await emit_event("multipage_generation_completed", {

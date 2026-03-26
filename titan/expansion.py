@@ -19,7 +19,7 @@ from decimal import Decimal
 try:
     from psycopg.types.json import Jsonb
 except ImportError:
-    Jsonb = None
+    Jsonb = None  # type: ignore[assignment,misc]
 
 from shared.comms import request_task_result
 from shared.db import emit_event, execute, fetch_one, fetch_val, get_config, set_config

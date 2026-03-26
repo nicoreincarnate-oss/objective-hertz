@@ -7,9 +7,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from shared import db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger("perseus.hermes.a2a")
 
@@ -291,7 +296,7 @@ async def _health_check(**_) -> dict:
     return {"status": "running", "agent": "hermes"}
 
 
-async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
     """Handle a question from another agent about operator context."""
     from shared.db import fetch_all
 
@@ -317,7 +322,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
     return {"answer": answer, "from": "hermes"}
 
 
-async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> dict:
+async def _review_finding(finding: dict | None = None, code_snippet: str = "", **_) -> dict:
     """Review a self-audit finding against actual code.
 
     Hermes reviews for: alerting reliability, event dispatch correctness,
@@ -357,8 +362,7 @@ async def _review_finding(finding: dict = None, code_snippet: str = "", **_) -> 
 
     return {"vote": vote, "reason": answer[:500], "from": "hermes"}
 
-
-CAPABILITY_HANDLERS = {
+CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "ask": _ask,
     "review_finding": _review_finding,
     "event_forward": _event_forward,

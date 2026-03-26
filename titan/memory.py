@@ -264,7 +264,7 @@ def _filter_stale_qdrant(vector_memories: list[str], temporal_facts: list[dict])
 
     # Build a set of category keywords from expired/active Zep facts
     # so we can identify when Qdrant has a stale version of the same topic
-    zep_topics = set()
+    zep_topics: set[str] = set()
     for fact in temporal_facts:
         # Extract key phrases from Zep facts (first 5 significant words)
         words = fact.get("content", "").lower().split()[:10]
@@ -1524,7 +1524,7 @@ async def re_enrich_active_leads() -> dict:
         # Try to scrape fresh info via firecrawl
         try:
             from tools.firecrawl_client import enrich_business_profile
-            fresh = enrich_business_profile(business, lead.get("website", ""))
+            fresh = enrich_business_profile(business, website_url=str(lead.get("website", "")))
             if not fresh or not fresh.get("available"):
                 continue
         except Exception as e:

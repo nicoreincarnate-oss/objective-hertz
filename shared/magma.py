@@ -29,6 +29,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any
 
 from shared.config import config
 
@@ -764,14 +765,14 @@ def _parse_time_range(q: str) -> tuple[str | None, str | None]:
     if month_match:
         months = {"january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
                   "july":7,"august":8,"september":9,"october":10,"november":11,"december":12}
-        m = months[month_match.group(1)]
-        y = int(month_match.group(2))
-        start = datetime(y, m, 1)
-        if m == 12:
-            end = datetime(y + 1, 1, 1) - timedelta(seconds=1)
+        month_num: int = months[month_match.group(1)]
+        year_num: int = int(month_match.group(2))
+        month_start = datetime(year_num, month_num, 1)
+        if month_num == 12:
+            month_end = datetime(year_num + 1, 1, 1) - timedelta(seconds=1)
         else:
-            end = datetime(y, m + 1, 1) - timedelta(seconds=1)
-        return start.isoformat(), end.isoformat()
+            month_end = datetime(year_num, month_num + 1, 1) - timedelta(seconds=1)
+        return month_start.isoformat(), month_end.isoformat()
     return None, None
 
 
@@ -1083,8 +1084,8 @@ def _linearize_with_provenance(subgraph: list[dict], intent: Intent) -> str:
         return "No relevant memories found."
 
     # Dedup by content (keep highest-scored version)
-    seen_content = {}
-    deduped = []
+    seen_content: dict[str, dict] = {}
+    deduped: list[dict] = []
     for node in subgraph:
         content_key = node.get("content", "")[:50].lower()
         if content_key in seen_content:
@@ -1272,7 +1273,7 @@ async def evolve_memory() -> dict:
     if not driver:
         return {"skipped": "MAGMA not enabled"}
 
-    stats = {"decayed": 0, "pruned": 0, "contradictions": 0, "merged": 0, "escalated": 0}
+    stats: dict[str, Any] = {"decayed": 0, "pruned": 0, "contradictions": 0, "merged": 0, "escalated": 0}
     cutoff = (datetime.now() - timedelta(days=30)).isoformat()
 
     try:
@@ -1412,7 +1413,7 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
             # Transient failure — leave unacknowledged for retry.
             # But if the event is older than 24h, dead-letter it to prevent
             # a single broken node from blocking the queue forever.
-            event_age_hours = 0
+            event_age_hours: float = 0.0
             try:
                 created = event.get("created_at")
                 if created:
@@ -1453,7 +1454,7 @@ async def backfill_from_existing_data() -> dict:
     if not driver:
         return {"error": "MAGMA not enabled"}
 
-    stats = {"learnings": 0, "decisions": 0, "training": 0}
+    stats: dict[str, Any] = {"learnings": 0, "decisions": 0, "training": 0}
     try:
         from shared.db import fetch_all
 

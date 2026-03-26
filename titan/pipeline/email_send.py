@@ -18,7 +18,7 @@ import re
 try:
     from psycopg.types.json import Jsonb
 except ImportError:
-    Jsonb = None
+    Jsonb = None  # type: ignore[assignment,misc]
 
 from shared.db import (
     emit_event,

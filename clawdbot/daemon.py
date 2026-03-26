@@ -16,6 +16,7 @@ import shutil
 import signal
 import time
 from pathlib import Path
+from typing import Any
 
 from openjarvis.vassals.registry import heartbeat
 from shared import db
@@ -29,7 +30,7 @@ from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 logger = setup_logging("clawdbot")
 
 CORE_BOOTSTRAP_CAPABILITIES = ("browser", "scraper", "web_search")
-CLAWDBOT_AGENT_MESH_SPECS = (
+CLAWDBOT_AGENT_MESH_SPECS: tuple[dict[str, Any], ...] = (
     {
         "name": "clawdbot-agent-orchestrator",
         "agent_type": "orchestrator",
@@ -68,8 +69,8 @@ CLAWDBOT_AGENT_MESH_SPECS = (
     },
 )
 
-_CHANNEL_BACKEND = None
-_CHANNEL_BACKEND_KEY = None
+_CHANNEL_BACKEND: Any = None
+_CHANNEL_BACKEND_KEY: str | None = None
 
 
 def _env_enabled(name: str) -> bool:
@@ -140,7 +141,7 @@ def _agent_mesh_entries() -> list[dict]:
 
     for spec in CLAWDBOT_AGENT_MESH_SPECS:
         current = existing.get(spec["name"])
-        desired_config = dict(spec["config"])
+        desired_config: dict[str, Any] = dict(spec["config"])
         if current is None:
             current = manager.create_agent(
                 name=spec["name"],

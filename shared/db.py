@@ -32,7 +32,7 @@ async def init_pool(min_size: int = 2, max_size: int = 10, retries: int = 5, bac
         return
     async with _pool_lock:
         if _pool is not None:
-            return
+            return  # type: ignore[unreachable]
         for attempt in range(1, retries + 1):
             try:
                 _pool = AsyncConnectionPool(

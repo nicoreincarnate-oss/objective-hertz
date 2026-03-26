@@ -644,7 +644,7 @@ async def _check_self_play_conditions(cycle_id: int) -> dict:
     rollback_rate = rollback_count / len(cycles)
 
     # Measure 3: Are proposals getting more diverse or more narrow?
-    all_cats = []
+    all_cats: list[str] = []
     for c in cycles:
         changes = c.get("applied_changes", [])
         if isinstance(changes, str):

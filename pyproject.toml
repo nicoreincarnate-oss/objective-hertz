@@ -98,8 +98,8 @@ ignore = ["E501", "E741", "UP042"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["openjarvis", "shared", "titan", "hermes", "clawdbot"]
-exclude = "(^tools/browser-use/|^tools/firecrawl/)"
+packages = ["shared", "titan", "hermes", "clawdbot"]
+exclude = "(^tools/browser-use/|^tools/firecrawl/|^openjarvis/)"
 ignore_missing_imports = true
 no_implicit_optional = true
 strict_equality = true

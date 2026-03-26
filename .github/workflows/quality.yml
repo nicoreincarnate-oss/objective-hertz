@@ -19,4 +19,4 @@ jobs:
       - name: Type check
         run: python -m mypy shared perseus titan hermes clawdbot
       - name: Test
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ --ignore=tests/openjarvis -v

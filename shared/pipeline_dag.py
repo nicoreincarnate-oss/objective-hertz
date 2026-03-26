@@ -198,30 +198,33 @@ def can_transition(
         # Fallback to simple yes/no
         return {"allowed": True, "reasons": ["DAG disabled — using simple state machine"], "missing_fields": [], "required_checks": []}
 
-    result = {"allowed": True, "reasons": [], "missing_fields": [], "required_checks": []}
+    allowed = True
+    reasons: list[str] = []
+    missing_fields: list[str] = []
+    required_checks: list[str] = []
     client = client_data or {}
 
     # Terminal states
     if target_stage in ("lost", "churned"):
-        result["reasons"].append(f"Terminal state '{target_stage}' always allowed")
-        return result
+        reasons.append(f"Terminal state '{target_stage}' always allowed")
+        return {"allowed": allowed, "reasons": reasons, "missing_fields": missing_fields, "required_checks": required_checks}
 
     # Check if target stage exists
     stage_def = STAGES.get(target_stage)
     if not stage_def:
         # Check passthrough
         if target_stage in PASSTHROUGH_STAGES:
-            result["reasons"].append(f"Passthrough stage '{target_stage}'")
-            return result
-        result["allowed"] = False
-        result["reasons"].append(f"Unknown stage: {target_stage}")
-        return result
+            reasons.append(f"Passthrough stage '{target_stage}'")
+            return {"allowed": allowed, "reasons": reasons, "missing_fields": missing_fields, "required_checks": required_checks}
+        allowed = False
+        reasons.append(f"Unknown stage: {target_stage}")
+        return {"allowed": allowed, "reasons": reasons, "missing_fields": missing_fields, "required_checks": required_checks}
 
     # Check required previous status
     if stage_def.constraints.required_status:
         if current_stage not in stage_def.constraints.required_status:
-            result["allowed"] = False
-            result["reasons"].append(
+            allowed = False
+            reasons.append(
                 f"Cannot transition from '{current_stage}' to '{target_stage}'. "
                 f"Required: {stage_def.constraints.required_status}"
             )
@@ -230,24 +233,24 @@ def can_transition(
     for field_name in stage_def.constraints.required_fields:
         val = client.get(field_name)
         if not val or (isinstance(val, str) and not val.strip()):
-            result["allowed"] = False
-            result["missing_fields"].append(field_name)
+            allowed = False
+            missing_fields.append(field_name)
 
-    if result["missing_fields"]:
-        result["reasons"].append(f"Missing required fields: {result['missing_fields']}")
+    if missing_fields:
+        reasons.append(f"Missing required fields: {missing_fields}")
 
     # Flag required checks (caller must perform these)
     if stage_def.constraints.budget_check:
-        result["required_checks"].append("budget")
+        required_checks.append("budget")
     if stage_def.constraints.compliance_check:
-        result["required_checks"].append("compliance")
+        required_checks.append("compliance")
     if stage_def.constraints.human_approval:
-        result["required_checks"].append("human_approval")
+        required_checks.append("human_approval")
 
-    if not result["reasons"]:
-        result["reasons"].append(f"All constraints satisfied for '{target_stage}'")
+    if not reasons:
+        reasons.append(f"All constraints satisfied for '{target_stage}'")
 
-    return result
+    return {"allowed": allowed, "reasons": reasons, "missing_fields": missing_fields, "required_checks": required_checks}
 
 
 def get_stage_constraints(stage: str) -> dict | None:

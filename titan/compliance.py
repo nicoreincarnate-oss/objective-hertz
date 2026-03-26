@@ -20,7 +20,7 @@ from dataclasses import dataclass
 try:
     from psycopg.types.json import Jsonb
 except ImportError:
-    Jsonb = None
+    Jsonb = None  # type: ignore[assignment,misc]
 
 from shared.db import emit_event, execute, fetch_one, get_config
 

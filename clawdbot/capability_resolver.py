@@ -48,7 +48,7 @@ async def _run_with_retry(
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            last_rc = proc.returncode
+            last_rc = proc.returncode if proc.returncode is not None else -1
             last_err = stderr.decode()[:200] if stderr else ""
             if last_rc == 0:
                 return 0, ""
