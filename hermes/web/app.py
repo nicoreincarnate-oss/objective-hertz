@@ -13,7 +13,6 @@ browser history, Referer headers, and analytics).
 
 import hashlib
 import hmac
-import json as _json
 import logging
 import os
 import secrets

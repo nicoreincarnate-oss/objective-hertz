@@ -15,7 +15,6 @@ import sys
 import types
 from unittest.mock import AsyncMock, patch
 
-
 # ── 1. Capability registration ──
 
 def test_build_demo_site_in_capability_handlers():

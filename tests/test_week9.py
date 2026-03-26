@@ -37,10 +37,9 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
+from shared.debate_qd import MAX_POPULATION, MIN_POPULATION, StrategyPool, get_strategy_pool
+from shared.email_enrichment import enrich_email_prompt, get_entity_context, inject_industry_stats
 from shared.skill_distiller import distill_trajectory, get_distilled_skills_for_industry
-from shared.debate_qd import StrategyPool, get_strategy_pool, MIN_POPULATION, MAX_POPULATION
-from shared.email_enrichment import enrich_email_prompt, inject_industry_stats, get_entity_context
-
 
 # ═══════════════════════════════════════════════════════════════
 # Skill Distillation

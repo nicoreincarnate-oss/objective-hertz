@@ -186,7 +186,7 @@ def uni_dpo_dynamic_weights(examples: list[dict], epoch: int, total_epochs: int)
 
     return [
         (1.0 - progress) * u + progress * b
-        for u, b in zip(uniform, base_weights)
+        for u, b in zip(uniform, base_weights, strict=True)
     ]
 
 
@@ -263,7 +263,7 @@ async def export_training_data(min_examples: int = 100) -> Path | None:
 
     # Recency boost: duplicate examples from last 7 days
     recent_positive = [e for e in positive if (e.get("age_days") or 30) <= 7]
-    recent_negative = [e for e in negative if (e.get("age_days") or 30) <= 7]
+    _recent_negative = [e for e in negative if (e.get("age_days") or 30) <= 7]
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = TRAINING_DATA_DIR / f"training_{timestamp}.jsonl"

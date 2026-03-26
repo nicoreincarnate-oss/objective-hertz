@@ -11,7 +11,7 @@ import logging
 
 from shared import db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
-from shared.skill_loader import list_installed_skills, find_skill
+from shared.skill_loader import find_skill, list_installed_skills
 
 logger = logging.getLogger("perseus.clawdbot.a2a")
 
@@ -218,6 +218,7 @@ async def _infra_health(**_) -> dict:
     """Run ClawdBot's infrastructure health checks."""
     results = {}
     import httpx
+
     from shared.config import config
 
     # Ollama
@@ -265,8 +266,8 @@ async def _health_check(**_) -> dict:
 
 async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
     """Handle a question from another agent about skills/infra/research."""
-    from shared.skill_loader import list_installed_skills
     from shared.db import fetch_val
+    from shared.skill_loader import list_installed_skills
 
     skills = list_installed_skills()
     skill_names = [s["name"] for s in skills[:20]] if skills else []
@@ -493,6 +494,6 @@ async def handle_a2a(input_text: str) -> str:
     return json.dumps(result, indent=2, default=str)
 
 
-def create_clawdbot_a2a(clawdbot_daemon=None) -> "FastAPI":
+def create_clawdbot_a2a(clawdbot_daemon=None) -> FastAPI:  # noqa: F821
     health_fn = clawdbot_daemon.health_check if clawdbot_daemon is not None else None
     return create_a2a_app(agent_card=CLAWDBOT_CARD, handler=handle_a2a, health_check=health_fn)

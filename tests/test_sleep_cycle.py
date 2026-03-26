@@ -1,10 +1,8 @@
 """Tests for perseus/sleep_cycle.py — nightly self-optimization."""
 
-import asyncio
-import json
 import sys
 import types
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock
 
 _fake_db = types.ModuleType("shared.db")
 _fake_db.emit_event = AsyncMock(return_value=1)
@@ -41,7 +39,6 @@ sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
 from perseus.sleep_cycle import _filter_surviving
-
 
 # ── _filter_surviving ──
 

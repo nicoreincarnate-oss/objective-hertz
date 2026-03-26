@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from shared.comms import ask_agent, call_agent_capability, record_decision
+from shared.comms import call_agent_capability, record_decision
 from shared.config import config
 from shared.db import emit_event, get_config, set_config
 from shared.llm_client import llm

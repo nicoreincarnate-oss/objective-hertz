@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,8 +19,8 @@ class RecordingTracker(ResultTracker):
     """Records all lifecycle calls for testing."""
 
     def __init__(self) -> None:
-        self.calls: List[str] = []
-        self.results: List[EvalResult] = []
+        self.calls: list[str] = []
+        self.results: list[EvalResult] = []
         self.summary: RunSummary | None = None
 
     def on_run_start(self, config: RunConfig) -> None:

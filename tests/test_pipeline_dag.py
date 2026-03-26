@@ -1,6 +1,7 @@
 """Tests for shared/pipeline_dag.py — constraint-aware pipeline transitions."""
 
 import os
+
 os.environ["PIPELINE_DAG_ENABLED"] = "1"
 
 from shared.pipeline_dag import (
@@ -10,7 +11,6 @@ from shared.pipeline_dag import (
     get_stage_constraints,
     validate_pipeline_state,
 )
-
 
 # ── can_transition ──
 

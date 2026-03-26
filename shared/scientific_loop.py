@@ -17,11 +17,9 @@ Gated behind SCIENTIFIC_LOOP_ENABLED=1 (default 1).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any
 
 logger = logging.getLogger("perseus.scientific_loop")
 
@@ -71,7 +69,7 @@ async def evaluate_experiments() -> list[dict]:
         return []
 
     try:
-        from shared.db import fetch_all, execute
+        from shared.db import execute, fetch_all
 
         # Find experiments ready for evaluation
         cutoff = (datetime.now() - timedelta(hours=EVALUATION_DELAY_HOURS)).isoformat()

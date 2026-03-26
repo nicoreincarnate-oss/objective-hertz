@@ -138,8 +138,9 @@ async def store_temporal_fact(
     if not config.memory.zep_enabled:
         return False
 
-    import httpx
     from datetime import timedelta
+
+    import httpx
 
     valid_until = (datetime.now() + timedelta(days=valid_days)).isoformat()
     fact_metadata = {
@@ -1085,7 +1086,7 @@ async def get_skill_success_rates(min_samples: int = 3) -> dict[str, dict]:
     rates: dict[str, dict] = {}
     for l in learnings:
         insight = l.get("insight", "")
-        confidence = float(l.get("confidence", 0.5))
+        _confidence = float(l.get("confidence", 0.5))
 
         # Parse task type from insight text
         # Format: "Task 'task_type' succeeded: ..." or "Task 'task_type' failed: ..."
@@ -1126,7 +1127,6 @@ async def graphrag_consolidation() -> dict:
     so client-specific memory growth is also managed.
     Must run BEFORE prospect state and re-enrichment inject into prompts.
     """
-    import httpx
 
     stats = {"categories_consolidated": 0, "memories_consumed": 0, "summaries_created": 0}
 

@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any
 
 logger = logging.getLogger("perseus.adaptive_dashboard")
 
@@ -56,8 +55,8 @@ def compute_dashboard_layout(system_state: dict) -> dict:
     error_rate = system_state.get("error_rate", 0)
     bottleneck_stage = system_state.get("bottleneck_stage", "")
     pending_negotiations = system_state.get("pending_negotiations", 0)
-    active_leads = system_state.get("active_leads", 0)
-    revenue_today = system_state.get("revenue_today", 0)
+    _active_leads = system_state.get("active_leads", 0)
+    _revenue_today = system_state.get("revenue_today", 0)
     budget_pct = system_state.get("budget_remaining_pct", 1.0)
 
     promoted = []

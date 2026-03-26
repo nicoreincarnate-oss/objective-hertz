@@ -426,6 +426,6 @@ async def handle_a2a(input_text: str) -> str:
     return json.dumps(result, indent=2, default=str)
 
 
-def create_hermes_a2a(hermes_daemon=None) -> "FastAPI":
+def create_hermes_a2a(hermes_daemon=None) -> FastAPI:  # noqa: F821
     health_fn = hermes_daemon.health_check if hermes_daemon else None
     return create_a2a_app(agent_card=HERMES_CARD, handler=handle_a2a, health_check=health_fn)

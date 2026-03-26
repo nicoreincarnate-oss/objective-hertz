@@ -20,7 +20,6 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("perseus.skill_distiller")
 
@@ -73,7 +72,7 @@ async def distill_trajectory(client_id: int) -> dict | None:
 async def _load_trajectory(client_id: int) -> dict | None:
     """Load all interactions for a completed deal."""
     try:
-        from shared.db import fetch_one, fetch_all
+        from shared.db import fetch_all, fetch_one
 
         # Client info
         client = await fetch_one(

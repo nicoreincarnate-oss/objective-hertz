@@ -18,6 +18,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -34,6 +35,11 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
+from shared.prospect_simulator import (
+    PERSONAS,
+    filter_by_prospect_reactions,
+    simulate_prospect_reactions,
+)
 from titan.negotiation import (
     MAX_ROUNDS,
     PRICE_FLOOR,
@@ -43,12 +49,6 @@ from titan.negotiation import (
     generate_counter_offer,
     start_negotiation,
 )
-from shared.prospect_simulator import (
-    PERSONAS,
-    filter_by_prospect_reactions,
-    simulate_prospect_reactions,
-)
-
 
 # ═══════════════════════════════════════════════════════════════
 # NegotiationState

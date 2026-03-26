@@ -23,7 +23,6 @@ from titan.memory import (
 )
 from titan.pipeline.build_site import build_sites
 from titan.pipeline.close_deal import process_interested_leads
-from titan.pipeline.deploy_site import deploy_sites
 from titan.pipeline.email_compose import compose_emails
 from titan.pipeline.email_send import send_emails, sync_campaign_analytics
 from titan.pipeline.follow_up import process_follow_ups
@@ -245,6 +244,9 @@ class TitanDaemon(AgentBase):
 
             work_id = f"task:{task['id']}"
             self.begin_work(work_id)
+            stage_name = task_type
+            stage_work_id = f"stage:{stage_name}"
+            self.begin_work(stage_work_id)
             try:
                 payload = task.get("payload", {})
                 if isinstance(payload, str):
@@ -257,6 +259,7 @@ class TitanDaemon(AgentBase):
                 logger.error(f"Task {task['id']} ({task_type}) failed: {e}")
                 await self._ask_team_for_help(task_type, e)
             finally:
+                self.finish_work(stage_work_id)
                 self.finish_work(work_id)
 
     async def _invoke_handler(self, handler, task_type: str, payload: dict) -> None:

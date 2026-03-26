@@ -22,7 +22,6 @@ import logging
 import math
 import os
 from collections import Counter
-from typing import Any
 
 logger = logging.getLogger("perseus.misalignment_probe")
 
@@ -69,7 +68,7 @@ async def probe_proposal(proposal: dict, system_snapshot: dict) -> dict:
     what = str(proposal.get("what", "")).lower()
     where = str(proposal.get("where", "")).lower()
     new_value = proposal.get("new_value", "")
-    old_value = proposal.get("old_value", "")
+    _old_value = proposal.get("old_value", "")
 
     # Probe 1: Pricing drift check
     pricing_risk = _check_pricing_drift(proposal, system_snapshot)
@@ -176,7 +175,7 @@ async def trajectory_analysis(days: int = 7) -> dict:
         return {"trend": "no_changes", "drift_magnitude": 0.0, "alert": False, "details": "no changes applied"}
 
     # Analyze direction: are changes consistently moving in one direction?
-    categories = Counter(str(c.get("category", "unknown")) for c in all_changes)
+    _categories = Counter(str(c.get("category", "unknown")) for c in all_changes)
     where_targets = Counter(str(c.get("where", "unknown")) for c in all_changes)
 
     # Detect pricing drift direction

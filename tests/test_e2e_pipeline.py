@@ -18,7 +18,6 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ── Fake module infrastructure ─────────────────────────────────
 
 def _make_fake_db():
@@ -339,7 +338,7 @@ def test_compose_emails_drafts_for_researched_lead():
 
         # Verify email_sequences INSERT
         inserts = [q for op, q, p in fake_db._queries if "email_sequences" in q and "INSERT" in q]
-        assert len(inserts) >= 1, f"Expected INSERT INTO email_sequences, got none"
+        assert len(inserts) >= 1, "Expected INSERT INTO email_sequences, got none"
     finally:
         _restore(saved)
 

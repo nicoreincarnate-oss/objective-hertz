@@ -26,7 +26,6 @@ except (ImportError, ModuleNotFoundError):
     sys.modules["multipart.exceptions"] = _mpe
 
 import pytest
-
 from fastapi.testclient import TestClient
 
 TEST_SECRET = "test-dashboard-secret-42"

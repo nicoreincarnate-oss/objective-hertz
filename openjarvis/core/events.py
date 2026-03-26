@@ -24,6 +24,7 @@ logger = logging.getLogger("openjarvis.events")
 class EventType(str, Enum):
     """Supported event categories."""
 
+    CUSTOM = "custom"
     INFERENCE_START = "inference_start"
     INFERENCE_END = "inference_end"
     TOOL_CALL_START = "tool_call_start"

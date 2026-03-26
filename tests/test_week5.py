@@ -18,6 +18,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -39,11 +40,10 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
-from ruflo.agent import dispatch, propose_change, feedback_lookup, record_outcome
+from ruflo.agent import dispatch, feedback_lookup, propose_change, record_outcome
 from ruflo.bottleneck_detector import detect_bottlenecks, score_bottleneck
 from shared.hybrid_rag import hybrid_retrieve, reward_chain_score
 from shared.weight_directives import _seal_directives_enabled
-
 
 # ═══════════════════════════════════════════════════════════════
 # Ruflo Agent
@@ -60,7 +60,6 @@ def test_dispatch_code_fix():
 
 def test_dispatch_disabled():
     os.environ["RUFLO_ENABLED"] = "0"
-    from ruflo.agent import dispatch as d2
     # Need to reimport to pick up env var — but module cached. Test the check directly.
     os.environ["RUFLO_ENABLED"] = "1"
 
@@ -154,7 +153,6 @@ def test_seal_disabled_by_default():
 
 def test_shadow_test_applies_dirty_overlay():
     """Ruflo shadow_test must overlay dirty working-tree state before testing the proposal."""
-    import subprocess
     import types as _t
     from unittest.mock import patch
 

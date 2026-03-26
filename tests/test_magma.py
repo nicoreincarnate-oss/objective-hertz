@@ -1,10 +1,9 @@
 """Tests for shared/magma.py — MAGMA memory system."""
 
 import asyncio
-import json
 import sys
 import types
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 # Fake modules
 _fake_db = types.ModuleType("shared.db")
@@ -53,7 +52,6 @@ from shared.magma import (
     source_reliability_score,
     temporal_decay_factor,
 )
-
 
 # ── _segment_events ──
 

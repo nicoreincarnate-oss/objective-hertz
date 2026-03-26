@@ -17,9 +17,10 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -52,11 +53,11 @@ class AgentCard:
     description: str = ""
     url: str = ""
     version: str = "1.0.0"
-    capabilities: List[str] = field(default_factory=list)
-    skills: List[str] = field(default_factory=list)
-    authentication: Dict[str, Any] = field(default_factory=dict)
+    capabilities: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    authentication: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -74,8 +75,8 @@ class AgentCard:
 def create_a2a_app(
     agent_card: AgentCard,
     handler: Callable[[str], Awaitable[str]],
-    health_check: Optional[Callable[[], Awaitable[dict]]] = None,
-    capability_details: Optional[List[Dict[str, Any]]] = None,
+    health_check: Callable[[], Awaitable[dict]] | None = None,
+    capability_details: list[dict[str, Any]] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app serving the OpenJarvis-native A2A protocol.
 
@@ -92,7 +93,7 @@ def create_a2a_app(
         Optional list of rich capability descriptions for /a2a/capabilities.
     """
     app = FastAPI(title=f"{agent_card.name} A2A Server", docs_url=None, redoc_url=None)
-    tasks: Dict[str, Dict[str, Any]] = {}
+    tasks: dict[str, dict[str, Any]] = {}
 
     @app.get("/.well-known/agent.json")
     async def get_agent_card():

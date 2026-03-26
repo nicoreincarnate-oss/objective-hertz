@@ -16,6 +16,7 @@ _fake_db.fetch_val = AsyncMock(return_value=0)
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     budget=types.SimpleNamespace(cloud_gpu_cap=200),
@@ -40,21 +41,19 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
+from perseus.sleep_cycle import _proposal_similarity
+from shared.deep_thinking import estimate_thinking_depth
+from titan.lora_routing import (
+    default_config,
+    per_layer_multipliers,
+    select_config,
+)
 from titan.training import (
     compute_mua_lr,
     compute_wdpo_weights,
     curate_preference_dataset,
     uni_dpo_dynamic_weights,
 )
-from titan.lora_routing import (
-    LoRARouterConfig,
-    default_config,
-    per_layer_multipliers,
-    select_config,
-)
-from perseus.sleep_cycle import _proposal_similarity
-from shared.deep_thinking import estimate_thinking_depth
-
 
 # ═══════════════════════════════════════════════════════════════
 # muA Learning Rates

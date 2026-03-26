@@ -459,7 +459,8 @@ async def _store_and_act(findings: list[dict[str, Any]]) -> dict[str, int]:
                 logger.debug("Failed to dispatch tool finding: %s", e)
 
             # Also dispatch to Ruflo for implementation evaluation
-            if config.ruflo.enabled:
+            ruflo_config = getattr(config, "ruflo", None)
+            if getattr(ruflo_config, "enabled", False):
                 try:
                     await delegate_task(
                         "scout", "ruflo", "implement_tool",

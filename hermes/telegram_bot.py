@@ -11,9 +11,9 @@ import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from shared.config import config
 from shared.comms import call_agent_capability
-from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val, get_config
+from shared.config import config
+from shared.db import execute, fetch_all, fetch_val, get_config
 
 logger = logging.getLogger("perseus.hermes.telegram")
 
@@ -302,7 +302,7 @@ async def cmd_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         await call_agent_capability("orchestrator", "operator_command",
             {"text": text})
-        await _reply(update, f"Got it. Forwarded to OpenJarvis.")
+        await _reply(update, "Got it. Forwarded to OpenJarvis.")
     except Exception as e:
         logger.error(f"Failed to forward to boss: {e}")
         await _reply(update, "Message received but couldn't reach the boss. Please try again.")

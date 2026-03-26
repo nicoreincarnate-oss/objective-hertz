@@ -5,13 +5,13 @@ AI decides persistence per lead. Handle replies, multi-step sequences.
 
 import json
 import logging
+from datetime import UTC
 
 from shared.db import emit_event, execute, fetch_all, fetch_one, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
-from titan.memory import format_rules_for_prompt, get_relevant_learnings
+from titan.memory import attribute_reply_cause, format_rules_for_prompt, get_relevant_learnings
 from titan.state_machine import transition_lead
-from titan.memory import attribute_reply_cause
 from titan.training import collect_email_outcome, collect_training_example
 
 logger = logging.getLogger("perseus.titan.follow_up")
@@ -269,8 +269,8 @@ async def _send_follow_ups():
         (max_steps,),
     )
 
-    from datetime import datetime, timedelta, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime, timedelta
+    now = datetime.now(UTC)
     filtered = []
     for lead in leads:
         step = lead.get("follow_up_count", 0)
@@ -286,7 +286,7 @@ async def _send_follow_ups():
                 filtered.append(lead)
                 continue
         if last_contact.tzinfo is None:
-            last_contact = last_contact.replace(tzinfo=timezone.utc)
+            last_contact = last_contact.replace(tzinfo=UTC)
         if now - last_contact >= timedelta(days=delay_days):
             filtered.append(lead)
     leads = filtered

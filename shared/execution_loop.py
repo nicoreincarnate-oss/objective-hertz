@@ -222,7 +222,10 @@ async def _execute_step(
                     # SCoRe self-correction: use structured retry before normal retry
                     if step.use_self_correction and attempt == 1:
                         try:
-                            from shared.test_time_learning import score_self_correct, TEST_TIME_LEARNING_ENABLED
+                            from shared.test_time_learning import (
+                                TEST_TIME_LEARNING_ENABLED,
+                                score_self_correct,
+                            )
                             if TEST_TIME_LEARNING_ENABLED:
                                 score_result = await score_self_correct(
                                     full_prompt, result, step.check,

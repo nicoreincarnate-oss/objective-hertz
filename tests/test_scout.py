@@ -2,8 +2,8 @@
 
 import asyncio
 import json
-import types
 import sys
+import types
 from unittest.mock import AsyncMock, patch
 
 # Fake modules so scout.py can import without real DB/LLM
@@ -89,6 +89,7 @@ def test_select_topics_wraps_around():
 
 def test_dedup_skips_already_seen_urls():
     import time
+
     from perseus import scout
 
     seen = {_url_hash("https://example.com/old"): time.time()}
@@ -109,6 +110,7 @@ def test_dedup_skips_already_seen_urls():
 
 def test_dedup_caps_at_max_entries():
     import time
+
     from perseus import scout
 
     seen = {_url_hash(f"https://example.com/{i}"): time.time() - i for i in range(2100)}

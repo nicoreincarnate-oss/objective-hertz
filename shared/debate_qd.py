@@ -14,12 +14,10 @@ Gated behind DEBATE_QD_ENABLED=1 (default 1).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("perseus.debate_qd")
 
@@ -115,7 +113,7 @@ class StrategyPool:
             return ("default", "Professional cold outreach.")
 
         try:
-            from shared.bandit import get_bandit, BANDIT_ENABLED
+            from shared.bandit import BANDIT_ENABLED, get_bandit
             if BANDIT_ENABLED:
                 import asyncio
                 arm = asyncio.get_event_loop().run_until_complete(

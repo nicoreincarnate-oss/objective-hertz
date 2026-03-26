@@ -67,7 +67,7 @@ logs: ## Tail daemon logs
 health: ## Quick health check
 	@echo "Postgres:  $$(docker exec perseus-postgres pg_isready 2>/dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Qdrant:    $$(curl -sf http://localhost:6333/collections > /dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "Mem0:      $$(curl -sf http://localhost:8888/api/v1/health > /dev/null && echo 'OK' || echo 'DOWN')"
+	@echo "Mem0:      $$(curl -sf http://localhost:8888/health > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "N8N:       $$(curl -sf http://localhost:5678/healthz > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
 

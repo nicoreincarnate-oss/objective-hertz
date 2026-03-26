@@ -216,8 +216,10 @@ def test_start_and_stop_scripts_wait_for_services_and_graceful_shutdown():
 
     assert "wait_for_pid()" in start_code
     assert "wait_for_http()" in start_code
-    assert "http://localhost:8500/api/health" in start_code
+    assert "http://localhost:8500/api/liveness" in start_code
+    assert 'stop_stale_listener 3000 "$FRONTEND_DIR" "frontend"' in start_code
     assert "SIGTERM_WAIT_SECONDS=30" in stop_code
+    assert "frontend dashboard orchestrator clawdbot titan perseus" in stop_code
     assert "kill -KILL" in stop_code
 
 

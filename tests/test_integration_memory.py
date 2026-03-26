@@ -4,7 +4,7 @@ import asyncio
 import os
 import sys
 import types
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 os.environ["MAGMA_CONFIDENCE_SCORING"] = "1"
 os.environ["MAGMA_DOMAIN_SEGREGATION"] = "1"
@@ -17,6 +17,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(
@@ -36,15 +37,15 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 
 from shared.magma import (
-    _resolve_domain,
-    _extract_entities,
+    Intent,
     _classify_entity_type,
+    _extract_entities,
     _linearize_with_provenance,
+    _resolve_domain,
     _search_memory_with_metadata,
     compute_anchor_confidence,
     source_reliability_score,
     temporal_decay_factor,
-    Intent,
 )
 
 
@@ -128,7 +129,7 @@ def test_search_memory_with_metadata_graceful():
 
 def test_search_memory_with_metadata_returns_node_id():
     """Search returns magma_node_id from Qdrant payload."""
-    import respx, httpx
+    import respx
     with respx.mock(assert_all_called=False):
         respx.post("http://localhost:8888/v1/memories/search/").respond(200, json={
             "results": [{

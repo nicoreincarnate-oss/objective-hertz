@@ -21,11 +21,9 @@ Gated behind BANDIT_ENABLED=1 (default 1).
 from __future__ import annotations
 
 import logging
-import math
 import os
 import random
 from dataclasses import dataclass, field
-from typing import Any
 
 logger = logging.getLogger("perseus.bandit")
 

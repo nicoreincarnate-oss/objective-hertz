@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message, Role
@@ -25,7 +25,7 @@ class _FakeMemory(MemoryBackend):
 
     def __init__(
         self,
-        results: Optional[List[RetrievalResult]] = None,
+        results: list[RetrievalResult] | None = None,
     ) -> None:
         self._results = results or []
 
@@ -34,7 +34,7 @@ class _FakeMemory(MemoryBackend):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         return uuid.uuid4().hex
 
@@ -44,7 +44,7 @@ class _FakeMemory(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         return self._results[:top_k]
 
     def delete(self, doc_id: str) -> bool:

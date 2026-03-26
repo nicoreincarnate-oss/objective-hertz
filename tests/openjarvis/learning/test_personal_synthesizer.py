@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,7 +32,7 @@ def _make_trace(
     feedback: float | None = 0.9,
     model: str = "test-model",
     engine: str = "test-engine",
-    metadata: Dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> Trace:
     return Trace(
         trace_id=trace_id,

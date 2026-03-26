@@ -1,7 +1,6 @@
 """Integration test: Sleep cycle with misalignment probes + convergence + trajectory."""
 
 import asyncio
-import json
 import os
 import sys
 import types
@@ -17,6 +16,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -38,10 +38,10 @@ sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
 from perseus.misalignment_probe import (
+    check_forgetting_risk,
+    convergence_detector,
     probe_proposal,
     trajectory_analysis,
-    convergence_detector,
-    check_forgetting_risk,
 )
 
 

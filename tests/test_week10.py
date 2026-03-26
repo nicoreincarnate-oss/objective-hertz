@@ -21,6 +21,7 @@ _fake_db.fetch_val = AsyncMock(return_value=None)
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -37,12 +38,15 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
-from shared.metaclaw import fast_adapt, slow_consolidate, get_meta_stats
-from shared.dynamic_routing import classify_query_difficulty, get_model_for_difficulty, get_pipeline_config
 from shared.adaptive_dashboard import compute_dashboard_layout, detect_bottleneck
-from shared.scientific_loop import create_experiment, evaluate_experiments
+from shared.dynamic_routing import (
+    classify_query_difficulty,
+    get_model_for_difficulty,
+    get_pipeline_config,
+)
 from shared.magma import meta_search_params
-
+from shared.metaclaw import fast_adapt, get_meta_stats, slow_consolidate
+from shared.scientific_loop import create_experiment, evaluate_experiments
 
 # ═══════════════════════════════════════════════════════════════
 # MetaClaw

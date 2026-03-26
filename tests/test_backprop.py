@@ -1,11 +1,10 @@
 """Tests for perseus/backprop.py — safe behavioral editing."""
 
 import asyncio
-import json
 import sys
 import types
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, mock_open
+from unittest.mock import AsyncMock, patch
 
 _fake_db = types.ModuleType("shared.db")
 _fake_db.emit_event = AsyncMock(return_value=1)
@@ -40,11 +39,10 @@ sys.modules["shared.llm_client"] = _fake_llm
 from perseus.backprop import (
     IMMUTABLE_FILES,
     PRICE_MAX,
-    PRICE_MIN,
     PRICE_MAX_DELTA_PER_CYCLE,
+    PRICE_MIN,
     apply_config_change,
 )
-
 
 # ── Immutable protections ──
 

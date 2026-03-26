@@ -1,7 +1,6 @@
 """Tests for Week 3: Test-time learning, SCoRe self-correction, MemRL, convergence, domain segregation."""
 
 import asyncio
-import os
 import sys
 import types
 from unittest.mock import AsyncMock
@@ -15,6 +14,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -34,14 +34,13 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
+from shared.execution_loop import Step
+from shared.magma import _resolve_domain
 from shared.test_time_learning import (
+    _ttrl_buffer,
     convergence_check,
     score_self_correct,
-    _ttrl_buffer,
 )
-from shared.magma import _resolve_domain
-from shared.execution_loop import Step
-
 
 # ═══════════════════════════════════════════════════════════════
 # SCoRe Self-Correction

@@ -283,7 +283,7 @@ class ClawdBotDaemon(AgentBase):
                     await asyncio.wait_for(self._think(), timeout=120)
                     await heartbeat(self.name)
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.error("ClawdBot cycle timed out after 120s")
                     await self.emit_event("clawdbot_error", {"error": "cycle_timeout"})
                 except Exception as e:
@@ -604,7 +604,7 @@ class ClawdBotDaemon(AgentBase):
     async def _collaborate(self, target_agent: str, topic: str, problem: str):
         """Have a real conversation with another agent and try to fix the problem."""
         from clawdbot.brain import decide_approach
-        from shared.comms import ask_agent, delegate_task
+        from shared.comms import ask_agent
 
         try:
             # Dedup: don't re-collaborate on same topic within 30 minutes
@@ -1173,7 +1173,7 @@ async def handle_android_automation(payload: dict):
         }
 
     if not serial:
-        raise ValueError("android serial is required for action '%s'" % action)
+        raise ValueError(f"android serial is required for action '{action}'")
 
     if action == "tap":
         try:

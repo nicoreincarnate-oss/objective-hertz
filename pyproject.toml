@@ -90,7 +90,10 @@ extend-exclude = ["tools/browser-use", "tools/firecrawl"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "E741", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E402", "B011", "B017", "E741", "B007", "B905", "F841"]
 
 [tool.mypy]
 python_version = "3.11"

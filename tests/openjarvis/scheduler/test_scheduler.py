@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -158,7 +158,7 @@ class TestComputeNextRun:
         assert next_run is not None
         # Should be roughly 300 seconds from now
         parsed = datetime.fromisoformat(next_run)
-        diff = (parsed - datetime.now(timezone.utc)).total_seconds()
+        diff = (parsed - datetime.now(UTC)).total_seconds()
         assert 295 <= diff <= 310
 
     def test_once_not_yet_run(self, scheduler):

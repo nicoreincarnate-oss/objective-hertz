@@ -7,11 +7,9 @@ These tests verify that:
 4. The full path is routable (capabilities + static routing)
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Hermes side: cmd_approve / cmd_reject behaviour
@@ -43,7 +41,6 @@ def _patch_config(monkeypatch):
     monkeypatch.setattr("shared.config.config", cfg)
     # Force-import and patch the module-level binding so the auth check sees
     # our mock config, not whatever was cached from a prior test module.
-    import hermes.telegram_bot  # noqa: ensure loaded
     monkeypatch.setattr("hermes.telegram_bot.config", cfg)
 
 

@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from shared.observability import ensure_trace_context
 
@@ -146,9 +145,7 @@ def get_audit_logger():
     if _audit_logger is None:
         from openjarvis.security.audit import AuditLogger
         db_path = str(_DATA_DIR / "audit.sqlite")
-        _audit_logger = AuditLogger(db_path)
-        # Subscribe to security events on the bus
-        _audit_logger.subscribe_to_bus(get_bus())
+        _audit_logger = AuditLogger(db_path, bus=get_bus())
         logger.info("OJ AuditLogger initialized at %s", db_path)
     return _audit_logger
 
@@ -163,7 +160,7 @@ def get_workflow_engine():
     return _workflow_engine
 
 
-def call_agent(agent_name: str, capability: str, params: Optional[dict] = None, timeout: float = 120.0) -> dict:
+def call_agent(agent_name: str, capability: str, params: dict | None = None, timeout: float = 120.0) -> dict:
     """Call a remote agent's capability via A2A and return parsed result.
 
     This is the primary function for inter-agent communication.
@@ -218,7 +215,7 @@ def call_agent(agent_name: str, capability: str, params: Optional[dict] = None, 
         return {"error": str(exc)}
 
 
-async def call_agent_async(agent_name: str, capability: str, params: Optional[dict] = None, timeout: float = 120.0) -> dict:
+async def call_agent_async(agent_name: str, capability: str, params: dict | None = None, timeout: float = 120.0) -> dict:
     """Async wrapper around call_agent (runs sync A2A call in thread pool)."""
     import asyncio
     loop = asyncio.get_running_loop()

@@ -13,9 +13,7 @@ Used when:
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,7 +93,7 @@ async def ties_merge(
             elected_sign = torch.sign(signs.sum(dim=0))
 
             # Step 3: Merge — weighted average with elected signs
-            weighted_sum = sum(w * t.abs() for w, t in zip(weights, trimmed))
+            weighted_sum = sum(w * t.abs() for w, t in zip(weights, trimmed, strict=True))
             merged_sd[key] = elected_sign * weighted_sum
 
         # Save merged adapter

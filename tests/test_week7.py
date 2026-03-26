@@ -17,6 +17,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -40,7 +41,6 @@ from shared.milestone_rewards import (
     emit_milestone_reward,
     get_transition_reward,
 )
-
 
 # ═══════════════════════════════════════════════════════════════
 # BanditArm

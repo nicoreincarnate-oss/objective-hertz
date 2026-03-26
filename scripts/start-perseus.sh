@@ -44,6 +44,39 @@ wait_for_http() {
     return 1
 }
 
+stop_stale_listener() {
+    local port="$1"
+    local expected_cwd="$2"
+    local label="$3"
+    local pid
+    pid="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1)"
+    if [ -z "$pid" ]; then
+        return 0
+    fi
+
+    local listener_cwd
+    listener_cwd="$(lsof -nP -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    if [ "$listener_cwd" != "$expected_cwd" ]; then
+        echo "  ✗ Port $port is already in use by PID $pid outside $label ($listener_cwd)"
+        return 1
+    fi
+
+    echo "  Found stale $label listener on :$port (PID: $pid), stopping it..."
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+        if ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+    sleep 1
+    if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "  ✗ Failed to free port $port for $label"
+        return 1
+    fi
+}
+
 echo "═══════════════════════════════════════"
 echo "  OPENJARVIS — Starting The Boss"
 echo "═══════════════════════════════════════"
@@ -139,7 +172,7 @@ echo "[6/7] Starting dashboard backend..."
 LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
 echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
-wait_for_http "http://localhost:8500/api/health" "Dashboard backend"
+wait_for_http "http://localhost:8500/api/liveness" "Dashboard backend"
 echo "  ✓ Dashboard backend started on :8500 (PID: $(cat $PID_DIR/dashboard.pid))"
 echo "  Metrics    Dashboard:  http://localhost:8500/metrics"
 
@@ -148,6 +181,7 @@ FRONTEND_DIR="$ROOT_DIR/hermes/web/frontend"
 echo "[7/7] Starting War Room frontend..."
 if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     cd "$FRONTEND_DIR"
+    stop_stale_listener 3000 "$FRONTEND_DIR" "frontend" || exit 1
     # Build if not already built
     if [ ! -d "$FRONTEND_DIR/.next" ]; then
         echo "  Building frontend (first run)..."

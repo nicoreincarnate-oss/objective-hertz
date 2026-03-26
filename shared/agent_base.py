@@ -14,13 +14,13 @@ from shared.observability import (
     bind_context_from_payload,
     capture_exception,
     configure_service_observability,
+    observe_work_duration,
     record_agent_shutdown,
     record_agent_started,
     record_event_emitted,
     record_task_claimed,
     record_task_completed,
     record_task_failed,
-    observe_work_duration,
     set_active_work,
 )
 

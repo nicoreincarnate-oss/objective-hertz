@@ -29,7 +29,6 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any
 
 from shared.config import config
 
@@ -197,7 +196,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Cosine similarity between two vectors."""
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0 or norm_b == 0:
@@ -661,7 +660,7 @@ async def magma_retrieve(
 
     # Confidence-aware abstention (MMA paper)
     if CONFIDENCE_SCORING_ENABLED and anchors:
-        avg_confidence = sum(a.get("confidence", 0) for a in anchors) / len(anchors)
+        _avg_confidence = sum(a.get("confidence", 0) for a in anchors) / len(anchors)
         max_confidence = max(a.get("confidence", 0) for a in anchors)
 
         if max_confidence < CONFIDENCE_ABSTENTION_THRESHOLD:
@@ -961,11 +960,11 @@ async def _scored_beam_search(
                         # Respect causal direction if decomposed
                         direction = (decomp or {}).get("causal_direction")
                         if direction == "forward":
-                            pattern = f"(n:MemoryNode {{node_id: $nid}})-[r:CAUSED]->(rel:MemoryNode)"
+                            pattern = "(n:MemoryNode {node_id: $nid})-[r:CAUSED]->(rel:MemoryNode)"
                         elif direction == "backward":
-                            pattern = f"(n:MemoryNode {{node_id: $nid}})<-[r:CAUSED]-(rel:MemoryNode)"
+                            pattern = "(n:MemoryNode {node_id: $nid})<-[r:CAUSED]-(rel:MemoryNode)"
                         else:
-                            pattern = f"(n:MemoryNode {{node_id: $nid}})-[r:CAUSED]-(rel:MemoryNode)"
+                            pattern = "(n:MemoryNode {node_id: $nid})-[r:CAUSED]-(rel:MemoryNode)"
                         results = session.run(
                             f"""MATCH {pattern}
                                WHERE rel.node_id <> $nid AND r.confidence >= {CAUSAL_CONFIDENCE_THRESHOLD}
@@ -1124,7 +1123,7 @@ def _linearize_with_provenance(subgraph: list[dict], intent: Intent) -> str:
             budget -= len(line)
 
         # Then causal chains, sorted by timestamp within each
-        for anchor_id, chain in by_anchor.items():
+        for _anchor_id, chain in by_anchor.items():
             if budget <= 0:
                 break
             chain.sort(key=lambda x: x.get("timestamp", ""))
@@ -1557,8 +1556,9 @@ async def update_meta_params(query_type: str, adjustments: dict) -> None:
         return
 
     try:
-        from shared.db import get_config, set_config
         import json
+
+        from shared.db import set_config
 
         current = await meta_search_params(query_type)
         for key, delta in adjustments.items():

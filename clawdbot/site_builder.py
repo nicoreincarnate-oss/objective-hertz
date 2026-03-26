@@ -800,7 +800,7 @@ async def build_full_site(lead: dict) -> str:
 async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     """Core build process: generate variants → review → synthesize → deploy."""
     business_name = lead.get("business_name", "Business")
-    industry = lead.get("industry", "general services")
+    _industry = lead.get("industry", "general services")
 
     strategy = await _generate_reference_strategy(lead, site_type, page_count)
     build_plan = await _resolve_build_plan(lead, site_type=site_type, page_count=page_count, strategy=strategy)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 from openjarvis.learning.agents.skill_discovery import SkillDiscovery
 
@@ -45,12 +44,12 @@ class _Trace:
     steps: list = field(default_factory=list)
 
 
-def _make_trace(tools: List[str], outcome: float = 1.0, query: str = "") -> _Trace:
+def _make_trace(tools: list[str], outcome: float = 1.0, query: str = "") -> _Trace:
     steps = [_Step(step_type="tool_call", tool_name=t) for t in tools]
     return _Trace(query=query, outcome=outcome, steps=steps)
 
 
-def _make_dict_trace(tools: List[str], outcome: float = 1.0, query: str = "") -> dict:
+def _make_dict_trace(tools: list[str], outcome: float = 1.0, query: str = "") -> dict:
     steps = [{"step_type": "tool_call", "tool_name": t} for t in tools]
     return {"query": query, "outcome": outcome, "steps": steps}
 

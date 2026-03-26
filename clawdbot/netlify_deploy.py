@@ -3,7 +3,6 @@
 import hashlib
 import logging
 import re
-from typing import Any
 
 import httpx
 
@@ -99,7 +98,7 @@ async def deploy_static_site(
         }
 
         failed_uploads = []
-        for path, digest in file_digests.items():
+        for path, _digest in file_digests.items():
             if required and path not in required:
                 continue
             filename = path.lstrip("/")

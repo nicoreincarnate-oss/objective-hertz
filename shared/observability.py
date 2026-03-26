@@ -49,8 +49,8 @@ except Exception:  # pragma: no cover - optional dependency
         def __init__(self, *a, **kw): pass
 
     Counter = Gauge = Histogram = _NoOpMetric
-    generate_latest = lambda: b""
-    start_http_server = lambda *a, **kw: None
+    def generate_latest(): return b""  # noqa: E704
+    def start_http_server(*a, **kw): return None  # noqa: E704
 
 
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")

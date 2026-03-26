@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 logger = logging.getLogger("perseus.milestone_rewards")
 
@@ -91,17 +90,17 @@ async def emit_milestone_reward(
 
     # 2. Feed into TTRL gradient buffer (if enabled)
     try:
-        from shared.test_time_learning import ttrl_gradient_update, TTRL_GRADIENT_ENABLED
+        from shared.test_time_learning import TTRL_GRADIENT_ENABLED, ttrl_gradient_update
         if TTRL_GRADIENT_ENABLED:
             prompt_context = meta.get("last_prompt", f"Pipeline stage: {from_status}→{to_status}")
-            output_context = meta.get("last_output", f"Transition successful")
+            output_context = meta.get("last_output", "Transition successful")
             await ttrl_gradient_update("qwen2.5:14b", prompt_context, output_context, reward)
     except Exception:
         pass
 
     # 3. Feed into bandit (if this transition resulted from a bandit-selected variant)
     try:
-        from shared.bandit import get_bandit, BANDIT_ENABLED
+        from shared.bandit import BANDIT_ENABLED, get_bandit
         if BANDIT_ENABLED:
             experiment_id = meta.get("bandit_experiment")
             arm_name = meta.get("bandit_arm")

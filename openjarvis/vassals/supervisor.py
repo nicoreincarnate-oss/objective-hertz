@@ -11,6 +11,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -77,21 +78,21 @@ class VassalSupervisor:
         defaults = [
             VassalProcess(
                 name="titan",
-                command=["python", "-m", "titan.daemon"],
+                command=[sys.executable, "-m", "titan.daemon"],
                 cwd=cwd,
                 a2a_port=9001,
                 env={"TITAN_A2A": "1", "TITAN_A2A_PORT": "9001"},
             ),
             VassalProcess(
                 name="hermes",
-                command=["python", "-m", "hermes.daemon"],
+                command=[sys.executable, "-m", "hermes.daemon"],
                 cwd=cwd,
                 a2a_port=9002,
                 env={"HERMES_A2A": "1", "HERMES_A2A_PORT": "9002"},
             ),
             VassalProcess(
                 name="clawdbot",
-                command=["python", "-m", "clawdbot.daemon"],
+                command=[sys.executable, "-m", "clawdbot.daemon"],
                 cwd=cwd,
                 a2a_port=9003,
                 env={"CLAWDBOT_A2A": "1", "CLAWDBOT_A2A_PORT": "9003"},

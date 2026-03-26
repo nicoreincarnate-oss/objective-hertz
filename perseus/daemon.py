@@ -361,7 +361,7 @@ def _openjarvis_is_running() -> bool:
     try:
         with socket.create_connection(("localhost", port), timeout=2):
             return True
-    except (ConnectionRefusedError, OSError, socket.timeout):
+    except (TimeoutError, ConnectionRefusedError, OSError):
         return False
 
 

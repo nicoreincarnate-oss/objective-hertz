@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
 
 logger = logging.getLogger("perseus.metaclaw")
 
@@ -47,9 +46,8 @@ async def fast_adapt(lead: dict) -> dict:
 
     # Override with bandit if it has converged
     try:
-        from shared.bandit import get_bandit, BANDIT_ENABLED
+        from shared.bandit import BANDIT_ENABLED, get_bandit
         if BANDIT_ENABLED:
-            import asyncio
             bandit = get_bandit()
             exp_id = f"template_{industry}" if industry else "template_default"
             stats = bandit.get_stats(exp_id)

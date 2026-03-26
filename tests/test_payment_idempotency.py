@@ -52,7 +52,6 @@ class TestStripeIdempotency:
     @pytest.mark.asyncio
     async def test_stripe_sets_idempotency_key_header(self):
         """The Stripe POST must include an Idempotency-Key header."""
-        import httpx
 
         captured_request = {}
 
@@ -86,7 +85,6 @@ class TestStripeIdempotency:
     @pytest.mark.asyncio
     async def test_stripe_propagates_metadata_to_payment_intent(self):
         """payment_intent_data[metadata] must be set so PI reconciliation works."""
-        import httpx
 
         captured_data = {}
 
@@ -360,6 +358,7 @@ class TestPollingCursorAndPagination:
     def test_default_lookback_is_7_days(self):
         """Default lookback window must be 7 days, not 24 hours."""
         import time
+
         from tools.payment_router import _default_lookback_timestamp
 
         ts = _default_lookback_timestamp()
@@ -672,7 +671,6 @@ class TestPollingCapExhaustion:
     @pytest.mark.asyncio
     async def test_cursor_not_advanced_when_stripe_cap_hit(self):
         """If Stripe hits page cap (has_more still True), cursor stays put."""
-        import time
 
         config_store = {"last_payment_check": 1000}
         page_count = {"n": 0}
@@ -732,7 +730,6 @@ class TestPollingCapExhaustion:
     @pytest.mark.asyncio
     async def test_cursor_advances_when_fully_exhausted(self):
         """If all providers finish cleanly, cursor should advance."""
-        import time
 
         config_store = {"last_payment_check": 1000}
 

@@ -17,6 +17,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -48,7 +49,6 @@ from shared.inference_optimizer import (
     select_inference_mode,
     should_compress_context,
 )
-
 
 # ═══════════════════════════════════════════════════════════════
 # Probe Proposal

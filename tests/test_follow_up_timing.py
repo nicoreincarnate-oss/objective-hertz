@@ -11,7 +11,7 @@ import asyncio
 import importlib
 import sys
 import types
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 
@@ -131,7 +131,7 @@ def test_send_follow_ups_respects_per_step_delay():
     """A lead at step 3 (14-day delay) should NOT get a follow-up after only 5 days."""
     saved, fu_mod, fake_db = _setup_fakes()
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Lead at follow_up_count=3 → needs 14-day delay
         # Last contact 5 days ago → should NOT be followed up
@@ -163,9 +163,9 @@ def test_send_follow_ups_respects_per_step_delay():
             asyncio.run(fu_mod._send_follow_ups())
 
         # Lead 1 (5 days, needs 14) should NOT be composed
-        assert 1 not in composed, f"Lead 1 should not be followed up after only 5 days (needs 14)"
+        assert 1 not in composed, "Lead 1 should not be followed up after only 5 days (needs 14)"
         # Lead 2 (4 days, needs 3) SHOULD be composed
-        assert 2 in composed, f"Lead 2 should be followed up after 4 days (needs 3)"
+        assert 2 in composed, "Lead 2 should be followed up after 4 days (needs 3)"
     finally:
         _restore(saved)
 

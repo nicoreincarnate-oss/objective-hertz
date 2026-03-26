@@ -60,7 +60,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
 
     # Misalignment probes: check each Alpha proposal BEFORE Beta sees them
     try:
-        from perseus.misalignment_probe import probe_proposal, MISALIGNMENT_PROBES_ENABLED
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, probe_proposal
         if MISALIGNMENT_PROBES_ENABLED:
             safe_proposals = []
             for prop in alpha_proposals:
@@ -82,7 +82,11 @@ async def run_sleep_cycle() -> dict[str, Any]:
 
     # Prospect Simulator: 3rd persona role-plays how leads would react (Paper 73)
     try:
-        from shared.prospect_simulator import simulate_prospect_reactions, filter_by_prospect_reactions, PROSPECT_SIM_ENABLED
+        from shared.prospect_simulator import (
+            PROSPECT_SIM_ENABLED,
+            filter_by_prospect_reactions,
+            simulate_prospect_reactions,
+        )
         if PROSPECT_SIM_ENABLED and surviving:
             reactions = await simulate_prospect_reactions(surviving, snapshot)
             surviving = filter_by_prospect_reactions(surviving, reactions)
@@ -92,7 +96,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
 
     # Trajectory analysis: if drifting, reduce to 1 proposal max
     try:
-        from perseus.misalignment_probe import trajectory_analysis, MISALIGNMENT_PROBES_ENABLED
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, trajectory_analysis
         if MISALIGNMENT_PROBES_ENABLED:
             trajectory = await trajectory_analysis(days=7)
             if trajectory.get("alert"):
@@ -127,7 +131,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
 
     # Convergence detection: should we pause self-modification?
     try:
-        from perseus.misalignment_probe import convergence_detector, MISALIGNMENT_PROBES_ENABLED
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, convergence_detector
         if MISALIGNMENT_PROBES_ENABLED:
             conv = await convergence_detector(days=14)
             if conv.get("converged"):
@@ -155,8 +159,8 @@ async def run_sleep_cycle() -> dict[str, Any]:
 
     # LoRA training check: if enough training data has accumulated, schedule a run
     try:
-        from titan.training import should_train
         from shared.db import insert_task
+        from titan.training import should_train
         if await should_train():
             task_id = await insert_task("lora_training", priority=3, dedupe=True)
             if task_id:
@@ -254,8 +258,8 @@ async def _gather_system_snapshot() -> dict[str, Any]:
     # MAGMA causal subgraph for Alpha/Beta (if enabled)
     causal_context = ""
     try:
-        from shared.magma import magma_retrieve
         from shared.config import config as _cfg
+        from shared.magma import magma_retrieve
         if _cfg.memory.magma_enabled:
             causal_context = await magma_retrieve(
                 "Why did metrics change this week? What caused pipeline errors? "
@@ -651,8 +655,8 @@ async def _check_self_play_conditions(cycle_id: int) -> dict:
         if isinstance(changes, list):
             all_cats.extend(str(ch.get("category", "?")) for ch in changes)
 
-    from collections import Counter
     import math
+    from collections import Counter
     counter = Counter(all_cats)
     total = max(1, len(all_cats))
     entropy = -sum((c/total) * math.log2(c/total) for c in counter.values() if c > 0)

@@ -1,10 +1,9 @@
 """Tests for titan/training.py — LoRA training pipeline."""
 
 import asyncio
-import json
 import sys
 import types
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 _fake_db = types.ModuleType("shared.db")
 _fake_db.emit_event = AsyncMock(return_value=1)
@@ -21,6 +20,7 @@ _fake_db.transaction = AsyncMock()
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path as _Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=_Path("/tmp/test-repo"),
     budget=types.SimpleNamespace(cloud_gpu_cap=200),
@@ -41,7 +41,6 @@ sys.modules["shared.comms"] = _fake_comms
 sys.modules["shared.llm_client"] = _fake_llm
 
 from titan.training import collect_training_example, export_training_data, should_train
-
 
 # ── collect_training_example ──
 

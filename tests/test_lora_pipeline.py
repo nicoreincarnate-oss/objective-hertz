@@ -12,8 +12,7 @@ import asyncio
 import importlib
 import sys
 import types
-from unittest.mock import AsyncMock, patch, MagicMock
-
+from unittest.mock import AsyncMock, patch
 
 # ── 1. LLM client fine-tuned model routing ──
 
@@ -114,6 +113,7 @@ def test_sleep_cycle_schedules_lora_when_ready():
          patch("shared.db.insert_task", mock_insert_task):
         # Import and check that the sleep cycle code references lora_training
         import inspect
+
         from perseus.sleep_cycle import run_sleep_cycle
         source = inspect.getsource(run_sleep_cycle)
         assert "lora_training" in source, \

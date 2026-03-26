@@ -17,14 +17,21 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from typing import Any, Callable
+from collections.abc import Callable
 
 logger = logging.getLogger("perseus.deep_thinking")
 
-DEEP_THINKING_ENABLED = os.environ.get("DEEP_THINKING_ENABLED", "1") == "1"
-THINK_AT_N = int(os.environ.get("THINK_AT_N", "3"))  # generate N candidates
-MIN_THINKING_DEPTH = float(os.environ.get("MIN_THINKING_DEPTH", "0.6"))  # 0.0-1.0
+
+def _deep_thinking_enabled() -> bool:
+    return os.environ.get("DEEP_THINKING_ENABLED", "1") == "1"
+
+
+def _think_at_n_default() -> int:
+    return int(os.environ.get("THINK_AT_N", "3"))
+
+
+def _min_thinking_depth() -> float:
+    return float(os.environ.get("MIN_THINKING_DEPTH", "0.6"))
 
 
 def estimate_thinking_depth(text: str) -> float:
@@ -109,13 +116,13 @@ async def think_at_n(
             "early_stopped": whether we stopped before n,
         }
     """
-    if not DEEP_THINKING_ENABLED:
+    if not _deep_thinking_enabled():
         # Passthrough: generate once, no scoring
         text = await generate_fn(prompt, **kwargs)
         return {"text": text, "depth": 1.0, "candidates_tried": 1, "early_stopped": False}
 
-    n = n or THINK_AT_N
-    min_depth = min_depth or MIN_THINKING_DEPTH
+    n = n or _think_at_n_default()
+    min_depth = min_depth or _min_thinking_depth()
 
     best_text = ""
     best_depth = 0.0
@@ -173,14 +180,15 @@ async def deep_generate(
         # Instead of: result = await llm.generate(prompt, model="smart")
         result = await deep_generate(llm.generate, prompt, model="smart")
     """
-    if not DEEP_THINKING_ENABLED:
+    if not _deep_thinking_enabled():
         return await generate_fn(prompt, **kwargs)
 
     result = await think_at_n(generate_fn, prompt, **kwargs)
 
-    if require_deep and result["depth"] < MIN_THINKING_DEPTH:
+    min_depth = _min_thinking_depth()
+    if require_deep and result["depth"] < min_depth:
         logger.warning(
-            f"Deep thinking failed: depth={result['depth']:.2f} < {MIN_THINKING_DEPTH} "
+            f"Deep thinking failed: depth={result['depth']:.2f} < {min_depth} "
             f"after {result['candidates_tried']} candidates"
         )
 

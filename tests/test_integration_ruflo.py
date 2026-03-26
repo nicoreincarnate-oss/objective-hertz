@@ -17,6 +17,7 @@ _fake_db.fetch_all = AsyncMock(return_value=[])
 
 _fake_config = types.ModuleType("shared.config")
 from pathlib import Path
+
 _fake_config.config = types.SimpleNamespace(
     root_dir=Path("/tmp/test"),
     memory=types.SimpleNamespace(magma_enabled=False, neo4j_uri="", neo4j_user="", neo4j_password="",
@@ -34,7 +35,7 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
-from ruflo.agent import dispatch, propose_change, feedback_lookup, record_outcome
+from ruflo.agent import dispatch, propose_change, record_outcome
 from ruflo.bottleneck_detector import detect_bottlenecks, score_bottleneck
 
 
@@ -100,7 +101,7 @@ def test_detect_bottlenecks_no_crash():
 def test_shadow_test_overlays_dirty_tree():
     """shadow_test must copy unstaged+staged changes into the worktree before applying the diff."""
     import types as _t
-    from unittest.mock import patch, call
+    from unittest.mock import patch
 
     from ruflo.agent import shadow_test
 
@@ -235,7 +236,6 @@ def test_shadow_test_fails_when_overlay_throws():
 
 def test_shadow_test_copies_untracked_files(tmp_path):
     """Untracked files from the live tree must be copied into the shadow worktree."""
-    import shutil
     import types as _t
     from unittest.mock import patch
 

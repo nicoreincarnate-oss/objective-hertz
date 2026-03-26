@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 logger = logging.getLogger("perseus.hybrid_rag")
 
@@ -60,7 +59,7 @@ async def hybrid_retrieve(query: str, limit: int = 10) -> list[dict]:
 
     # Source 2: Graph-based (Neo4j MAGMA traversal)
     try:
-        from shared.magma import magma_retrieve, _get_driver
+        from shared.magma import _get_driver, magma_retrieve
         if _get_driver():
             graph_text = await magma_retrieve(query, limit=limit // 2)
             if graph_text and "No relevant" not in graph_text:

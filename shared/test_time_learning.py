@@ -16,11 +16,9 @@ Gated behind TEST_TIME_LEARNING_ENABLED=1 (default 1).
 from __future__ import annotations
 
 import logging
-import math
 import os
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 logger = logging.getLogger("perseus.test_time_learning")
 
@@ -146,7 +144,7 @@ async def memrl_context_inject(query: str, limit: int = 5) -> str:
 
     memories = []
     try:
-        from shared.magma import magma_retrieve, _get_driver
+        from shared.magma import _get_driver, magma_retrieve
         if _get_driver():
             result = await magma_retrieve(query, limit=limit)
             if result and "No relevant" not in result:
@@ -265,8 +263,8 @@ async def flush_ttrl_buffer(model_name: str = "") -> bool:
     logger.info(f"TTRL: flushing {len(_ttrl_buffer)} examples for micro-update")
 
     try:
-        import mlx.core as mx
-        from mlx_lm import load as mlx_load
+        import mlx.core as mx  # noqa: F401 — will be used when micro-update is implemented
+        from mlx_lm import load as mlx_load  # noqa: F401
 
         # TODO: Implement actual micro-LoRA update via MLX
         # For now, log the intent and clear buffer

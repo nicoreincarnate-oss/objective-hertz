@@ -7,7 +7,6 @@ Tests that:
 
 import asyncio
 import importlib
-import json
 import sys
 import types
 from unittest.mock import AsyncMock, patch

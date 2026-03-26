@@ -444,7 +444,7 @@ def _extract_number(text: str, default: int = 20) -> int:
 
 # ── Factory ───────────────────────────────────────────────────────────
 
-def create_titan_a2a(titan_daemon=None) -> "FastAPI":
+def create_titan_a2a(titan_daemon=None) -> FastAPI:  # noqa: F821
     """Create Titan's A2A FastAPI app."""
     health_fn = titan_daemon.health_check if titan_daemon else None
     return create_a2a_app(

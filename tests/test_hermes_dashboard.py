@@ -1,12 +1,9 @@
 """Tests for the Hermes operator dashboard auth and presentation."""
 
 import importlib
-import os
 import sys
 import types
 from datetime import datetime
-
-import pytest
 
 # Ensure python-multipart stub exists for Starlette/FastAPI if not installed.
 # FastAPI checks `multipart.__version__` and `multipart.multipart.parse_options_header`.

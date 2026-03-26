@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.tools.retrieval import RetrievalTool
 from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
@@ -13,7 +13,7 @@ class _FakeBackend(MemoryBackend):
 
     backend_id = "fake"
 
-    def __init__(self, results: Optional[List[RetrievalResult]] = None) -> None:
+    def __init__(self, results: list[RetrievalResult] | None = None) -> None:
         self._results = results or []
 
     def store(
@@ -21,7 +21,7 @@ class _FakeBackend(MemoryBackend):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         return "fake-id"
 
@@ -31,7 +31,7 @@ class _FakeBackend(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         return self._results[:top_k]
 
     def delete(self, doc_id: str) -> bool:
@@ -48,7 +48,7 @@ class _ErrorBackend(_FakeBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         raise RuntimeError("backend error")
 
 
