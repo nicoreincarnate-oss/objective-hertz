@@ -27,3 +27,4 @@ mypy>=1.11.0
 # anthropic>=0.40.0
 
 types-requests>=2.32.0
+respx>=0.22

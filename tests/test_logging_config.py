@@ -22,6 +22,7 @@ def _patch_config(monkeypatch, tmp_path):
     cfg.log_max_bytes = 1024
     cfg.log_backup_count = 1
     cfg.observability.environment = "test"
+    cfg.observability.sentry_dsn = ""
     monkeypatch.setattr("shared.logging_config.config", cfg)
     monkeypatch.setattr("shared.observability.config", cfg)
     yield cfg
