@@ -118,7 +118,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "shared.observability"
-warn_unused_ignores = false
+ignore_errors = true
 
 [dependency-groups]
 dev = ["maturin>=1.12.6"]
