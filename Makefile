@@ -41,7 +41,7 @@ status: ## System status
 	@echo "======================================"
 	@echo ""
 	@echo "=== Local Processes ==="
-	@for agent in perseus titan clawdbot dashboard frontend; do \
+	@for agent in orchestrator titan clawdbot hermes dashboard frontend; do \
 		if [ -f logs/pids/$$agent.pid ] && kill -0 $$(cat logs/pids/$$agent.pid) 2>/dev/null; then \
 			echo "  $$agent: RUNNING (PID: $$(cat logs/pids/$$agent.pid))"; \
 		else \

@@ -153,7 +153,7 @@ echo "  ✓ Hermes gateway running"
 # 5. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
 echo "[5/7] Starting OpenJarvis Orchestrator (boss)..."
 cd "$ROOT_DIR"
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
+LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 SKIP_INTERNAL_DASHBOARD=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
 echo $! > "$PID_DIR/orchestrator.pid"
 wait_for_pid "$(cat "$PID_DIR/orchestrator.pid")" "OpenJarvis"
 echo "  ✓ OpenJarvis started (PID: $(cat $PID_DIR/orchestrator.pid))"

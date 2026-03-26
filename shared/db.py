@@ -25,22 +25,34 @@ _pool: AsyncConnectionPool | None = None
 _pool_lock = asyncio.Lock()
 
 
-async def init_pool(min_size: int = 2, max_size: int = 10):
-    """Initialize the connection pool. Call once at daemon startup."""
+async def init_pool(min_size: int = 2, max_size: int = 10, retries: int = 5, backoff: float = 2.0):
+    """Initialize the connection pool with retry logic. Call once at daemon startup."""
     global _pool
     if _pool is not None:
         return
     async with _pool_lock:
         if _pool is not None:
             return
-        _pool = AsyncConnectionPool(
-            conninfo=config.postgres.dsn,
-            min_size=min_size,
-            max_size=max_size,
-            kwargs={"row_factory": dict_row},
-        )
-        await _pool.open()
-        logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
+        for attempt in range(1, retries + 1):
+            try:
+                _pool = AsyncConnectionPool(
+                    conninfo=config.postgres.dsn,
+                    min_size=min_size,
+                    max_size=max_size,
+                    kwargs={"row_factory": dict_row},
+                )
+                await _pool.open()
+                logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
+                return
+            except Exception as e:
+                _pool = None
+                if attempt < retries:
+                    wait = backoff * attempt
+                    logger.warning("DB pool init failed (attempt %d/%d): %s — retrying in %.0fs", attempt, retries, e, wait)
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("DB pool init failed after %d attempts: %s", retries, e)
+                    raise
 
 
 async def close_pool():

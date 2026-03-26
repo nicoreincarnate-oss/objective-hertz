@@ -39,8 +39,10 @@ class HermesDaemon(AgentBase):
         self._stopped.clear()
         self._running = True
 
-        # Start the web dashboard in a background task
-        dashboard_task = asyncio.create_task(self._run_dashboard())
+        # Start the web dashboard in a background task (skip if standalone dashboard is running)
+        dashboard_task = None
+        if not os.getenv("SKIP_INTERNAL_DASHBOARD"):
+            dashboard_task = asyncio.create_task(self._run_dashboard())
 
         try:
             _token = (config.telegram.bot_token or "").strip()
@@ -56,6 +58,7 @@ class HermesDaemon(AgentBase):
                 except Exception as e:
                     logger.warning("Telegram bot failed to initialize (%s) — running dashboard + alerts only", e)
                     await asyncio.gather(self._alert_loop(), self._active_forward_loop())
+                    return  # Do NOT fall through to bot.start() on a failed bot
                 await bot.start()
                 try:
                     await bot.updater.start_polling()

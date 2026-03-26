@@ -354,6 +354,11 @@ class LLMClient:
             body["system"] = system
 
         resp = await self._get_http().post(f"{config.ollama.host}/api/generate", json=body)
+        if resp.status_code == 404 and model_name != config.ollama.secondary:
+            # Model not found — fall back to secondary model
+            logger.warning("Ollama model %s not found, falling back to %s", model_name, config.ollama.secondary)
+            body["model"] = config.ollama.secondary
+            resp = await self._get_http().post(f"{config.ollama.host}/api/generate", json=body)
         resp.raise_for_status()
         return resp.json()["response"]
 

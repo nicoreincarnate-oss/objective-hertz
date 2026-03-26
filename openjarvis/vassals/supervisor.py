@@ -134,8 +134,8 @@ class VassalSupervisor:
                 vassal.command,
                 cwd=cwd,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             vassal.pid = vassal.process.pid
             vassal.started_at = time.time()
