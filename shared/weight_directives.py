@@ -1,3 +1,4 @@
+# DEFERRED — not part of shipped scope. See module docstring for details.
 """
 SEAL Weight Directives — NOT IMPLEMENTED.
 

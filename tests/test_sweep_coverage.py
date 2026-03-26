@@ -1132,3 +1132,1596 @@ def test_a2a_auth_skipped_when_no_secret_configured():
         assert "result" in response.json()
     finally:
         _restore(saved)
+
+
+# ===========================================================================
+# NEW SWEEP — modules 1-15
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Helper: minimal shared.config mock used by many modules below
+# ---------------------------------------------------------------------------
+
+def _make_fake_config():
+    """Return a SimpleNamespace that covers config attributes used in tests."""
+    telegram_ns = types.SimpleNamespace(bot_token="tok", chat_id="123")
+    ollama_ns = types.SimpleNamespace(
+        host="http://localhost:11434",
+        model="llama3",
+        secondary="llama3-small",
+        embed_model="nomic-embed-text",
+    )
+    claude_ns = types.SimpleNamespace(
+        api_key="sk-test",
+        primary_model="claude-sonnet",
+        fast_model="claude-haiku",
+        genius_model="claude-opus",
+    )
+    budget_ns = types.SimpleNamespace(monthly_cap=800.0, alert_threshold=0.8)
+    observability_ns = types.SimpleNamespace(
+        sentry_dsn="",
+        environment="test",
+        release="0.0.1",
+        sentry_traces_sample_rate=0.0,
+        sentry_profiles_sample_rate=0.0,
+        metrics_enabled=False,
+        metrics_host="127.0.0.1",
+        metrics_port_base=9200,
+    )
+    root_ns = types.SimpleNamespace(root_dir=Path("/tmp"))
+    return types.SimpleNamespace(
+        telegram=telegram_ns,
+        ollama=ollama_ns,
+        claude=claude_ns,
+        budget=budget_ns,
+        observability=observability_ns,
+        root_dir=Path("/tmp"),
+    )
+
+
+# ===========================================================================
+# 1. shared/hybrid_rag.py
+# ===========================================================================
+
+def _setup_hybrid_rag(hybrid_enabled: bool = True):
+    modules_to_fake = [
+        "shared.magma",
+        "shared.llm_client",
+        "shared.db",
+    ]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_magma = types.ModuleType("shared.magma")
+    fake_magma.magma_retrieve = AsyncMock(return_value="graph context")
+    fake_magma._search_memory_with_metadata = AsyncMock(return_value=[
+        {"content": "doc1", "score": 0.9, "category": "cat"},
+    ])
+    fake_magma._get_driver = MagicMock(return_value=True)
+    sys.modules["shared.magma"] = fake_magma
+
+    fake_llm_mod = types.ModuleType("shared.llm_client")
+    fake_llm_mod.llm = types.SimpleNamespace(
+        generate=AsyncMock(return_value="parametric knowledge here")
+    )
+    sys.modules["shared.llm_client"] = fake_llm_mod
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.fetch_all = AsyncMock(return_value=[
+        {"rule_text": "never spam", "confidence": 0.9},
+    ])
+    sys.modules["shared.db"] = fake_db
+
+    sys.modules.pop("shared.hybrid_rag", None)
+
+    with patch.dict("os.environ", {"HYBRID_RAG": "1" if hybrid_enabled else "0"}):
+        mod = importlib.import_module("shared.hybrid_rag")
+
+    return saved, mod, fake_magma, fake_llm_mod.llm
+
+
+def test_hybrid_rag_qdrant_branch_included():
+    """When HYBRID_RAG=1, qdrant results are included in output."""
+    saved, mod, fake_magma, _ = _setup_hybrid_rag(hybrid_enabled=True)
+    try:
+        results = asyncio.run(mod.hybrid_retrieve("test query", limit=10))
+        assert any(r.get("source") == "qdrant" for r in results)
+    finally:
+        _restore(saved)
+
+
+def test_hybrid_rag_neo4j_branch_included():
+    """When HYBRID_RAG=1 and driver is available, neo4j results appear."""
+    saved, mod, fake_magma, _ = _setup_hybrid_rag(hybrid_enabled=True)
+    try:
+        fake_magma.magma_retrieve = AsyncMock(return_value="deep graph info")
+        results = asyncio.run(mod.hybrid_retrieve("query"))
+        sources = [r["source"] for r in results]
+        assert "neo4j" in sources
+    finally:
+        _restore(saved)
+
+
+def test_hybrid_rag_parametric_branch_included():
+    """Parametric (local LLM) source appears when LLM returns >20 chars."""
+    saved, mod, _, fake_llm = _setup_hybrid_rag(hybrid_enabled=True)
+    try:
+        fake_llm.generate = AsyncMock(return_value="This is well-formed parametric knowledge")
+        results = asyncio.run(mod.hybrid_retrieve("query"))
+        assert any(r.get("source") == "parametric" for r in results)
+    finally:
+        _restore(saved)
+
+
+def test_hybrid_rag_titan_rules_branch():
+    """Titan rules from Postgres are included as a source."""
+    saved, mod, _, _ = _setup_hybrid_rag(hybrid_enabled=True)
+    try:
+        results = asyncio.run(mod.hybrid_retrieve("query"))
+        assert any(r.get("source") == "postgres" for r in results)
+    finally:
+        _restore(saved)
+
+
+def test_hybrid_rag_fallback_when_disabled():
+    """When HYBRID_RAG=0, falls back to magma_retrieve path."""
+    saved, mod, fake_magma, _ = _setup_hybrid_rag(hybrid_enabled=False)
+    try:
+        fake_magma.magma_retrieve = AsyncMock(return_value="fallback text")
+        results = asyncio.run(mod.hybrid_retrieve("query"))
+        assert len(results) == 1
+        assert results[0]["source"] == "magma"
+    finally:
+        _restore(saved)
+
+
+def test_reward_chain_score_positive_outcome():
+    saved, mod, _, _ = _setup_hybrid_rag()
+    try:
+        history = [
+            {"outcome": "neutral"},
+            {"outcome": "neutral"},
+            {"outcome": "positive"},
+        ]
+        score = mod.reward_chain_score(history)
+        assert 0.0 < score <= 1.0
+    finally:
+        _restore(saved)
+
+
+def test_reward_chain_score_empty_history():
+    saved, mod, _, _ = _setup_hybrid_rag()
+    try:
+        assert mod.reward_chain_score([]) == 0.5
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 2. shared/llm_client.py
+# ===========================================================================
+
+def _setup_llm_client():
+    modules_to_fake = ["shared.config"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_cfg_mod = types.ModuleType("shared.config")
+    fake_cfg_mod.config = _make_fake_config()
+    sys.modules["shared.config"] = fake_cfg_mod
+
+    sys.modules.pop("shared.llm_client", None)
+    mod = importlib.import_module("shared.llm_client")
+    return saved, mod
+
+
+def test_llm_client_generate_with_images_raises_no_api_key():
+    """generate_with_images raises RuntimeError when api_key is absent."""
+    saved, mod = _setup_llm_client()
+    try:
+        # Patch the config object on the module so api_key is empty
+        fake_config = _make_fake_config()
+        fake_config.claude = types.SimpleNamespace(
+            api_key="",  # no API key
+            primary_model="claude-sonnet",
+            fast_model="claude-haiku",
+            genius_model="claude-opus",
+        )
+        with patch.object(mod, "config", fake_config):
+            try:
+                asyncio.run(mod.llm.generate_with_images(
+                    "describe", images=[b"fake"], model="smart"
+                ))
+                assert False, "expected RuntimeError"
+            except RuntimeError as exc:
+                assert "Claude vision unavailable" in str(exc) or "ANTHROPIC_API_KEY" in str(exc)
+    finally:
+        _restore(saved)
+
+
+def test_llm_client_generate_with_images_raises_local_model():
+    """generate_with_images raises RuntimeError for 'local' model."""
+    saved, mod = _setup_llm_client()
+    try:
+        try:
+            asyncio.run(mod.llm.generate_with_images(
+                "describe", images=[b"data"], model="local"
+            ))
+            assert False, "expected RuntimeError"
+        except RuntimeError as exc:
+            assert "multimodal" in str(exc).lower() or "local" in str(exc).lower()
+    finally:
+        _restore(saved)
+
+
+def test_llm_client_ollama_404_fallback():
+    """When Ollama returns 404 for primary model, retries with secondary."""
+    saved, mod = _setup_llm_client()
+    try:
+
+        call_count = {"n": 0}
+
+        async def fake_post(url, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First call: 404
+                mock_resp = MagicMock()
+                mock_resp.status_code = 404
+                # The code checks status_code == 404, so raise_for_status is not what triggers fallback
+                mock_resp.raise_for_status = MagicMock()
+                return mock_resp
+            else:
+                # Second call: success
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.raise_for_status = MagicMock()
+                mock_resp.json = MagicMock(return_value={"response": "fallback text"})
+                return mock_resp
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = fake_post
+        mock_http_client.is_closed = False
+
+        # Patch _get_http so it always returns our mock
+        mod.llm._get_http = MagicMock(return_value=mock_http_client)
+
+        # Also patch _resolve_ollama_model to return primary model first
+        async def resolve_model(model, pipeline_stage=""):
+            return "llama3" if call_count["n"] == 0 else "llama3-small"
+
+        mod.llm._resolve_ollama_model = resolve_model
+
+        result = asyncio.run(mod.llm._ollama_generate(
+            "hello", "", "local", 100, 0.5
+        ))
+        assert result == "fallback text"
+        assert call_count["n"] >= 2
+    finally:
+        _restore(saved)
+
+
+def test_llm_client_embed_returns_list():
+    """embed() calls Ollama embeddings endpoint and returns list."""
+    saved, mod = _setup_llm_client()
+    try:
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = MagicMock(return_value={"embedding": [0.1, 0.2, 0.3]})
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=mock_resp)
+        mock_http_client.is_closed = False
+
+        mod.llm._get_http = MagicMock(return_value=mock_http_client)
+
+        result = asyncio.run(mod.llm.embed("some text"))
+        assert result == [0.1, 0.2, 0.3]
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 3. shared/execution_loop.py
+# ===========================================================================
+
+def _setup_execution_loop():
+    modules_to_fake = ["shared.comms", "shared.llm_client"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_comms = types.ModuleType("shared.comms")
+    fake_comms.record_decision = AsyncMock(return_value=1)
+    sys.modules["shared.comms"] = fake_comms
+
+    fake_llm_mod = types.ModuleType("shared.llm_client")
+    fake_llm_mod.llm = types.SimpleNamespace(
+        generate=AsyncMock(return_value="step result content that is long enough")
+    )
+    sys.modules["shared.llm_client"] = fake_llm_mod
+
+    sys.modules.pop("shared.execution_loop", None)
+    mod = importlib.import_module("shared.execution_loop")
+    return saved, mod, fake_llm_mod.llm
+
+
+def test_execution_loop_execute_step_passes_no_check():
+    """_execute_step passes when no check function and result >10 chars."""
+    saved, mod, _ = _setup_execution_loop()
+    try:
+        step = mod.Step(name="step1", prompt="do something")
+        plan = mod.TaskPlan(name="plan", description="desc", steps=[step])
+        result = asyncio.run(mod._execute_step(step, plan, []))
+        assert result["passed"] is True
+        assert result["attempts"] == 1
+    finally:
+        _restore(saved)
+
+
+def test_execution_loop_execute_step_check_failure_retries():
+    """_execute_step retries when check function returns passed=False."""
+    saved, mod, fake_llm = _setup_execution_loop()
+    try:
+        attempt_count = {"n": 0}
+
+        async def bad_check(result):
+            attempt_count["n"] += 1
+            return {"passed": False, "error": "always fails"}
+
+        step = mod.Step(name="step1", prompt="do thing", check=bad_check, max_tokens=100)
+        plan = mod.TaskPlan(name="plan", description="desc", steps=[step], max_retries=2)
+        result = asyncio.run(mod._execute_step(step, plan, []))
+        assert result["passed"] is False
+        assert attempt_count["n"] == 2  # checked on each attempt
+    finally:
+        _restore(saved)
+
+
+def test_execution_loop_execute_step_check_passes_second_attempt():
+    """_execute_step succeeds on second attempt after first check fails."""
+    saved, mod, fake_llm = _setup_execution_loop()
+    try:
+        call_count = {"n": 0}
+
+        async def flaky_check(result):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"passed": False, "error": "not yet"}
+            return {"passed": True}
+
+        step = mod.Step(name="step1", prompt="try hard", check=flaky_check)
+        plan = mod.TaskPlan(name="plan", description="desc", steps=[step], max_retries=3)
+        result = asyncio.run(mod._execute_step(step, plan, []))
+        assert result["passed"] is True
+        assert result["attempts"] == 2
+    finally:
+        _restore(saved)
+
+
+def test_execution_loop_self_correction_path():
+    """Self-correction path is invoked when use_self_correction=True and check fails."""
+    saved, mod, _ = _setup_execution_loop()
+    try:
+        # Patch test_time_learning import inside the module
+        fake_ttl = types.ModuleType("shared.test_time_learning")
+        fake_ttl.TEST_TIME_LEARNING_ENABLED = True
+        fake_ttl.score_self_correct = AsyncMock(return_value={
+            "improved": True,
+            "result": "corrected result that is good",
+        })
+
+        async def always_fails(result):
+            return {"passed": False, "error": "bad output"}
+
+        step = mod.Step(
+            name="corrected_step",
+            prompt="write something",
+            check=always_fails,
+            use_self_correction=True,
+        )
+        plan = mod.TaskPlan(name="plan", description="desc", steps=[step], max_retries=2)
+
+        with patch.dict("sys.modules", {"shared.test_time_learning": fake_ttl}):
+            result = asyncio.run(mod._execute_step(step, plan, []))
+
+        assert result.get("self_corrected") is True or result.get("passed") is True
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 4. shared/observability.py
+# ===========================================================================
+
+def _setup_observability():
+    modules_to_fake = ["shared.config"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_cfg_mod = types.ModuleType("shared.config")
+    fake_cfg_mod.config = _make_fake_config()
+    sys.modules["shared.config"] = fake_cfg_mod
+
+    sys.modules.pop("shared.observability", None)
+    mod = importlib.import_module("shared.observability")
+    return saved, mod
+
+
+def test_observability_metrics_server_skipped_in_tests():
+    """configure_service_observability does NOT start the metrics server in test env."""
+    saved, mod = _setup_observability()
+    try:
+        # PYTEST_CURRENT_TEST is set during test runs — server start should be skipped
+        with patch("shared.observability.start_http_server") as mock_start:
+            mod._INITIALIZED_SERVICES.discard("test_svc")
+            mod.configure_service_observability("test_svc", start_metrics_server_for_service=True)
+            mock_start.assert_not_called()
+    finally:
+        _restore(saved)
+
+
+def test_observability_asyncio_exception_handler_installed_once():
+    """install_asyncio_exception_handler idempotently marks the loop."""
+    saved, mod = _setup_observability()
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            mod.install_asyncio_exception_handler(loop, "svc_test")
+            marker = "_objective_hertz_asyncio_handler_svc_test"
+            assert getattr(loop, marker, False) is True
+            # Installing again should not raise
+            mod.install_asyncio_exception_handler(loop, "svc_test")
+        finally:
+            loop.close()
+    finally:
+        _restore(saved)
+
+
+def test_observability_asyncio_handler_captures_exception():
+    """The installed asyncio exception handler captures exceptions via metrics."""
+    saved, mod = _setup_observability()
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            mod.install_asyncio_exception_handler(loop, "capture_test")
+            handler = loop.get_exception_handler()
+            # Call the handler with a real exception
+            exc = ValueError("test exception")
+            with patch.object(mod, "capture_exception") as mock_cap:
+                handler(loop, {"exception": exc, "message": "oops"})
+                mock_cap.assert_called_once_with(exc, service_name="capture_test", category="asyncio")
+        finally:
+            loop.close()
+    finally:
+        _restore(saved)
+
+
+def test_observability_context_roundtrip():
+    """set_observability_context and get_log_context roundtrip correctly."""
+    saved, mod = _setup_observability()
+    try:
+        mod.clear_observability_context()
+        mod.set_observability_context(trace_id="abc123", task_id="task-1")
+        ctx = mod.get_log_context()
+        assert ctx["trace_id"] == "abc123"
+        assert ctx["task_id"] == "task-1"
+    finally:
+        mod.clear_observability_context()
+        _restore(saved)
+
+
+# ===========================================================================
+# 5. shared/oj_bridge.py
+# ===========================================================================
+
+def _setup_oj_bridge():
+    modules_to_fake = ["shared.observability"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_obs = types.ModuleType("shared.observability")
+    fake_obs.ensure_trace_context = MagicMock(return_value={
+        "trace_id": "t1", "correlation_id": "c1", "request_id": "r1"
+    })
+    sys.modules["shared.observability"] = fake_obs
+
+    sys.modules.pop("shared.oj_bridge", None)
+    mod = importlib.import_module("shared.oj_bridge")
+    return saved, mod, fake_obs
+
+
+def test_oj_bridge_get_bus_singleton():
+    """get_bus returns the same singleton on repeated calls."""
+    saved, mod, _ = _setup_oj_bridge()
+    try:
+        fake_bus = MagicMock()
+        fake_oj_events = types.ModuleType("openjarvis.core.events")
+        fake_oj_events.get_event_bus = MagicMock(return_value=fake_bus)
+
+        mod._bus = None
+        with patch.dict("sys.modules", {"openjarvis.core.events": fake_oj_events}):
+            bus1 = mod.get_bus()
+            bus2 = mod.get_bus()
+        assert bus1 is bus2
+        assert fake_oj_events.get_event_bus.call_count == 1  # only initialised once
+    finally:
+        mod._bus = None
+        _restore(saved)
+
+
+def test_oj_bridge_get_a2a_client_unknown_agent():
+    """get_a2a_client returns None for an unknown agent name."""
+    saved, mod, _ = _setup_oj_bridge()
+    try:
+        client = mod.get_a2a_client("nonexistent_agent")
+        assert client is None
+    finally:
+        _restore(saved)
+
+
+def test_oj_bridge_call_agent_async_returns_error_no_url():
+    """call_agent_async returns error dict when agent has no URL configured."""
+    saved, mod, _ = _setup_oj_bridge()
+    try:
+        # Remove any cached client so the lookup triggers
+        mod._a2a_clients.pop("nonexistent_agent", None)
+        result = asyncio.run(mod.call_agent_async("nonexistent_agent", "capability"))
+        assert "error" in result
+    finally:
+        _restore(saved)
+
+
+def test_oj_bridge_call_agent_returns_error_no_url():
+    """Sync call_agent returns error dict when agent name is unknown."""
+    saved, mod, _ = _setup_oj_bridge()
+    try:
+        result = mod.call_agent("nonexistent_agent", "some_capability")
+        assert "error" in result
+        assert "nonexistent_agent" in result["error"]
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 6. shared/metaclaw.py
+# ===========================================================================
+
+def _setup_metaclaw():
+    modules_to_fake = ["shared.db", "shared.bandit"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.get_config = AsyncMock(return_value=None)
+    fake_db.set_config = AsyncMock()
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    sys.modules["shared.db"] = fake_db
+
+    fake_bandit = types.ModuleType("shared.bandit")
+    fake_bandit.BANDIT_ENABLED = False
+    fake_bandit.get_bandit = MagicMock()
+    sys.modules["shared.bandit"] = fake_bandit
+
+    sys.modules.pop("shared.metaclaw", None)
+    mod = importlib.import_module("shared.metaclaw")
+    return saved, mod, fake_db, fake_bandit
+
+
+def test_metaclaw_fast_adapt_converged_bandit_overrides_template():
+    """When bandit has converged, its winner overrides the meta template."""
+    saved, mod, _, fake_bandit = _setup_metaclaw()
+    try:
+        fake_bandit.BANDIT_ENABLED = True
+        fake_bandit_instance = MagicMock()
+        fake_bandit_instance.get_stats = MagicMock(return_value={
+            "converged": True,
+            "winner": "premium_template",
+        })
+        fake_bandit.get_bandit = MagicMock(return_value=fake_bandit_instance)
+
+        lead = {"industry": "tech", "region": "us", "lead_score": 60}
+        result = asyncio.run(mod.fast_adapt(lead))
+        assert result["template"] == "premium_template"
+    finally:
+        _restore(saved)
+
+
+def test_metaclaw_fast_adapt_disabled_returns_defaults():
+    """When METACLAW_ENABLED=0, returns static defaults."""
+    saved, mod, _, _ = _setup_metaclaw()
+    try:
+        with patch.object(mod, "METACLAW_ENABLED", False):
+            result = asyncio.run(mod.fast_adapt({"industry": "tech"}))
+        assert result["template"] == "default"
+        assert result["confidence"] == 0.5
+    finally:
+        _restore(saved)
+
+
+def test_metaclaw_slow_consolidate_updates_industry_segments():
+    """slow_consolidate updates meta-weights for segments with enough data."""
+    saved, mod, fake_db, _ = _setup_metaclaw()
+    try:
+        fake_db.fetch_all = AsyncMock(return_value=[
+            {"industry": "saas", "region": "us", "total": 5,
+             "conversions": 2, "avg_deal": 500},
+        ])
+        result = asyncio.run(mod.slow_consolidate())
+        assert result["updated"] == 1
+        assert "saas" in result["industries"]
+        fake_db.set_config.assert_awaited_once()
+    finally:
+        _restore(saved)
+
+
+def test_metaclaw_slow_consolidate_disabled():
+    """slow_consolidate returns updated=0 when feature disabled."""
+    saved, mod, _, _ = _setup_metaclaw()
+    try:
+        with patch.object(mod, "METACLAW_ENABLED", False):
+            result = asyncio.run(mod.slow_consolidate())
+        assert result == {"updated": 0}
+    finally:
+        _restore(saved)
+
+
+def test_metaclaw_load_meta_weights_json_config():
+    """_load_meta_weights parses JSON from get_config correctly."""
+    import json
+    saved, mod, fake_db, _ = _setup_metaclaw()
+    try:
+        fake_db.get_config = AsyncMock(return_value=json.dumps({
+            "best_template": "high_value",
+            "confidence": 0.8,
+        }))
+        result = asyncio.run(mod._load_meta_weights("finance", "eu"))
+        assert result["best_template"] == "high_value"
+        assert result["confidence"] == 0.8
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 7. shared/milestone_rewards.py
+# ===========================================================================
+
+def _setup_milestone_rewards():
+    modules_to_fake = ["shared.db", "shared.test_time_learning", "shared.bandit"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.emit_event = AsyncMock()
+    sys.modules["shared.db"] = fake_db
+
+    fake_ttl = types.ModuleType("shared.test_time_learning")
+    fake_ttl.TTRL_GRADIENT_ENABLED = True
+    fake_ttl.ttrl_gradient_update = AsyncMock(return_value=False)
+    sys.modules["shared.test_time_learning"] = fake_ttl
+
+    fake_bandit = types.ModuleType("shared.bandit")
+    fake_bandit.BANDIT_ENABLED = True
+    mock_bandit_inst = MagicMock()
+    mock_bandit_inst.update = AsyncMock()
+    fake_bandit.get_bandit = MagicMock(return_value=mock_bandit_inst)
+    sys.modules["shared.bandit"] = fake_bandit
+
+    sys.modules.pop("shared.milestone_rewards", None)
+    mod = importlib.import_module("shared.milestone_rewards")
+    return saved, mod, fake_db, fake_ttl, fake_bandit
+
+
+def test_milestone_rewards_emit_routes_to_ttrl():
+    """emit_milestone_reward calls ttrl_gradient_update when enabled."""
+    saved, mod, _, fake_ttl, _ = _setup_milestone_rewards()
+    try:
+        asyncio.run(mod.emit_milestone_reward(42, "email_sent", "replied"))
+        fake_ttl.ttrl_gradient_update.assert_awaited_once()
+    finally:
+        _restore(saved)
+
+
+def test_milestone_rewards_emit_routes_to_bandit():
+    """emit_milestone_reward calls bandit.update when experiment metadata present."""
+    saved, mod, _, _, fake_bandit = _setup_milestone_rewards()
+    try:
+        meta = {"bandit_experiment": "template_tech", "bandit_arm": "variant_a"}
+        asyncio.run(mod.emit_milestone_reward(42, "email_sent", "replied", metadata=meta))
+        fake_bandit.get_bandit().update.assert_awaited_once()
+    finally:
+        _restore(saved)
+
+
+def test_milestone_rewards_zero_reward_for_unknown_stage():
+    """get_transition_reward returns 0 for unknown stage."""
+    saved, mod, _, _, _ = _setup_milestone_rewards()
+    try:
+        reward = mod.get_transition_reward("email_sent", "unknown_stage_xyz")
+        assert reward == 0.0
+    finally:
+        _restore(saved)
+
+
+def test_milestone_rewards_paid_is_max():
+    """'paid' stage has the maximum reward value of 1.0."""
+    saved, mod, _, _, _ = _setup_milestone_rewards()
+    try:
+        reward = mod.get_transition_reward("invoiced", "paid")
+        assert reward == 1.0
+    finally:
+        _restore(saved)
+
+
+def test_milestone_rewards_disabled_returns_zero():
+    """emit_milestone_reward returns 0.0 when feature disabled."""
+    saved, mod, fake_db, _, _ = _setup_milestone_rewards()
+    try:
+        with patch.object(mod, "MILESTONE_REWARDS_ENABLED", False):
+            result = asyncio.run(mod.emit_milestone_reward(1, "email_sent", "replied"))
+        assert result == 0.0
+        fake_db.emit_event.assert_not_awaited()
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 8. shared/pipeline_dag.py
+# ===========================================================================
+
+def _setup_pipeline_dag():
+    modules_to_fake = ["shared.magma"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_magma = types.ModuleType("shared.magma")
+    fake_magma._get_driver = MagicMock(return_value=None)
+    sys.modules["shared.magma"] = fake_magma
+
+    sys.modules.pop("shared.pipeline_dag", None)
+    mod = importlib.import_module("shared.pipeline_dag")
+    return saved, mod, fake_magma
+
+
+def test_pipeline_dag_entity_timeline_neo4j_degradation():
+    """entity_timeline returns [] when _get_driver() returns None."""
+    saved, mod, fake_magma = _setup_pipeline_dag()
+    try:
+        fake_magma._get_driver = MagicMock(return_value=None)
+        result = asyncio.run(mod.entity_timeline("acme corp"))
+        assert result == []
+    finally:
+        _restore(saved)
+
+
+def test_pipeline_dag_entity_timeline_with_driver():
+    """entity_timeline queries Neo4j session and returns formatted records."""
+    saved, mod, fake_magma = _setup_pipeline_dag()
+    try:
+        fake_record = {
+            "node_id": "n1",
+            "content": "lead found",
+            "category": "discovery",
+            "timestamp": "2026-01-01T00:00:00",
+        }
+        mock_session = MagicMock()
+        mock_session.run = MagicMock(return_value=[
+            {"node_id": "n1", "content": "lead found",
+             "category": "discovery", "timestamp": "2026-01-01T00:00:00"}
+        ])
+        mock_driver = MagicMock()
+        mock_driver.session = MagicMock(return_value=mock_session)
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_driver.__enter__ = MagicMock(return_value=mock_driver)
+        mock_driver.__exit__ = MagicMock(return_value=False)
+        fake_magma._get_driver = MagicMock(return_value=mock_driver)
+        result = asyncio.run(mod.entity_timeline("acme corp"))
+        assert isinstance(result, list)
+    finally:
+        _restore(saved)
+
+
+def test_pipeline_dag_can_transition_valid():
+    """can_transition returns allowed=True when all constraints are met."""
+    saved, mod, _ = _setup_pipeline_dag()
+    try:
+        client = {"business_name": "Acme"}
+        result = mod.can_transition("discovered", "researched", client_data=client)
+        assert result["allowed"] is True
+    finally:
+        _restore(saved)
+
+
+def test_pipeline_dag_can_transition_missing_field():
+    """can_transition returns allowed=False when required field missing."""
+    saved, mod, _ = _setup_pipeline_dag()
+    try:
+        result = mod.can_transition("discovered", "researched", client_data={})
+        assert result["allowed"] is False
+        assert "business_name" in result["missing_fields"]
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 9. shared/scientific_loop.py
+# ===========================================================================
+
+def _setup_scientific_loop():
+    modules_to_fake = ["shared.db"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.execute = AsyncMock()
+    fake_db.fetch_val = AsyncMock(return_value=0.0)
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    sys.modules["shared.db"] = fake_db
+
+    sys.modules.pop("shared.scientific_loop", None)
+    mod = importlib.import_module("shared.scientific_loop")
+    return saved, mod, fake_db
+
+
+def test_scientific_loop_evaluate_confirmed():
+    """evaluate_experiments marks experiment 'confirmed' when delta exceeds 50% of expected."""
+    saved, mod, fake_db = _setup_scientific_loop()
+    try:
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(hours=49)).isoformat()
+        fake_db.fetch_all = AsyncMock(return_value=[{
+            "id": 1,
+            "hypothesis": "test hyp",
+            "metric_name": "reply_rate",
+            "baseline_value": 0.10,
+            "expected_delta": 0.05,
+            "cycle_id": 0,
+            "created_at": cutoff,
+        }])
+        # Return a value that produces actual_delta > expected * 0.5
+        fake_db.fetch_val = AsyncMock(return_value=0.18)  # delta = 0.08 > 0.025
+
+        results = asyncio.run(mod.evaluate_experiments())
+        assert len(results) == 1
+        assert results[0]["status"] == "confirmed"
+    finally:
+        _restore(saved)
+
+
+def test_scientific_loop_evaluate_refuted():
+    """evaluate_experiments marks experiment 'refuted' when delta is insufficient."""
+    saved, mod, fake_db = _setup_scientific_loop()
+    try:
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(hours=49)).isoformat()
+        fake_db.fetch_all = AsyncMock(return_value=[{
+            "id": 2,
+            "hypothesis": "bad hyp",
+            "metric_name": "reply_rate",
+            "baseline_value": 0.10,
+            "expected_delta": 0.20,
+            "cycle_id": 0,
+            "created_at": cutoff,
+        }])
+        fake_db.fetch_val = AsyncMock(return_value=0.11)  # delta = 0.01 << expected
+
+        results = asyncio.run(mod.evaluate_experiments())
+        assert len(results) == 1
+        assert results[0]["status"] == "refuted"
+    finally:
+        _restore(saved)
+
+
+def test_scientific_loop_get_metric_value_known_metric():
+    """_get_metric_value returns a float for a known metric name."""
+    saved, mod, fake_db = _setup_scientific_loop()
+    try:
+        fake_db.fetch_val = AsyncMock(return_value=0.25)
+        result = asyncio.run(mod._get_metric_value("reply_rate"))
+        assert result == 0.25
+    finally:
+        _restore(saved)
+
+
+def test_scientific_loop_get_metric_value_unknown_returns_none():
+    """_get_metric_value returns None for an unrecognised metric name."""
+    saved, mod, _ = _setup_scientific_loop()
+    try:
+        result = asyncio.run(mod._get_metric_value("nonexistent_metric_xyz"))
+        assert result is None
+    finally:
+        _restore(saved)
+
+
+def test_scientific_loop_evaluate_rollback_on_refuted():
+    """evaluate_experiments triggers rollback when experiment is refuted and has cycle_id."""
+    saved, mod, fake_db = _setup_scientific_loop()
+    try:
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(hours=49)).isoformat()
+        fake_db.fetch_all = AsyncMock(return_value=[{
+            "id": 3,
+            "hypothesis": "roll me back",
+            "metric_name": "reply_rate",
+            "baseline_value": 0.10,
+            "expected_delta": 0.20,
+            "cycle_id": 99,
+            "created_at": cutoff,
+        }])
+        fake_db.fetch_val = AsyncMock(return_value=0.10)
+
+        fake_backprop = types.ModuleType("perseus.backprop")
+        fake_backprop.rollback_cycle = AsyncMock()
+
+        with patch.dict("sys.modules", {"perseus.backprop": fake_backprop}):
+            results = asyncio.run(mod.evaluate_experiments())
+
+        assert results[0].get("rolled_back") is not None  # key present
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 10. shared/self_model.py
+# ===========================================================================
+
+def _setup_self_model():
+    modules_to_fake = ["shared.db"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    fake_db.fetch_val = AsyncMock(return_value=0)
+    fake_db.get_config = AsyncMock(return_value=None)
+    fake_db.set_config = AsyncMock()
+    sys.modules["shared.db"] = fake_db
+
+    sys.modules.pop("shared.self_model", None)
+    mod = importlib.import_module("shared.self_model")
+    return saved, mod, fake_db
+
+
+def test_self_model_format_all_self_models_covers_all_agents():
+    """format_all_self_models returns a string covering all 4 agent names."""
+    saved, mod, _ = _setup_self_model()
+    try:
+        result = asyncio.run(mod.format_all_self_models())
+        for agent in ("perseus", "titan", "hermes", "clawdbot"):
+            assert agent in result.lower()
+    finally:
+        _restore(saved)
+
+
+def test_self_model_compute_agent_metrics_returns_structure():
+    """compute_agent_metrics returns a dict with expected keys."""
+    saved, mod, _ = _setup_self_model()
+    try:
+        result = asyncio.run(mod.compute_agent_metrics("hermes"))
+        assert "decisions_made_24h" in result
+        assert "error_rate_24h" in result
+        assert "tasks_completed_24h" in result
+    finally:
+        _restore(saved)
+
+
+def test_self_model_compute_agent_metrics_titan_stage_queries():
+    """compute_agent_metrics for titan queries stage-specific data."""
+    saved, mod, fake_db = _setup_self_model()
+    try:
+        # self_model imports from shared.db at module level, so patch on the module directly
+        with patch.object(mod, "fetch_all", AsyncMock(return_value=[{"stage": "email_compose", "cnt": 3}])), \
+             patch.object(mod, "fetch_val", AsyncMock(return_value=0)):
+            result = asyncio.run(mod.compute_agent_metrics("titan"))
+        assert result["worst_performing_stage"] == "email_compose"
+    finally:
+        _restore(saved)
+
+
+def test_self_model_update_and_get_roundtrip():
+    """update_self_model persists and get_self_model reads back correctly."""
+    saved, mod, fake_db = _setup_self_model()
+    try:
+        store = {}
+
+        async def mock_set_config(key, value):
+            store[key] = value
+
+        async def mock_get_config(key, default=None):
+            return store.get(key, default)
+
+        with patch.object(mod, "set_config", mock_set_config), \
+             patch.object(mod, "get_config", mock_get_config):
+            asyncio.run(mod.update_self_model("titan", {"strengths": ["email_compose"]}))
+            result = asyncio.run(mod.get_self_model("titan"))
+        assert "email_compose" in result["strengths"]
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 11. shared/skill_loader.py
+# ===========================================================================
+
+def _setup_skill_loader(tmp_path: Path):
+    modules_to_fake = ["shared.config", "shared.llm_client"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_cfg_mod = types.ModuleType("shared.config")
+    cfg_obj = _make_fake_config()
+    cfg_obj.root_dir = tmp_path
+    fake_cfg_mod.config = cfg_obj
+    sys.modules["shared.config"] = fake_cfg_mod
+
+    fake_llm_mod = types.ModuleType("shared.llm_client")
+    fake_llm_mod.llm = types.SimpleNamespace(
+        generate=AsyncMock(return_value="skill executed result")
+    )
+    sys.modules["shared.llm_client"] = fake_llm_mod
+
+    sys.modules.pop("shared.skill_loader", None)
+    mod = importlib.import_module("shared.skill_loader")
+    return saved, mod, fake_llm_mod.llm
+
+
+def test_skill_loader_find_skill_frontmatter_match(tmp_path):
+    """find_skill finds a skill whose SKILL.md contains 'name: <skill_name>'."""
+    saved, mod, _ = _setup_skill_loader(tmp_path)
+    try:
+        skill_dir = tmp_path / "hermes" / "skills" / "my-custom-skill"
+        skill_dir.mkdir(parents=True)
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text("---\nname: frontmatter-skill\ndescription: test\n---\nDo things.")
+
+        # Reload SKILL_DIRS to reflect tmp_path
+        mod.SKILL_DIRS = [tmp_path / "hermes" / "skills"]
+
+        result = mod.find_skill("frontmatter-skill")
+        assert result is not None
+        assert result.name == "SKILL.md"
+    finally:
+        _restore(saved)
+
+
+def test_skill_loader_find_skill_direct_match(tmp_path):
+    """find_skill returns path when skill directory name matches."""
+    saved, mod, _ = _setup_skill_loader(tmp_path)
+    try:
+        skill_dir = tmp_path / "hermes" / "skills" / "lead-research"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: lead-research\n---\nResearch leads.")
+
+        mod.SKILL_DIRS = [tmp_path / "hermes" / "skills"]
+        result = mod.find_skill("lead-research")
+        assert result is not None
+    finally:
+        _restore(saved)
+
+
+def test_skill_loader_execute_skill_or_fallback_uses_skill(tmp_path):
+    """execute_skill_or_fallback uses the skill when found, not the fallback."""
+    saved, mod, fake_llm = _setup_skill_loader(tmp_path)
+    try:
+        skill_dir = tmp_path / "hermes" / "skills" / "test-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("You are a test skill.")
+
+        mod.SKILL_DIRS = [tmp_path / "hermes" / "skills"]
+        fallback_called = {"called": False}
+
+        async def fallback():
+            fallback_called["called"] = True
+            return "fallback"
+
+        result = asyncio.run(mod.execute_skill_or_fallback(
+            "test-skill", "do task", fallback
+        ))
+        assert fallback_called["called"] is False
+        assert result == "skill executed result"
+    finally:
+        _restore(saved)
+
+
+def test_skill_loader_execute_skill_or_fallback_uses_fallback(tmp_path):
+    """execute_skill_or_fallback calls fallback when skill not found."""
+    saved, mod, _ = _setup_skill_loader(tmp_path)
+    try:
+        mod.SKILL_DIRS = [tmp_path / "hermes" / "skills"]  # empty
+
+        async def fallback():
+            return "fallback result"
+
+        result = asyncio.run(mod.execute_skill_or_fallback(
+            "nonexistent-skill", "do task", fallback
+        ))
+        assert result == "fallback result"
+    finally:
+        _restore(saved)
+
+
+def test_skill_loader_list_installed_skills_parses_description(tmp_path):
+    """list_installed_skills parses description from frontmatter."""
+    saved, mod, _ = _setup_skill_loader(tmp_path)
+    try:
+        skill_dir = tmp_path / "hermes" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: my-skill\ndescription: Does awesome things\n---\nBody."
+        )
+
+        mod.SKILL_DIRS = [tmp_path / "hermes" / "skills"]
+        skills = mod.list_installed_skills()
+        assert len(skills) == 1
+        assert skills[0]["description"] == "Does awesome things"
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 12. shared/test_time_learning.py
+# ===========================================================================
+
+def _setup_test_time_learning():
+    modules_to_fake = ["shared.magma", "titan.memory"]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_magma = types.ModuleType("shared.magma")
+    fake_magma._get_driver = MagicMock(return_value=True)
+    fake_magma.magma_retrieve = AsyncMock(return_value="MAGMA memory context: similar past event")
+    sys.modules["shared.magma"] = fake_magma
+
+    fake_titan_memory = types.ModuleType("titan.memory")
+    fake_titan_memory.get_relevant_learnings = AsyncMock(return_value="flat memory result")
+    sys.modules["titan.memory"] = fake_titan_memory
+
+    sys.modules.pop("shared.test_time_learning", None)
+    mod = importlib.import_module("shared.test_time_learning")
+    return saved, mod, fake_magma, fake_titan_memory
+
+
+def test_ttl_memrl_uses_magma_when_driver_available():
+    """memrl_context_inject returns MAGMA results when driver is available."""
+    saved, mod, fake_magma, _ = _setup_test_time_learning()
+    try:
+        with patch.object(mod, "TEST_TIME_LEARNING_ENABLED", True):
+            result = asyncio.run(mod.memrl_context_inject("recent leads query"))
+        assert "RELEVANT EXPERIENCE" in result
+        assert "MAGMA" in result or "similar" in result
+    finally:
+        _restore(saved)
+
+
+def test_ttl_memrl_falls_back_to_flat_memory():
+    """memrl_context_inject falls back to flat memory when MAGMA unavailable."""
+    saved, mod, fake_magma, fake_titan_memory = _setup_test_time_learning()
+    try:
+        fake_magma._get_driver = MagicMock(return_value=None)
+        with patch.object(mod, "TEST_TIME_LEARNING_ENABLED", True):
+            result = asyncio.run(mod.memrl_context_inject("query"))
+        assert "flat memory" in result or "RELEVANT EXPERIENCE" in result
+    finally:
+        _restore(saved)
+
+
+def test_ttl_memrl_disabled_returns_empty():
+    """memrl_context_inject returns '' when TEST_TIME_LEARNING_ENABLED=False."""
+    saved, mod, _, _ = _setup_test_time_learning()
+    try:
+        with patch.object(mod, "TEST_TIME_LEARNING_ENABLED", False):
+            result = asyncio.run(mod.memrl_context_inject("query"))
+        assert result == ""
+    finally:
+        _restore(saved)
+
+
+def test_ttl_buffer_flush_clears_buffer():
+    """flush_ttrl_buffer clears the buffer regardless of MLX availability."""
+    saved, mod, _, _ = _setup_test_time_learning()
+    try:
+        mod._ttrl_buffer.clear()
+        mod._ttrl_buffer.append({"prompt": "p", "output": "o", "reward": 0.5, "timestamp": 0.0})
+        asyncio.run(mod.flush_ttrl_buffer("test-model"))
+        assert len(mod._ttrl_buffer) == 0
+    finally:
+        _restore(saved)
+
+
+def test_ttl_gradient_update_rate_limit():
+    """ttrl_gradient_update respects the per-hour rate limit."""
+    saved, mod, _, _ = _setup_test_time_learning()
+    try:
+        import time
+        mod._ttrl_update_times.clear()
+        now = time.time()
+        # Fill up the rate limit counter
+        for _ in range(mod.TTRL_MAX_PER_HOUR):
+            mod._ttrl_update_times.append(now)
+
+        with patch.object(mod, "TTRL_GRADIENT_ENABLED", True):
+            result = asyncio.run(mod.ttrl_gradient_update(
+                "model", "prompt", "output", 1.0
+            ))
+        assert result is False  # rate limited
+    finally:
+        mod._ttrl_update_times.clear()
+        _restore(saved)
+
+
+# ===========================================================================
+# 13. hermes/a2a_server.py — additional capability handlers
+# ===========================================================================
+
+def _setup_hermes_a2a_server():
+    modules_to_fake = [
+        "shared.db",
+        "shared.a2a_wrapper",
+        "shared.observability",
+        "hermes.alerts",
+        "hermes.a2a_server",
+    ]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.emit_event = AsyncMock()
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    fake_db.fetch_one = AsyncMock(return_value=None)
+    fake_db.execute = AsyncMock()
+    fake_db.fetch_val = AsyncMock(return_value=0)
+    sys.modules["shared.db"] = fake_db
+
+    fake_a2a = types.ModuleType("shared.a2a_wrapper")
+
+    class _FakeAgentCard:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    fake_a2a.AgentCard = _FakeAgentCard
+    fake_a2a.create_a2a_app = MagicMock(return_value=MagicMock())
+    sys.modules["shared.a2a_wrapper"] = fake_a2a
+
+    fake_alerts = types.ModuleType("hermes.alerts")
+    fake_alerts.send_operator_message = AsyncMock(return_value={"sent": True, "channel": "telegram"})
+    sys.modules["hermes.alerts"] = fake_alerts
+
+    sys.modules.pop("hermes.a2a_server", None)
+    mod = importlib.import_module("hermes.a2a_server")
+    return saved, mod, fake_db, fake_alerts
+
+
+def test_hermes_a2a_message_send_requires_text():
+    """_message_send returns error dict when text is empty."""
+    saved, mod, _, _ = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._message_send(text=""))
+        assert "error" in result
+    finally:
+        _restore(saved)
+
+
+def test_hermes_a2a_message_send_emits_event_and_delivers():
+    """_message_send emits event and calls send_operator_message."""
+    saved, mod, fake_db, fake_alerts = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._message_send(text="hello operator"))
+        fake_db.emit_event.assert_awaited_once()
+        fake_alerts.send_operator_message.assert_awaited_once()
+        assert result.get("message") == "hello operator"
+    finally:
+        _restore(saved)
+
+
+def test_hermes_a2a_alert_urgent_level_field():
+    """_alert_urgent includes level='urgent' in return dict."""
+    saved, mod, _, _ = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._alert_urgent(text="FIRE"))
+        assert result.get("level") == "urgent"
+    finally:
+        _restore(saved)
+
+
+def test_hermes_a2a_alert_warning_level_field():
+    """_alert_warning includes level='warning' in return dict."""
+    saved, mod, _, _ = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._alert_warning(text="watch out"))
+        assert result.get("level") == "warning"
+    finally:
+        _restore(saved)
+
+
+def test_hermes_a2a_alert_info_level_field():
+    """_alert_info includes level='info' in return dict."""
+    saved, mod, _, _ = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._alert_info(text="FYI"))
+        assert result.get("level") == "info"
+    finally:
+        _restore(saved)
+
+
+def test_hermes_a2a_message_broadcast_has_broadcast_flag():
+    """_message_broadcast sets broadcast=True in the return dict."""
+    saved, mod, _, _ = _setup_hermes_a2a_server()
+    try:
+        result = asyncio.run(mod._message_broadcast(text="broadcast msg"))
+        assert result.get("broadcast") is True
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 14. hermes/alerts.py — formatting and briefing
+# ===========================================================================
+
+def _setup_hermes_alerts():
+    modules_to_fake = [
+        "shared.config",
+        "shared.db",
+    ]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_cfg_mod = types.ModuleType("shared.config")
+    fake_cfg_mod.config = _make_fake_config()
+    sys.modules["shared.config"] = fake_cfg_mod
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.execute = AsyncMock()
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    fake_db.fetch_val = AsyncMock(return_value=0)
+    sys.modules["shared.db"] = fake_db
+
+    sys.modules.pop("hermes.alerts", None)
+    mod = importlib.import_module("hermes.alerts")
+    return saved, mod, fake_db
+
+
+def test_hermes_alerts_format_event_leads_discovered():
+    """_format_event formats 'leads_discovered' event correctly."""
+    saved, mod, _ = _setup_hermes_alerts()
+    try:
+        result = mod._format_event({
+            "event_type": "leads_discovered",
+            "payload": {"count": 42},
+        })
+        assert "42" in result
+        assert "[Perseus]" in result
+    finally:
+        _restore(saved)
+
+
+def test_hermes_alerts_format_event_pipeline_error():
+    """_format_event formats 'pipeline_error' with stage and error info."""
+    saved, mod, _ = _setup_hermes_alerts()
+    try:
+        result = mod._format_event({
+            "event_type": "pipeline_error",
+            "payload": {"stage": "email_compose", "error": "rate limit exceeded"},
+        })
+        assert "email_compose" in result
+        assert "rate limit" in result
+    finally:
+        _restore(saved)
+
+
+def test_hermes_alerts_format_event_unknown_fallback():
+    """_format_event falls back to generic format for unknown event types."""
+    saved, mod, _ = _setup_hermes_alerts()
+    try:
+        result = mod._format_event({
+            "event_type": "totally_unknown_event_xyz",
+            "payload": {"key": "val"},
+        })
+        assert "totally_unknown_event_xyz" in result
+    finally:
+        _restore(saved)
+
+
+def test_hermes_alerts_send_morning_briefing_no_telegram():
+    """send_morning_briefing returns False when Telegram is not configured."""
+    saved, mod, fake_db = _setup_hermes_alerts()
+    try:
+        # send_morning_briefing does `from shared.db import fetch_val` locally
+        # Patch shared.db.fetch_val so the local import gets our mock
+        fake_db.fetch_val = AsyncMock(return_value=0)
+
+        # Also patch _send_telegram directly since it checks config.telegram
+        with patch.object(mod, "_send_telegram", new=AsyncMock(return_value=False)), \
+             patch.dict("sys.modules", {"shared.db": fake_db}):
+            result = asyncio.run(mod.send_morning_briefing())
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+def test_hermes_alerts_dispatch_alert_for_event_empty_type():
+    """dispatch_alert_for_event returns False when event_type is empty."""
+    saved, mod, _ = _setup_hermes_alerts()
+    try:
+        result = asyncio.run(mod.dispatch_alert_for_event({}))
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+# ===========================================================================
+# 15. hermes/telegram_bot.py — command handlers with auth
+# ===========================================================================
+
+def _setup_telegram_bot():
+    modules_to_fake = [
+        "shared.config",
+        "shared.db",
+        "shared.comms",
+        "telegram",
+        "telegram.ext",
+    ]
+    saved = {k: sys.modules.get(k) for k in modules_to_fake}
+
+    fake_cfg_mod = types.ModuleType("shared.config")
+    fake_cfg_mod.config = _make_fake_config()
+    sys.modules["shared.config"] = fake_cfg_mod
+
+    fake_db = types.ModuleType("shared.db")
+    fake_db.execute = AsyncMock()
+    fake_db.fetch_all = AsyncMock(return_value=[])
+    fake_db.fetch_val = AsyncMock(return_value=0)
+    fake_db.get_config = AsyncMock(return_value=None)
+    sys.modules["shared.db"] = fake_db
+
+    fake_comms = types.ModuleType("shared.comms")
+    fake_comms.call_agent_capability = AsyncMock(return_value={"success": True})
+    sys.modules["shared.comms"] = fake_comms
+
+    # Minimal telegram stubs
+    fake_telegram = types.ModuleType("telegram")
+    fake_telegram.Update = MagicMock
+    sys.modules["telegram"] = fake_telegram
+
+    fake_ext = types.ModuleType("telegram.ext")
+    fake_ext.Application = MagicMock
+    fake_ext.CommandHandler = MagicMock
+    fake_ext.ContextTypes = types.SimpleNamespace(DEFAULT_TYPE=None)
+    sys.modules["telegram.ext"] = fake_ext
+
+    sys.modules.pop("hermes.telegram_bot", None)
+    mod = importlib.import_module("hermes.telegram_bot")
+    return saved, mod, fake_db, fake_comms
+
+
+def _make_update(chat_id: str = "123", has_message: bool = True):
+    """Build a minimal mock Update object."""
+    update = MagicMock()
+    update.effective_chat = MagicMock()
+    update.effective_chat.id = chat_id
+    update.effective_message = MagicMock() if has_message else None
+    update.message = MagicMock() if has_message else None
+    if has_message:
+        update.message.reply_text = AsyncMock()
+        update.effective_message.reply_text = AsyncMock()
+    return update
+
+
+def _make_context(args: list[str] | None = None):
+    ctx = MagicMock()
+    ctx.args = args or []
+    return ctx
+
+
+def _make_tg_config(chat_id: str = "123"):
+    """Return a config object with the given telegram chat_id for test patching."""
+    tg = types.SimpleNamespace(chat_id=chat_id, bot_token="tok")
+    return types.SimpleNamespace(telegram=tg)
+
+
+def test_telegram_bot_require_chat_access_authorized():
+    """_require_chat_access grants access when chat ID matches config."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="777")
+        with patch.object(mod, "config", _make_tg_config("777")):
+            result = asyncio.run(mod._require_chat_access(update))
+        assert result is True
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_require_chat_access_unauthorized():
+    """_require_chat_access rejects access when chat ID does not match."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="999")
+        with patch.object(mod, "config", _make_tg_config("777")):
+            result = asyncio.run(mod._require_chat_access(update))
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_require_chat_access_no_config():
+    """_require_chat_access rejects when TELEGRAM_CHAT_ID is not configured."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="777")
+        with patch.object(mod, "config", _make_tg_config("")):
+            result = asyncio.run(mod._require_chat_access(update))
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_require_destructive_auth_missing_secret_env():
+    """_require_destructive_auth rejects when TELEGRAM_ADMIN_SECRET is not set."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="123")
+        ctx = _make_context(args=["1", "wrongsecret"])
+
+        with patch.object(mod, "config", _make_tg_config("123")), \
+             patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("TELEGRAM_ADMIN_SECRET", None)
+            result = asyncio.run(mod._require_destructive_auth(
+                update, ctx, usage="usage text", secret_arg_index=1
+            ))
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_require_destructive_auth_wrong_secret():
+    """_require_destructive_auth rejects incorrect admin secret."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="123")
+        ctx = _make_context(args=["42", "bad_secret"])
+
+        with patch.object(mod, "config", _make_tg_config("123")), \
+             patch.dict("os.environ", {"TELEGRAM_ADMIN_SECRET": "correct_secret"}):
+            result = asyncio.run(mod._require_destructive_auth(
+                update, ctx, usage="usage text", secret_arg_index=1
+            ))
+        assert result is False
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_require_destructive_auth_correct_secret():
+    """_require_destructive_auth passes when secret matches."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="123")
+        ctx = _make_context(args=["42", "my_secret"])
+
+        with patch.object(mod, "config", _make_tg_config("123")), \
+             patch.dict("os.environ", {"TELEGRAM_ADMIN_SECRET": "my_secret"}):
+            result = asyncio.run(mod._require_destructive_auth(
+                update, ctx, usage="usage text", secret_arg_index=1
+            ))
+        assert result is True
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_cmd_status_unauthorized():
+    """cmd_status sends an 'Unauthorized' reply (not status content) for wrong chat."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="456")
+        ctx = _make_context()
+        with patch.object(mod, "config", _make_tg_config("999")):
+            asyncio.run(mod.cmd_status(update, ctx))
+        # Auth failed — only an "Unauthorized." reply should have been sent, not status content
+        calls = [str(c) for c in update.effective_message.reply_text.call_args_list]
+        assert any("Unauthorized" in c for c in calls)
+        assert not any("PERSEUS Status" in c or "pipeline" in c.lower() for c in calls)
+    finally:
+        _restore(saved)
+
+
+def test_telegram_bot_cmd_approve_invalid_id():
+    """cmd_approve replies with 'Invalid ID' when review_id is not an int."""
+    saved, mod, _, _ = _setup_telegram_bot()
+    try:
+        update = _make_update(chat_id="123")
+        ctx = _make_context(args=["notanint", "my_secret"])
+
+        with patch.object(mod, "config", _make_tg_config("123")), \
+             patch.dict("os.environ", {"TELEGRAM_ADMIN_SECRET": "my_secret"}):
+            asyncio.run(mod.cmd_approve(update, ctx))
+
+        calls = [str(c) for c in update.effective_message.reply_text.call_args_list]
+        assert any("Invalid" in c or "invalid" in c or "Invalid ID" in c for c in calls)
+    finally:
+        _restore(saved)
