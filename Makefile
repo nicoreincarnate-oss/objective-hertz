@@ -1,4 +1,4 @@
-.PHONY: help start stop status logs health up down restart clean test lint typecheck quality backup restore explorer watch-explorer
+.PHONY: help start stop status logs health up down restart clean test lint typecheck quality backup restore
 
 PYTHON ?= python3
 
@@ -105,9 +105,5 @@ clean: ## Remove all Docker volumes (DESTRUCTIVE)
 		echo "Cancelled."; \
 	fi
 
-explorer: ## Regenerate system explorer from codebase
-	$(PYTHON) scripts/scan_architecture.py
-	@echo "Explorer updated: docs/system-explorer.html"
-
-watch-explorer: ## Watch for changes and auto-update explorer
-	@bash scripts/watch_and_update.sh
+# NOTE: explorer and watch-explorer targets removed — scripts/scan_architecture.py and
+# scripts/watch_and_update.sh were never implemented. See docs/EXPLORER.md for context.

@@ -8,9 +8,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY . .
+COPY pyproject.toml README.md ./
+COPY openjarvis/ openjarvis/
+COPY shared/ shared/
+COPY titan/ titan/
+COPY hermes/ hermes/
+COPY clawdbot/ clawdbot/
+COPY tools/ tools/
+COPY perseus/ perseus/
+COPY conway/ conway/
+COPY ruflo/ ruflo/
+
 RUN pip install --no-cache-dir ".[server]"
 
 LABEL openjarvis-sandbox=true
 
-ENTRYPOINT ["python", "-m", "openjarvis.sandbox.entrypoint"]
+ENTRYPOINT ["python", "-m", "openjarvis.cli"]
