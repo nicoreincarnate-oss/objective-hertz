@@ -424,6 +424,7 @@ async def _queue_for_review(batch_size: int):
     """In review mode: queue emails for Nico's approval instead of sending."""
     from titan.state_machine import transition_lead
 
+
     leads = await fetch_all(
         """SELECT c.id as client_id, c.email, c.business_name,
                   c.status as client_status,

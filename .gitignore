@@ -45,3 +45,14 @@ logs/*
 # Secrets
 *.pem
 *.key
+# Temp/generated files
+HEALTH_CHECK_REPORT.md
+MagicMock/
+architecture.md
+data/
+diagrams.md
+notebooklm-pack/
+output/
+system_tour.md
+.claude/worktrees/
+tmp_*.py

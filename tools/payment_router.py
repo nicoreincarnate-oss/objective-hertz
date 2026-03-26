@@ -367,7 +367,7 @@ class PaymentRouter:
 
         if not since_timestamp:
             since_timestamp = _default_lookback_timestamp()
-        since_date = datetime.datetime.fromtimestamp(since_timestamp, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+        since_date = datetime.datetime.fromtimestamp(since_timestamp, tz=datetime.UTC).strftime("%Y-%m-%d")
 
         payments: list[dict[str, Any]] = []
         exhausted = True
@@ -419,6 +419,30 @@ class PaymentRouter:
         except Exception as e:
             logger.error(f"Wise payment check failed: {e}")
             return {"payments": [], "exhausted": False}
+
+
+    # ── Conway (x402 / USDC on Base) ──────────────────────────────
+
+    async def _check_conway_payments(self) -> list[dict[str, Any]]:
+        """Check Conway ledger for recent incoming USDC payments."""
+        try:
+            from conway.ledger import EconomicLedger
+            ledger = EconomicLedger()
+            txs = await ledger.recent_transactions(limit=20)
+            payments = []
+            for tx in txs:
+                if tx.get("tx_type") == "earn":
+                    payments.append({
+                        "reference": tx.get("tx_hash", ""),
+                        "amount": float(tx.get("amount", 0)),
+                        "currency": tx.get("currency", "USDC"),
+                        "provider": "conway",
+                        "metadata": {"agent": tx.get("agent", "")},
+                    })
+            return payments
+        except Exception as e:
+            logger.error(f"Conway payment check failed: {e}")
+            return []
 
 
     # ── Conway (x402 / USDC on Base) ──────────────────────────────

@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from shared.config import config
-from shared.db import fetch_one, fetch_all, execute, fetch_val
+from shared.db import fetch_all, fetch_val
 
 logger = logging.getLogger("perseus.tools.budget")
 

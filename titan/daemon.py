@@ -410,7 +410,6 @@ async def main_with_a2a():
     titan = TitanDaemon()
 
     loop = asyncio.get_event_loop()
-    install_asyncio_exception_handler(loop, "titan")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(titan.stop()))
 
@@ -420,12 +419,7 @@ async def main_with_a2a():
     server = uvicorn.Server(config)
 
     logger.info("Titan A2A server starting on :%d", a2a_port)
-    try:
-        await asyncio.gather(titan.start(), server.serve())
-    except Exception as exc:
-        capture_exception(exc, service_name="titan", category="a2a")
-        logger.exception("Titan A2A runtime crashed")
-        raise
+    await asyncio.gather(titan.start(), server.serve())
 
 
 if __name__ == "__main__":

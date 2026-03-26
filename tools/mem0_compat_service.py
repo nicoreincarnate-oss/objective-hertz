@@ -16,14 +16,13 @@ import json
 import os
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
-
 
 DB_PATH = Path(os.environ.get("MEM0_HISTORY_DB_PATH", "/data/history.db"))
 app = FastAPI(title="Perseus Mem0 Compat", version="1.0")
@@ -74,7 +73,7 @@ def _connect() -> Iterator[sqlite3.Connection]:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _tokenize(text: str) -> set[str]:

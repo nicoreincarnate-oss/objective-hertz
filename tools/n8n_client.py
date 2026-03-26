@@ -10,8 +10,7 @@ from typing import Any
 
 import httpx
 
-from shared.config import config
-from tools.runtime_honesty import env_is_configured, truth_payload
+from tools.runtime_honesty import truth_payload
 
 logger = logging.getLogger("perseus.tools.n8n")
 
