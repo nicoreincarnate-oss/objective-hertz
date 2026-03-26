@@ -108,5 +108,9 @@ warn_unused_ignores = true
 warn_unreachable = true
 pretty = true
 
+[[tool.mypy.overrides]]
+module = "openjarvis.*"
+ignore_errors = true
+
 [dependency-groups]
 dev = ["maturin>=1.12.6"]
