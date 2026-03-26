@@ -124,9 +124,7 @@ def test_create_cname_record():
             "result": {"id": "rec123"},
         })
 
-        with patch("tools.domain_manager.config") as mock_config:
-            mock_config.cloudflare = MagicMock()
-            mock_config.cloudflare.api_token = "test-cf-token"
+        with patch("tools.domain_manager.os.getenv", return_value="test-cf-token"):
             result = asyncio.run(create_cname_record("bobsplumbing.com", "perseus-bobs.netlify.app"))
 
     assert result["ok"] is True
