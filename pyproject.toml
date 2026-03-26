@@ -98,7 +98,7 @@ ignore = ["E501", "E741", "UP042"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["shared", "titan", "hermes", "clawdbot"]
+packages = ["shared", "titan", "hermes", "clawdbot", "tools", "conway", "perseus"]
 exclude = "(^tools/browser-use/|^tools/firecrawl/|^openjarvis/)"
 ignore_missing_imports = true
 no_implicit_optional = true
@@ -111,6 +111,10 @@ pretty = true
 [[tool.mypy.overrides]]
 module = "openjarvis.*"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["tools.firecrawl_client", "requests", "requests.*"]
+ignore_missing_imports = true
 
 [dependency-groups]
 dev = ["maturin>=1.12.6"]

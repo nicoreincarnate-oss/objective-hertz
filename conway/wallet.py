@@ -11,11 +11,9 @@ import logging
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import httpx
 
-from shared.config import config
 from shared.db import execute, fetch_one
 
 logger = logging.getLogger("conway.wallet")

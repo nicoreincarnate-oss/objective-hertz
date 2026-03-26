@@ -8,9 +8,9 @@ Integrates with Conway Cloud (https://conway.tech) to give agents:
 - Survival tier management based on credit balance
 """
 
-from conway.wallet import AgentWallet, WalletManager
 from conway.ledger import EconomicLedger
 from conway.survival import SurvivalMonitor
+from conway.wallet import AgentWallet, WalletManager
 
 __all__ = [
     "AgentWallet",

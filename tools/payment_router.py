@@ -445,30 +445,6 @@ class PaymentRouter:
             return []
 
 
-    # ── Conway (x402 / USDC on Base) ──────────────────────────────
-
-    async def _check_conway_payments(self) -> list[dict[str, Any]]:
-        """Check Conway ledger for recent incoming USDC payments."""
-        try:
-            from conway.ledger import EconomicLedger
-            ledger = EconomicLedger()
-            txs = await ledger.recent_transactions(limit=20)
-            payments = []
-            for tx in txs:
-                if tx.get("tx_type") == "earn":
-                    payments.append({
-                        "reference": tx.get("tx_hash", ""),
-                        "amount": float(tx.get("amount", 0)),
-                        "currency": tx.get("currency", "USDC"),
-                        "provider": "conway",
-                        "metadata": {"agent": tx.get("agent", "")},
-                    })
-            return payments
-        except Exception as e:
-            logger.error(f"Conway payment check failed: {e}")
-            return []
-
-
 def _yesterday_timestamp() -> int:
     """Unix timestamp for 24 hours ago."""
     import time

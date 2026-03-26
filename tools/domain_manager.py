@@ -5,11 +5,10 @@ Cloudflare proxied mode provides instant SSL and CDN without waiting for DNS pro
 """
 
 import logging
+import os
 from typing import Any
 
 import httpx
-
-from shared.config import config
 
 logger = logging.getLogger("perseus.tools.domain_manager")
 
@@ -18,7 +17,7 @@ CLOUDFLARE_API = "https://api.cloudflare.com/client/v4"
 
 def _headers() -> dict[str, str]:
     """Cloudflare API auth headers."""
-    token = getattr(config, "cloudflare", None) and getattr(config.cloudflare, "api_token", "")
+    token = os.getenv("CLOUDFLARE_API_TOKEN", "")
     if not token:
         raise RuntimeError("CLOUDFLARE_API_TOKEN not configured")
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}

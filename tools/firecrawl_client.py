@@ -7,7 +7,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from tools.runtime_honesty import env_is_configured, truth_payload
 

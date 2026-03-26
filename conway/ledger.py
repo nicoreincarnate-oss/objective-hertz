@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from shared.db import execute, fetch_all, fetch_one, fetch_val
+from shared.db import fetch_all, fetch_one, fetch_val
 
 logger = logging.getLogger("conway.ledger")
 
