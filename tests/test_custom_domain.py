@@ -11,7 +11,9 @@ Verifies:
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import respx
+import pytest
+
+respx = pytest.importorskip("respx")
 
 # ── 1. A2A capability registration ──
 
