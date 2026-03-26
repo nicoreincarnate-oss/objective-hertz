@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Any, List
+
+logger = logging.getLogger(__name__)
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -141,16 +144,7 @@ class ShellExecTool(BaseTool):
                     },
                 )
             except Exception as exc:
-                return ToolResult(
-                    tool_name="shell_exec",
-                    content=str(exc),
-                    success=False,
-                    metadata={
-                        "returncode": -1,
-                        "timeout_used": timeout,
-                        "working_dir": working_dir,
-                    },
-                )
+                logger.debug("Rust shell_exec fallback to subprocess: %s", exc)
         try:
             result = subprocess.run(
                 command,

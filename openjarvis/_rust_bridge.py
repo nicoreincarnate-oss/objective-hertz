@@ -20,19 +20,20 @@ if TYPE_CHECKING:
 
 
 @functools.lru_cache(maxsize=1)
-def get_rust_module() -> _types.ModuleType:
-    """Return the ``openjarvis_rust`` module.
+def get_rust_module() -> _types.ModuleType | None:
+    """Return the ``openjarvis_rust`` module, or *None* when unavailable.
 
-    Raises ``ImportError`` if the compiled extension is not available.
-    The Rust backend is mandatory for all modules that have Rust
-    implementations — there is no Python fallback.
+    The Rust backend is optional at runtime — callers must handle None.
     """
-    import openjarvis_rust  # type: ignore[import-untyped]
+    try:
+        import openjarvis_rust  # type: ignore[import-untyped]
 
-    return openjarvis_rust
+        return openjarvis_rust
+    except ImportError:
+        return None
 
 
-RUST_AVAILABLE: bool = True
+RUST_AVAILABLE: bool = get_rust_module() is not None
 
 
 # ---------------------------------------------------------------------------

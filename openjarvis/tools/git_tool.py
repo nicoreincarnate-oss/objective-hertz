@@ -135,6 +135,8 @@ class GitStatusTool(BaseTool):
     def execute(self, **params: Any) -> ToolResult:
         repo_path = params.get("repo_path", ".")
         _rust = get_rust_module()
+        if _rust is None:
+            return _run_git(["git", "status", "--porcelain"], cwd=repo_path)
         try:
             output = _rust.GitStatusTool().execute(repo_path)
             return ToolResult(
@@ -207,7 +209,7 @@ class GitDiffTool(BaseTool):
         file_path = params.get("path")
 
         _rust = get_rust_module()
-        if not staged and not file_path:
+        if _rust is not None and not staged and not file_path:
             try:
                 output = _rust.GitDiffTool().execute(repo_path)
                 return ToolResult(
@@ -376,16 +378,17 @@ class GitLogTool(BaseTool):
         oneline = params.get("oneline", True)
 
         _rust = get_rust_module()
-        try:
-            output = _rust.GitLogTool().execute(repo_path, count)
-            return ToolResult(
-                tool_name="git_log",
-                content=output or "(no output)",
-                success=True,
-                metadata={"returncode": 0},
-            )
-        except Exception as exc:
-            logger.debug("Rust git_log fallback to CLI: %s", exc)
+        if _rust is not None:
+            try:
+                output = _rust.GitLogTool().execute(repo_path, count)
+                return ToolResult(
+                    tool_name="git_log",
+                    content=output or "(no output)",
+                    success=True,
+                    metadata={"returncode": 0},
+                )
+            except Exception as exc:
+                logger.debug("Rust git_log fallback to CLI: %s", exc)
 
         cmd = ["git", "log", f"-{count}"]
         if oneline:

@@ -52,20 +52,23 @@ class LoopGuard:
         # Track cycle keys that have already been warned (for warn-before-block)
         self._warned_cycles: set[str] = set()
 
-        try:
-            from openjarvis._rust_bridge import get_rust_module
-            _rust = get_rust_module()
-            self._rust_impl = _rust.LoopGuard(
-                max_identical=config.max_identical_calls,
-                max_ping_pong=(
-                    config.ping_pong_window // 2
-                    if config.ping_pong_window > 1
-                    else 2
-                ),
-                poll_budget=config.poll_tool_budget,
-            )
-        except Exception:
+        from openjarvis._rust_bridge import get_rust_module
+        _rust = get_rust_module()
+        if _rust is None:
             self._rust_impl = None
+        else:
+            try:
+                self._rust_impl = _rust.LoopGuard(
+                    max_identical=config.max_identical_calls,
+                    max_ping_pong=(
+                        config.ping_pong_window // 2
+                        if config.ping_pong_window > 1
+                        else 2
+                    ),
+                    poll_budget=config.poll_tool_budget,
+                )
+            except Exception:
+                self._rust_impl = None
 
     def check_call(self, tool_name: str, arguments: str) -> LoopVerdict:
         """Check whether a tool call should proceed or be blocked."""

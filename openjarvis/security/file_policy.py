@@ -31,9 +31,16 @@ def is_sensitive_file(path: Union[str, Path]) -> bool:
     Checks both the filename and the full name against
     ``DEFAULT_SENSITIVE_PATTERNS`` using :func:`fnmatch.fnmatch`.
     """
+    import fnmatch as _fnmatch
     from openjarvis._rust_bridge import get_rust_module
 
     _rust = get_rust_module()
+    if _rust is None:
+        name = Path(path).name
+        return any(
+            _fnmatch.fnmatch(name, pat) or _fnmatch.fnmatch(str(path), pat)
+            for pat in DEFAULT_SENSITIVE_PATTERNS
+        )
     return _rust.is_sensitive_file(str(path))
 
 

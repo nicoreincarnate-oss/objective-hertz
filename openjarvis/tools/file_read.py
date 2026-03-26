@@ -116,14 +116,24 @@ class FileReadTool(BaseTool):
             )
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        try:
-            text = _rust.FileReadTool().execute(str(path))
-        except Exception as exc:
-            return ToolResult(
-                tool_name="file_read",
-                content=f"Read error: {exc}",
-                success=False,
-            )
+        if _rust is None:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return ToolResult(
+                    tool_name="file_read",
+                    content=f"Read error: {exc}",
+                    success=False,
+                )
+        else:
+            try:
+                text = _rust.FileReadTool().execute(str(path))
+            except Exception as exc:
+                return ToolResult(
+                    tool_name="file_read",
+                    content=f"Read error: {exc}",
+                    success=False,
+                )
         max_lines = params.get("max_lines")
         if max_lines is not None and max_lines > 0:
             lines = text.splitlines(keepends=True)

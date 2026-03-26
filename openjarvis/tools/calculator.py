@@ -89,9 +89,12 @@ def _safe_eval_node(node: ast.AST) -> Any:
 
 
 def safe_eval(expression: str) -> float:
-    """Evaluate a math expression safely — always via Rust backend."""
+    """Evaluate a math expression safely."""
     from openjarvis._rust_bridge import get_rust_module
     _rust = get_rust_module()
+    if _rust is None:
+        tree = ast.parse(expression, mode="eval")
+        return float(_safe_eval_node(tree))
     return float(_rust.CalculatorTool().execute(expression))
 
 
