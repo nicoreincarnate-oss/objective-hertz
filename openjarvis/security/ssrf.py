@@ -52,7 +52,7 @@ def _check_ssrf_python(url: str) -> Optional[str]:
     parsed = urlparse(url)
     hostname = parsed.hostname
     if not hostname:
-        return "No hostname in URL"
+        return "Invalid URL: no hostname"
 
     # Check blocked hosts
     if hostname in _BLOCKED_HOSTS:

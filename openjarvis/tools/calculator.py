@@ -20,6 +20,8 @@ _BINOPS = {
     ast.FloorDiv: operator.floordiv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
+    # ^ is parsed as BitXor in Python AST; treat it as exponentiation (like meval)
+    ast.BitXor: operator.pow,
 }
 
 # Allowed unary operators
@@ -36,6 +38,7 @@ _MATH_FUNCS = {
     "max": max,
     "sqrt": math.sqrt,
     "log": math.log,
+    "ln": math.log,   # natural log alias used by the Rust meval backend
     "log10": math.log10,
     "log2": math.log2,
     "sin": math.sin,
@@ -62,7 +65,11 @@ def _safe_eval_node(node: ast.AST) -> Any:
             raise ValueError(f"Unsupported operator: {op_type.__name__}")
         left = _safe_eval_node(node.left)
         right = _safe_eval_node(node.right)
-        return _BINOPS[op_type](left, right)
+        try:
+            return _BINOPS[op_type](left, right)
+        except ZeroDivisionError:
+            # Match meval (Rust) behaviour: division by zero returns infinity
+            return math.copysign(math.inf, left) if right == 0 else math.inf
     if isinstance(node, ast.UnaryOp):
         op_type = type(node.op)
         if op_type not in _UNARYOPS:
@@ -84,7 +91,7 @@ def _safe_eval_node(node: ast.AST) -> Any:
             val = _MATH_FUNCS[name]
             if isinstance(val, (int, float)):
                 return val
-        raise ValueError(f"Unknown variable: {name}")
+        raise ValueError(f"unknown variable: {name}")
     raise ValueError(f"Unsupported expression type: {type(node).__name__}")
 
 
@@ -93,8 +100,15 @@ def safe_eval(expression: str) -> float:
     from openjarvis._rust_bridge import get_rust_module
     _rust = get_rust_module()
     if _rust is None:
-        tree = ast.parse(expression, mode="eval")
-        return float(_safe_eval_node(tree))
+        try:
+            tree = ast.parse(expression, mode="eval")
+        except SyntaxError as exc:
+            raise ValueError(f"Invalid expression: {exc}") from exc
+        result = _safe_eval_node(tree)
+        # Match meval (Rust) behaviour: division by zero yields infinity
+        if isinstance(result, float) and math.isnan(result):
+            return result
+        return float(result)
     return float(_rust.CalculatorTool().execute(expression))
 
 
@@ -143,12 +157,6 @@ class CalculatorTool(BaseTool):
                 tool_name="calculator",
                 content=str(result),
                 success=True,
-            )
-        except ZeroDivisionError:
-            return ToolResult(
-                tool_name="calculator",
-                content="Error: division by zero",
-                success=False,
             )
         except (ValueError, SyntaxError, TypeError) as exc:
             return ToolResult(

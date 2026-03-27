@@ -144,7 +144,16 @@ class ShellExecTool(BaseTool):
                     },
                 )
             except Exception as exc:
-                logger.debug("Rust shell_exec fallback to subprocess: %s", exc)
+                return ToolResult(
+                    tool_name="shell_exec",
+                    content=f"Execution error: {exc}",
+                    success=False,
+                    metadata={
+                        "returncode": -1,
+                        "timeout_used": timeout,
+                        "working_dir": working_dir,
+                    },
+                )
         try:
             result = subprocess.run(
                 command,
