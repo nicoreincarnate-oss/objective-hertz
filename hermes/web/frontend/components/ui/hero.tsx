@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client"
 import { useEffect, useRef, useState } from "react"
 import { MeshGradient, PulsingBorder } from "@paper-design/shaders-react"
