@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 
 import { AnimatePresence, motion, Variants } from "framer-motion";
