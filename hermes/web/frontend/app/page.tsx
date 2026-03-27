@@ -124,7 +124,7 @@ function WarRoomDashboard() {
 
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
           <AgentChat token={token!} />
-          {pipeline && Object.keys(pipeline).length > 0 && <PipelinePulse data={pipeline} />}
+          {pipeline && Object.keys(pipeline).length > 0 && <PipelinePulse data={pipeline} leads={leads} />}
         </div>
 
         <section className="mb-6">
