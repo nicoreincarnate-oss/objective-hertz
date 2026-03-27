@@ -1,6 +1,7 @@
 'use client'
 
 import { BackgroundGradientAnimation } from '@/components/ui/background-gradient-animation'
+import { DotPattern } from '@/components/ui/dot-pattern'
 
 type CinematicBackdropProps = {
   priority?: boolean
@@ -21,7 +22,7 @@ export function CinematicBackdrop({
       aria-hidden="true"
       className={`pointer-events-none absolute inset-0 overflow-hidden ${className}`.trim()}
     >
-      {/* 21st.dev Background Gradient Animation — Perseus themed */}
+      {/* 21st.dev Background Gradient Animation — Perseus themed, cursor-interactive */}
       <BackgroundGradientAnimation
         gradientBackgroundStart="rgb(4, 8, 12)"
         gradientBackgroundEnd="rgb(4, 14, 22)"
@@ -33,19 +34,21 @@ export function CinematicBackdrop({
         pointerColor="57, 243, 226"
         size="80%"
         blendingValue="hard-light"
-        interactive={false}
+        interactive={true}
         containerClassName="absolute inset-0 opacity-40"
       >
         <></>
       </BackgroundGradientAnimation>
 
-      {/* HUD grid overlay */}
-      <div
-        className="absolute inset-0"
+      {/* 21st.dev DotPattern — replaces CSS grid overlay */}
+      <DotPattern
+        width={72}
+        height={72}
+        cx={1}
+        cy={1}
+        cr={1}
+        className="absolute inset-0 fill-neutral-400/20"
         style={{
-          backgroundImage:
-            'linear-gradient(var(--hud-grid) 1px, transparent 1px), linear-gradient(90deg, var(--hud-grid) 1px, transparent 1px)',
-          backgroundSize: '72px 72px',
           maskImage: 'radial-gradient(circle at center, black 28%, transparent 88%)',
           opacity: 0.2,
         }}

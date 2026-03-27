@@ -8,6 +8,7 @@ import {
 import useSWR, { mutate } from 'swr'
 import { authHeaders } from '@/hooks/use-token'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Dock, DockIcon } from '@/components/ui/dock'
 
 interface Message {
   id: string
@@ -193,25 +194,38 @@ export function AgentChat({ token }: { token: string | null }) {
         Agent Link
       </h2>
 
-      {/* Agent selector — compact row with avatars */}
-      <div className="flex gap-2 mb-3">
-        {AGENTS.map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            onClick={() => setSelectedAgent(agent.id)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all text-xs ${
-              selectedAgent === agent.id
-                ? 'border-gold/40 bg-gold/8'
-                : 'border-border bg-muted/30 hover:border-gold/20'
-            }`}
-          >
-            <AgentAvatar agentId={agent.id} />
-            <span className={`font-medium ${selectedAgent === agent.id ? 'text-gold' : 'text-muted-foreground'}`}>
-              {agent.name}
-            </span>
-          </button>
-        ))}
+      {/* Agent selector — macOS-style Dock with magnification */}
+      <div className="flex justify-center mb-4">
+        <Dock
+          magnification={52}
+          distance={100}
+          direction="bottom"
+          className="border-gold/20 bg-background/60"
+        >
+          {AGENTS.map((agent) => (
+            <DockIcon
+              key={agent.id}
+              className={`transition-all ${
+                selectedAgent === agent.id
+                  ? 'ring-2 ring-gold/50 bg-gold/10'
+                  : 'hover:bg-white/5'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedAgent(agent.id)}
+                className="w-full h-full flex items-center justify-center"
+                title={`${agent.name} — ${agent.role}`}
+              >
+                <img
+                  src={agent.avatar}
+                  alt={agent.name}
+                  className="w-full h-full rounded-full object-cover"
+                />
+              </button>
+            </DockIcon>
+          ))}
+        </Dock>
       </div>
 
       {/* Message thread — chat bubbles */}

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { AnimatedList } from '@/components/ui/animated-list'
 
 interface Event {
   id: number | string
@@ -143,54 +144,50 @@ export function SignalLedger({ events }: SignalLedgerProps) {
       {/* Event stream */}
       <ScrollArea className="h-[320px]">
         <div className="space-y-2 pr-2">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {filteredEvents.map((event) => {
-              const config = EVENT_CONFIG[event.event_type] ?? {
-                icon: <Activity className="w-3.5 h-3.5" />,
-                severity: 'info' as Severity,
-                label: event.event_type.replace(/_/g, ' '),
-              }
-              const styles = SEVERITY_STYLES[config.severity]
-              const isCritical = config.severity === 'critical' || config.severity === 'warning'
-
-              return (
-                <motion.div
-                  key={event.id}
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ duration: 0.25 }}
-                  className={`p-3 rounded-lg border-l-2 ${styles.border} ${styles.bg} ${
-                    isCritical ? styles.glow : ''
-                  } transition-all`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={styles.text}>{config.icon}</div>
-                    <span className={`text-xs font-medium ${styles.text}`}>{config.label}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-                      {getRelativeTime(event.created_at)}
-                    </span>
-                  </div>
-
-                  {/* Payload summary */}
-                  {event.payload && Object.keys(event.payload).length > 0 && (
-                    <div className="mt-1.5 text-[11px] text-muted-foreground truncate">
-                      {Object.entries(event.payload)
-                        .slice(0, 3)
-                        .map(([k, v]) => `${k}: ${String(v).slice(0, 30)}`)
-                        .join(' • ')}
-                    </div>
-                  )}
-                </motion.div>
-              )
-            })}
-          </AnimatePresence>
-
-          {filteredEvents.length === 0 && (
+          {filteredEvents.length === 0 ? (
             <div className="text-center py-12">
               <img src="/assets/generated/states/no-events.svg" alt="" className="w-28 h-20 mx-auto mb-3 opacity-60" />
               <p className="text-xs text-muted-foreground">No events matching filters</p>
             </div>
+          ) : (
+            <AnimatedList delay={400} className="gap-2">
+              {filteredEvents.map((event) => {
+                const config = EVENT_CONFIG[event.event_type] ?? {
+                  icon: <Activity className="w-3.5 h-3.5" />,
+                  severity: 'info' as Severity,
+                  label: event.event_type.replace(/_/g, ' '),
+                }
+                const styles = SEVERITY_STYLES[config.severity]
+                const isCritical = config.severity === 'critical' || config.severity === 'warning'
+
+                return (
+                  <div
+                    key={event.id}
+                    className={`p-3 rounded-lg border-l-2 ${styles.border} ${styles.bg} ${
+                      isCritical ? styles.glow : ''
+                    } transition-all`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={styles.text}>{config.icon}</div>
+                      <span className={`text-xs font-medium ${styles.text}`}>{config.label}</span>
+                      <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                        {getRelativeTime(event.created_at)}
+                      </span>
+                    </div>
+
+                    {/* Payload summary */}
+                    {event.payload && Object.keys(event.payload).length > 0 && (
+                      <div className="mt-1.5 text-[11px] text-muted-foreground truncate">
+                        {Object.entries(event.payload)
+                          .slice(0, 3)
+                          .map(([k, v]) => `${k}: ${String(v).slice(0, 30)}`)
+                          .join(' • ')}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </AnimatedList>
           )}
         </div>
       </ScrollArea>

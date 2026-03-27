@@ -2,6 +2,9 @@
 
 import { motion } from 'framer-motion'
 import { Activity, Mail, Users, TrendingUp, Clock, Wifi, WifiOff } from 'lucide-react'
+import { SparklesText } from '@/components/ui/sparkles-text'
+import { AuroraBackground } from '@/components/ui/aurora-background'
+import { NumberTicker } from '@/components/ui/number-ticker'
 
 interface HeroCardProps {
   mode: 'review' | 'autonomous'
@@ -33,6 +36,14 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       transition={{ duration: 0.6 }}
       className="relative overflow-hidden"
     >
+      {/* AuroraBackground as the organic GPU-accelerated base layer */}
+      <AuroraBackground
+        className="absolute inset-0 rounded-2xl h-full w-full"
+        showRadialGradient={true}
+      >
+        <></>
+      </AuroraBackground>
+
       {/* Hero banner background image */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <img
@@ -41,7 +52,8 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
           className="absolute inset-0 w-full h-full object-cover opacity-40"
         />
       </div>
-      {/* Dynamic aurora overlay — shifts by health */}
+
+      {/* Dynamic aurora overlay — shifts by health, layered on top of AuroraBackground */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <motion.div
           className="absolute inset-0"
@@ -94,7 +106,12 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
             <div className="relative">
               <div className="absolute inset-0 bg-gold/30 blur-md rounded-lg" />
               <div className="relative bg-gradient-to-br from-gold to-gold-dim px-3 py-1 rounded-lg">
-                <span className="text-background font-bold text-sm tracking-[0.2em]">PERSEUS</span>
+                <SparklesText
+                  text="PERSEUS"
+                  className="text-background font-bold text-sm tracking-[0.2em]"
+                  sparklesCount={6}
+                  colors={{ first: '#ffffff', second: '#ffd700' }}
+                />
               </div>
             </div>
           </div>
@@ -126,36 +143,41 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
           </p>
         </div>
 
-        {/* Signal rail — 5 pills now */}
+        {/* Signal rail — 5 pills */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <SignalPill
             icon={<Activity className="w-3.5 h-3.5" />}
             label="Mode"
             value={isReviewMode ? 'Review' : 'Auto'}
+            numericValue={null}
             color={isReviewMode ? 'amber' : 'green'}
           />
           <SignalPill
             icon={<Mail className="w-3.5 h-3.5" />}
             label="Review"
-            value={pendingApprovals.toString()}
+            value={null}
+            numericValue={pendingApprovals}
             color={pendingApprovals > 0 ? 'amber' : 'green'}
           />
           <SignalPill
             icon={<Users className="w-3.5 h-3.5" />}
             label="Warm"
-            value={warmLeads.toString()}
+            value={null}
+            numericValue={warmLeads}
             color={warmLeads > 0 ? 'green' : 'muted'}
           />
           <SignalPill
             icon={<TrendingUp className="w-3.5 h-3.5" />}
             label="Closed"
-            value={salesClosed.toString()}
+            value={null}
+            numericValue={salesClosed}
             color="green"
           />
           <SignalPill
             icon={isLive ? <Wifi className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
             label="Sync"
             value={lastSync}
+            numericValue={null}
             color={isLive ? 'green' : 'muted'}
           />
         </div>
@@ -168,11 +190,13 @@ function SignalPill({
   icon,
   label,
   value,
+  numericValue,
   color
 }: {
   icon: React.ReactNode
   label: string
-  value: string
+  value: string | null
+  numericValue: number | null
   color: 'amber' | 'green' | 'muted'
 }) {
   const colorClasses = {
@@ -181,12 +205,25 @@ function SignalPill({
     muted: 'bg-muted border-border text-muted-foreground'
   }
 
+  const tickerColorClasses = {
+    amber: 'text-amber',
+    green: 'text-green',
+    muted: 'text-muted-foreground'
+  }
+
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${colorClasses[color]}`}>
       {icon}
       <div className="flex flex-col">
         <span className="text-[10px] uppercase tracking-wider opacity-70">{label}</span>
-        <span className="text-xs font-semibold">{value}</span>
+        {numericValue !== null ? (
+          <NumberTicker
+            value={numericValue}
+            className={`text-xs font-semibold ${tickerColorClasses[color]}`}
+          />
+        ) : (
+          <span className="text-xs font-semibold">{value}</span>
+        )}
       </div>
     </div>
   )

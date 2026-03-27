@@ -6,6 +6,7 @@ import { Brain, Loader2, Search, Sparkles, User } from 'lucide-react'
 import { authHeaders } from '@/hooks/use-token'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useWarRoom } from '@/contexts/war-room-context'
+import { TypingAnimation } from '@/components/ui/typing-animation'
 
 interface ChatMessage {
   id: string
@@ -164,7 +165,11 @@ export function StrategicView({ token }: { token: string | null }) {
     >
       <h2 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">
         <Brain className="w-5 h-5 text-gold" />
-        God&apos;s-Eye View
+        <TypingAnimation
+          text="God's-Eye View"
+          duration={60}
+          className="text-lg font-semibold leading-none tracking-normal drop-shadow-none"
+        />
       </h2>
       <p className="text-xs text-muted-foreground mb-4">
         Ask strategic questions grounded in real pipeline data

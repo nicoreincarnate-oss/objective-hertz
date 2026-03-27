@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { DollarSign, Clock, Mail, Percent, Zap, Wallet } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
-import { CountUp } from './count-up'
+import { NumberTicker } from '@/components/ui/number-ticker'
+import { ShineBorder } from '@/components/ui/shine-border'
 
 interface MetricsRowProps {
   revenueCleared: number
@@ -29,6 +30,7 @@ interface MetricDef {
   color: MetricColor
   subtext: string
   sparklineColor: string
+  shineBorderColor: string | string[]
 }
 
 // Generate fake sparkline data for demo — in production this comes from use-sparkline-data hook
@@ -68,6 +70,7 @@ export function MetricsRow({
       color: 'green',
       subtext: 'This month',
       sparklineColor: '#62f1b5',
+      shineBorderColor: ['#62f1b5', '#39f3e2'],
     },
     {
       icon: <Clock className="w-5 h-5" />,
@@ -79,6 +82,7 @@ export function MetricsRow({
       color: pendingRevenue > 0 ? 'amber' : 'muted',
       subtext: 'Awaiting payment',
       sparklineColor: '#ffb347',
+      shineBorderColor: pendingRevenue > 0 ? ['#ffb347', '#ff8c42'] : ['#444', '#555'],
     },
     {
       icon: <Mail className="w-5 h-5" />,
@@ -90,6 +94,7 @@ export function MetricsRow({
       color: 'gold',
       subtext: `${emailsWeek} this week`,
       sparklineColor: '#58e0ff',
+      shineBorderColor: ['#58e0ff', '#ffd700'],
     },
     {
       icon: <Percent className="w-5 h-5" />,
@@ -101,6 +106,7 @@ export function MetricsRow({
       color: closeRate >= 5 ? 'green' : 'amber',
       subtext: 'Leads → Closed',
       sparklineColor: closeRate >= 5 ? '#62f1b5' : '#ffb347',
+      shineBorderColor: closeRate >= 5 ? ['#62f1b5', '#39f3e2'] : ['#ffb347', '#ff8c42'],
     },
     {
       icon: <Zap className="w-5 h-5" />,
@@ -112,6 +118,7 @@ export function MetricsRow({
       color: 'teal',
       subtext: 'Leads advancing',
       sparklineColor: '#39f3e2',
+      shineBorderColor: ['#39f3e2', '#58e0ff'],
     },
     {
       icon: <Wallet className="w-5 h-5" />,
@@ -123,6 +130,7 @@ export function MetricsRow({
       color: budget < 200 ? 'amber' : 'green',
       subtext: `of $${budgetTotal}/mo`,
       sparklineColor: budget < 200 ? '#ffb347' : '#62f1b5',
+      shineBorderColor: budget < 200 ? ['#ffb347', '#ff8c42'] : ['#62f1b5', '#39f3e2'],
     },
   ]
 
@@ -164,48 +172,55 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
       className="flip-card cursor-pointer"
       onClick={() => setIsFlipped(!isFlipped)}
     >
-      <div className={`flip-card-inner relative ${isFlipped ? 'flipped' : ''}`}
+      <div
+        className={`flip-card-inner relative ${isFlipped ? 'flipped' : ''}`}
         style={{ transformStyle: 'preserve-3d', transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
       >
-        {/* Front face — metric value */}
-        <motion.div
-          whileHover={{ y: -3 }}
-          className={`group glass-card hud-panel rounded-xl p-4 md:p-5 transition-shadow duration-300 hover:shadow-xl ${glowClasses[metric.color]}`}
-          style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
-        >
-          <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
-            <div className="shimmer absolute inset-0" />
-          </div>
-
-          <div className="relative">
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`${colorClasses[metric.color]} opacity-70`}>
-                {metric.icon}
+        {/* Front face — metric value wrapped in ShineBorder */}
+        <div style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' } as React.CSSProperties}>
+          <ShineBorder
+            borderRadius={12}
+            borderWidth={1}
+            duration={14}
+            color={metric.shineBorderColor}
+            className={`group glass-card hud-panel rounded-xl p-0 transition-shadow duration-300 hover:shadow-xl w-full min-w-0 ${glowClasses[metric.color]} bg-transparent dark:bg-transparent`}
+          >
+          <motion.div
+            whileHover={{ y: -3 }}
+            className="p-4 md:p-5 w-full"
+          >
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`${colorClasses[metric.color]} opacity-70`}>
+                  {metric.icon}
+                </div>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                  {metric.label}
+                </span>
               </div>
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                {metric.label}
-              </span>
+
+              <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
+                {metric.prefix}
+                <NumberTicker
+                  value={metric.value}
+                  decimalPlaces={metric.decimals}
+                  className={colorClasses[metric.color]}
+                />
+                {metric.suffix}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                {metric.subtext}
+              </p>
             </div>
 
-            <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
-              <CountUp
-                end={metric.value}
-                prefix={metric.prefix}
-                suffix={metric.suffix}
-                decimals={metric.decimals}
-              />
+            {/* Flip hint */}
+            <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
+              <span className="text-[9px] text-muted-foreground">tap for chart</span>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              {metric.subtext}
-            </p>
-          </div>
-
-          {/* Flip hint */}
-          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
-            <span className="text-[9px] text-muted-foreground">tap for chart</span>
-          </div>
-        </motion.div>
+          </motion.div>
+          </ShineBorder>
+        </div>
 
         {/* Back face — sparkline chart */}
         <div
