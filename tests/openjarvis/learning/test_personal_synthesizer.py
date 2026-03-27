@@ -386,7 +386,8 @@ class TestPersonalBenchmarkScorer:
         scorer = self._make_scorer("YES")
         assert scorer.scorer_id == "personal_judge"
 
-    def test_score_empty_response_treated_as_no(self) -> None:
+    def test_score_empty_response_treated_as_indeterminate(self) -> None:
         scorer = self._make_scorer("")
         is_correct, _ = scorer.score(self._make_record(), "4")
-        assert is_correct is False
+        # Empty judge response is indeterminate (neither YES nor NO)
+        assert is_correct is None

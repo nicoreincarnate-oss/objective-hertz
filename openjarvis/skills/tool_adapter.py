@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from openjarvis.core.types import ToolResult
 from openjarvis.skills.executor import SkillExecutor
@@ -50,7 +50,7 @@ class SkillTool(BaseTool):
         )
 
     def execute(self, **params: Any) -> ToolResult:
-        initial_ctx: Dict[str, Any] = params.get("context", {})
+        initial_ctx: dict[str, Any] = dict(params.get("context", {}))
         if "input" in params:
             initial_ctx["input"] = params["input"]
 

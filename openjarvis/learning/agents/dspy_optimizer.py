@@ -8,7 +8,7 @@ config updates written via AgentConfigEvolver.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.core.config import DSPyOptimizerConfig
 from openjarvis.core.registry import LearningRegistry
@@ -38,7 +38,7 @@ class DSPyAgentOptimizer:
     def __init__(self, config: DSPyOptimizerConfig) -> None:
         self.config = config
 
-    def optimize(self, trace_store: Any) -> Dict[str, Any]:
+    def optimize(self, trace_store: Any) -> dict[str, Any]:
         """Run DSPy optimization on traces from the store.
 
         1. Extract traces and convert to DSPy Examples
@@ -48,7 +48,7 @@ class DSPyAgentOptimizer:
         5. Write via AgentConfigEvolver if config_dir is set
         """
         # Get traces
-        kwargs: Dict[str, Any] = {"limit": 10_000}
+        kwargs: dict[str, Any] = {"limit": 10_000}
         if self.config.agent_filter:
             kwargs["agent"] = self.config.agent_filter
         traces = trace_store.list_traces(**kwargs)
@@ -89,7 +89,7 @@ class DSPyAgentOptimizer:
             "config_updates": config_updates,
         }
 
-    def _run_dspy_optimization(self, traces: List[Any]) -> Dict[str, Any]:
+    def _run_dspy_optimization(self, traces: list[Any]) -> dict[str, Any]:
         """Run the DSPy teleprompter on converted trace examples."""
         # Convert traces to dspy.Example objects
         examples = []
@@ -151,7 +151,7 @@ class DSPyAgentOptimizer:
         )
 
         # Extract optimized parameters
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         if hasattr(optimized_program, "generate") and hasattr(
             optimized_program.generate, "demos"
         ):
@@ -163,9 +163,9 @@ class DSPyAgentOptimizer:
 
         return result
 
-    def _to_config_updates(self, optimized: Dict[str, Any]) -> Dict[str, Any]:
+    def _to_config_updates(self, optimized: dict[str, Any]) -> dict[str, Any]:
         """Convert DSPy optimization results to TOML-compatible config."""
-        updates: Dict[str, Any] = {}
+        updates: dict[str, Any] = {}
 
         if (
             self.config.optimize_system_prompt
@@ -187,26 +187,41 @@ class DSPyAgentOptimizer:
 
         return updates
 
-    def _write_configs(self, config_updates: Dict[str, Any]) -> None:
-        """Write updated configs via AgentConfigEvolver."""
+    def _write_configs(self, config_updates: dict[str, Any]) -> None:
+        """Write updated configs via AgentConfigEvolver, merging with existing."""
         import pathlib
 
         from openjarvis.learning.agents.agent_evolver import (
             AgentConfigEvolver,
+            _write_toml,
         )
 
-        evolver = AgentConfigEvolver.__new__(AgentConfigEvolver)
-        evolver._config_dir = pathlib.Path(self.config.config_dir)
-        evolver._history_dir = evolver._config_dir / ".history"
-        evolver._config_dir.mkdir(parents=True, exist_ok=True)
-        evolver._history_dir.mkdir(parents=True, exist_ok=True)
+        config_dir = pathlib.Path(self.config.config_dir)
+        history_dir = config_dir / ".history"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        history_dir.mkdir(parents=True, exist_ok=True)
 
         agent_name = self.config.agent_filter or "default"
-        evolver.write_config(
-            agent_name,
-            tools=config_updates.get("tools", []),
-            system_prompt=config_updates.get("system_prompt", ""),
-        )
+        config_path = config_dir / f"{agent_name}.toml"
+
+        # Load existing TOML data to preserve fields not in config_updates
+        existing: dict[str, Any] = {}
+        if config_path.exists():
+            # Archive before modifying
+            evolver = AgentConfigEvolver.__new__(AgentConfigEvolver)
+            evolver._config_dir = config_dir
+            evolver._history_dir = history_dir
+            evolver._archive(agent_name, config_path)
+
+            # Parse existing TOML (simple key=value under [agent])
+            import tomllib
+
+            existing = tomllib.loads(config_path.read_text(encoding="utf-8"))
+
+        # Merge: update only the fields present in config_updates
+        agent_section = existing.get("agent", {"name": agent_name})
+        agent_section.update(config_updates)
+        _write_toml(config_path, {"agent": agent_section})
 
 
 @LearningRegistry.register("dspy")
@@ -216,7 +231,7 @@ class _DSPyLearningPolicy(AgentLearningPolicy):
     def __init__(self, **kwargs: object) -> None:
         pass
 
-    def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+    def update(self, trace_store: Any, **kwargs: object) -> dict[str, Any]:
         config = DSPyOptimizerConfig()
         optimizer = DSPyAgentOptimizer(config)
         return optimizer.optimize(trace_store)
