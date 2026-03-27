@@ -99,7 +99,7 @@ function WarRoomDashboard() {
 
         <section className="mb-6">
           <HeroCard
-            mode={health?.mode || 'review'}
+            mode={(health?.mode as 'review' | 'autonomous') || 'review'}
             pendingApprovals={health?.metrics?.pending_approvals || 0}
             emailsSent={health?.metrics?.emails_sent_today || 0}
             warmLeads={health?.metrics?.warm_leads || 0}
