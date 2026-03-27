@@ -7,7 +7,7 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 from openjarvis.core.registry import MemoryRegistry
@@ -19,7 +19,7 @@ class Entity:
     entity_id: str
     entity_type: str   # "agent", "tool", "model", "user", "concept", etc.
     name: str
-    properties: Dict[str, Any] = field(default_factory=dict)
+    properties: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
 
 
@@ -30,15 +30,15 @@ class Relation:
     target_id: str
     relation_type: str  # "used", "produced", "depends_on", "similar_to", etc.
     weight: float = 1.0
-    properties: Dict[str, Any] = field(default_factory=dict)
+    properties: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
 
 
 @dataclass(slots=True)
 class GraphQueryResult:
     """Result from a graph pattern query."""
-    entities: List[Entity] = field(default_factory=list)
-    relations: List[Relation] = field(default_factory=list)
+    entities: list[Entity] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)
 
 
 @MemoryRegistry.register("knowledge_graph")
@@ -52,7 +52,7 @@ class KnowledgeGraphMemory:
 
     def __init__(
         self,
-        db_path: Union[str, Path] = DEFAULT_CONFIG_DIR / "knowledge_graph.db",
+        db_path: str | Path = DEFAULT_CONFIG_DIR / "knowledge_graph.db",
         **kwargs: Any,
     ) -> None:
         self._db_path = Path(db_path)
@@ -91,7 +91,7 @@ class KnowledgeGraphMemory:
 
     def store(
         self, key: str, content: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Store content as an entity (MemoryBackend interface)."""
         meta = metadata or {}
@@ -102,14 +102,14 @@ class KnowledgeGraphMemory:
             properties={"content": content, **(meta.get("properties", {}))},
         ))
 
-    def retrieve(self, key: str) -> Optional[str]:
+    def retrieve(self, key: str) -> str | None:
         """Retrieve content by entity_id (MemoryBackend interface)."""
         entity = self.get_entity(key)
         if entity:
             return entity.properties.get("content", json.dumps(entity.properties))
         return None
 
-    def search(self, query: str, top_k: int = 5, **kwargs: Any) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 5, **kwargs: Any) -> list[dict[str, Any]]:
         """Search entities by name/type/content (MemoryBackend interface)."""
         rows = self._conn.execute(
             "SELECT entity_id, entity_type, name, properties, created_at "
@@ -162,7 +162,7 @@ class KnowledgeGraphMemory:
         )
         self._conn.commit()
 
-    def get_entity(self, entity_id: str) -> Optional[Entity]:
+    def get_entity(self, entity_id: str) -> Entity | None:
         """Get entity by ID."""
         row = self._conn.execute(
             "SELECT entity_id, entity_type, name, properties, created_at "
@@ -193,12 +193,12 @@ class KnowledgeGraphMemory:
         self,
         entity_id: str,
         *,
-        relation_type: Optional[str] = None,
+        relation_type: str | None = None,
         direction: str = "both",
         limit: int = 50,
-    ) -> List[Entity]:
+    ) -> list[Entity]:
         """Get neighboring entities connected by relations."""
-        results: List[Entity] = []
+        results: list[Entity] = []
 
         if direction in ("out", "both"):
             sql = "SELECT target_id FROM relations WHERE source_id = ?"
@@ -231,13 +231,13 @@ class KnowledgeGraphMemory:
     def query_pattern(
         self,
         *,
-        entity_type: Optional[str] = None,
-        relation_type: Optional[str] = None,
+        entity_type: str | None = None,
+        relation_type: str | None = None,
         limit: int = 50,
     ) -> GraphQueryResult:
         """Query entities and relations matching a pattern."""
-        entities: List[Entity] = []
-        relations: List[Relation] = []
+        entities: list[Entity] = []
+        relations: list[Relation] = []
 
         if entity_type:
             rows = self._conn.execute(

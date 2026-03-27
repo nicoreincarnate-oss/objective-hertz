@@ -14,8 +14,8 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.vassals.priorities import decide_priorities
@@ -54,9 +54,9 @@ class PerseusScheduler:
         self,
         bus: EventBus,
         vassal_discovery: Any,  # VassalDiscovery
-        config: Optional[PerseusConfig] = None,
-        decision_audit: Optional[Any] = None,  # DecisionAudit
-        budget_guard: Optional[Any] = None,  # BudgetGuard
+        config: PerseusConfig | None = None,
+        decision_audit: Any | None = None,  # DecisionAudit
+        budget_guard: Any | None = None,  # BudgetGuard
     ) -> None:
         self._bus = bus
         self._vassals = vassal_discovery
@@ -66,7 +66,7 @@ class PerseusScheduler:
         self._running = False
         self._last_health_check = 0.0
         self._tick_count = 0
-        self._prev_states: List[Dict[str, Any]] = []
+        self._prev_states: list[dict[str, Any]] = []
 
     # ── Main loop ─────────────────────────────────────────────────────
 
@@ -157,9 +157,9 @@ class PerseusScheduler:
 
     # ── State assessment ──────────────────────────────────────────────
 
-    async def _assess_state(self) -> Dict[str, Any]:
+    async def _assess_state(self) -> dict[str, Any]:
         """Assess pipeline state by querying vassals."""
-        state: Dict[str, Any] = {}
+        state: dict[str, Any] = {}
 
         # Query Titan for pipeline status
         titan = self._vassals.get("titan")
@@ -191,7 +191,7 @@ class PerseusScheduler:
 
     # ── Budget enforcement ────────────────────────────────────────────
 
-    async def _enforce_budget(self, state: Dict[str, Any]) -> Optional[str]:
+    async def _enforce_budget(self, state: dict[str, Any]) -> str | None:
         """Check budget and take action if needed."""
         budget = state.get("budget", {})
         percent = budget.get("percent_used", 0)
@@ -261,7 +261,7 @@ class PerseusScheduler:
 
     # ── Dispatch ──────────────────────────────────────────────────────
 
-    async def _dispatch(self, priorities: Dict[str, Any]) -> None:
+    async def _dispatch(self, priorities: dict[str, Any]) -> None:
         """Dispatch prioritized tasks to Titan."""
         for task_name in priorities.get("schedule", []):
             try:
@@ -292,7 +292,7 @@ class PerseusScheduler:
 
     # ── Decision audit ────────────────────────────────────────────────
 
-    async def _record_decision(self, state: Dict[str, Any], priorities: Dict[str, Any]) -> None:
+    async def _record_decision(self, state: dict[str, Any], priorities: dict[str, Any]) -> None:
         """Record the scheduling decision for auditability."""
         if self._decision_audit:
             try:
@@ -318,7 +318,7 @@ class PerseusScheduler:
         first = {k: recent[0].get(k, 0) for k in keys}
         return all({k: s.get(k, 0) for k in keys} == first for s in recent[1:])
 
-    async def _llm_strategic_override(self, state: Dict, current: Dict) -> Optional[Dict]:
+    async def _llm_strategic_override(self, state: dict, current: dict) -> dict | None:
         """Ask LLM for a new strategy when deterministic rules aren't working."""
         try:
             from shared.llm_client import llm
@@ -351,9 +351,9 @@ class PerseusScheduler:
             if not config.conway.enabled:
                 return
 
-            from conway.wallet import WalletManager
             from conway.ledger import EconomicLedger
             from conway.survival import SurvivalMonitor
+            from conway.wallet import WalletManager
 
             wm = WalletManager()
             ledger = EconomicLedger()
@@ -374,7 +374,7 @@ class PerseusScheduler:
 
     # ── Status ────────────────────────────────────────────────────────
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """Return scheduler status for CLI/dashboard."""
         return {
             "running": self._running,

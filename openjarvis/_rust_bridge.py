@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import json
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import types as _types
@@ -50,7 +50,7 @@ def scan_result_from_json(json_str: str) -> object:
     )
 
     data = json.loads(json_str)
-    findings: List[ScanFinding] = []
+    findings: list[ScanFinding] = []
     for f in data.get("findings", []):
         findings.append(
             ScanFinding(
@@ -75,7 +75,7 @@ def injection_result_from_json(json_str: str) -> object:
     from openjarvis.security.types import ScanFinding, ThreatLevel
 
     data = json.loads(json_str)
-    findings: List[ScanFinding] = []
+    findings: list[ScanFinding] = []
     for f in data.get("findings", []):
         findings.append(
             ScanFinding(
@@ -108,7 +108,7 @@ def retrieval_results_from_json(json_str: str) -> list:
     from openjarvis.tools.storage._stubs import RetrievalResult
 
     items = json.loads(json_str)
-    results: List[RetrievalResult] = []
+    results: list[RetrievalResult] = []
     for item in items:
         meta = item.get("metadata", {})
         if isinstance(meta, str):

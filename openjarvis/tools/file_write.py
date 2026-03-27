@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -21,7 +21,7 @@ class FileWriteTool(BaseTool):
 
     def __init__(
         self,
-        allowed_dirs: Optional[List[str]] = None,
+        allowed_dirs: list[str] | None = None,
     ) -> None:
         self._allowed_dirs = [Path(d).resolve() for d in (allowed_dirs or [])]
 

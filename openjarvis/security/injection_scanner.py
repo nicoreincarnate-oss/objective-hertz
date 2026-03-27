@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List
 
 from openjarvis.security.types import ScanFinding, ThreatLevel
 
@@ -104,7 +103,7 @@ _INJECTION_PATTERNS = [
 class InjectionScanResult:
     """Result of an injection scan."""
     is_clean: bool
-    findings: List[ScanFinding]
+    findings: list[ScanFinding]
     threat_level: ThreatLevel  # highest threat found
 
 
@@ -140,7 +139,7 @@ class InjectionScanner:
 
     def _python_scan(self, text: str) -> InjectionScanResult:
         """Pure-Python fallback injection scanner."""
-        findings: List[ScanFinding] = []
+        findings: list[ScanFinding] = []
         max_threat = ThreatLevel.LOW
         for compiled, name, level, desc in self._patterns:
             for m in compiled.finditer(text):

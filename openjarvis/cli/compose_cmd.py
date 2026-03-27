@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -35,7 +34,7 @@ def compose() -> None:
     type=click.Choice(["discrete", "operator"]),
     help="Filter by recipe kind.",
 )
-def compose_list(kind: Optional[str]) -> None:
+def compose_list(kind: str | None) -> None:
     """List all discovered compositions (recipes and operators)."""
     console = Console(stderr=True)
     try:
@@ -246,8 +245,8 @@ def compose_run(name: str, query: tuple[str, ...], output_json: bool) -> None:
 def compose_bench(
     name: str,
     benchmark: tuple[str, ...],
-    max_samples: Optional[int],
-    judge_model: Optional[str],
+    max_samples: int | None,
+    judge_model: str | None,
     verbose: bool,
 ) -> None:
     """Benchmark a discrete composition against eval datasets.

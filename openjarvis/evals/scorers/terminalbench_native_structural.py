@@ -7,7 +7,7 @@ deterministic pass/fail without any LLM judging.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -36,7 +36,7 @@ class TerminalBenchNativeScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         meta = record.metadata
 
         is_resolved = meta.get("is_resolved")
@@ -47,7 +47,7 @@ class TerminalBenchNativeScorer(Scorer):
             return None, {"reason": "no_test_results"}
 
         # Build informative metadata from available test output.
-        result_meta: Dict[str, Any] = {}
+        result_meta: dict[str, Any] = {}
         if test_results is not None:
             result_meta["test_results"] = test_results
 

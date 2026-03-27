@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
 
 __all__ = ["RateLimitConfig", "RateLimiter", "TokenBucket"]
 
@@ -28,7 +27,7 @@ class TokenBucket:
         self._last_refill = time.monotonic()
         self._lock = threading.Lock()
 
-    def consume(self, tokens: int = 1) -> Tuple[bool, float]:
+    def consume(self, tokens: int = 1) -> tuple[bool, float]:
         """Try to consume tokens. Returns (allowed, wait_seconds)."""
         with self._lock:
             now = time.monotonic()
@@ -61,9 +60,9 @@ class RateLimiter:
     Keys are typically "agent_id:tool_name" or just "agent_id".
     """
 
-    def __init__(self, config: Optional[RateLimitConfig] = None) -> None:
+    def __init__(self, config: RateLimitConfig | None = None) -> None:
         self._config = config or RateLimitConfig()
-        self._buckets: Dict[str, TokenBucket] = {}
+        self._buckets: dict[str, TokenBucket] = {}
         self._lock = threading.Lock()
 
         from openjarvis._rust_bridge import get_rust_module
@@ -76,7 +75,7 @@ class RateLimiter:
                 burst_size=self._config.burst_size,
             )
 
-    def check(self, key: str) -> Tuple[bool, float]:
+    def check(self, key: str) -> tuple[bool, float]:
         """Check if request is allowed for key."""
         if not self._config.enabled:
             return True, 0.0
@@ -95,7 +94,7 @@ class RateLimiter:
                 )
             return self._buckets[key]
 
-    def reset(self, key: Optional[str] = None) -> None:
+    def reset(self, key: str | None = None) -> None:
         """Reset rate limit state for a key or all keys."""
         if self._rust_impl is not None:
             self._rust_impl.reset(key)

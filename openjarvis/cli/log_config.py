@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional, Union
 
 
 def setup_logging(
     verbose: bool = False,
     quiet: bool = False,
-    log_file: Optional[Union[str, Path]] = None,
+    log_file: str | Path | None = None,
 ) -> logging.Logger:
     """Configure the ``openjarvis`` logger.
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json as _json
 import re
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
@@ -60,8 +60,8 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         engine: InferenceEngine,
         model: str,
         *,
-        tools: Optional[List[BaseTool]] = None,
-        bus: Optional[EventBus] = None,
+        tools: list[BaseTool] | None = None,
+        bus: EventBus | None = None,
         max_turns: int = 3,
         temperature: float = 0.7,
         max_tokens: int = 2048,
@@ -233,7 +233,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         self._emit_turn_start(input)

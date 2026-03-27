@@ -586,8 +586,8 @@ async def _build_sync_payload() -> dict:
 
         # Budget summary
         try:
-            from tools.budget_guard import get_month_spending
             from shared.config import config as _cfg
+            from tools.budget_guard import get_month_spending
             cap = getattr(_cfg, "monthly_cap", 800)
             budget_data = await get_month_spending(cap)
             budget = {
@@ -796,8 +796,8 @@ async def api_config_set(request: Request):
 async def api_budget():
     """Budget breakdown from budget_guard."""
     try:
-        from tools.budget_guard import get_month_spending
         from shared.config import config
+        from tools.budget_guard import get_month_spending
         cap = getattr(config, "monthly_cap", 800)
         budget = await get_month_spending(cap)
         return JSONResponse(budget)
@@ -909,7 +909,7 @@ async def api_review_bulk(request: Request):
     ids = body.get("ids")  # Optional: specific IDs
 
     if action == "approve_all":
-        result = await fetch_val(
+        await fetch_val(
             "UPDATE review_queue SET status = 'approved' "
             "WHERE status = 'pending_review' RETURNING COUNT(*)"
         )

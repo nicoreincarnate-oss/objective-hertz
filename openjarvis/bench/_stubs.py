@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.engine._stubs import InferenceEngine
 
@@ -17,8 +17,8 @@ class BenchmarkResult:
     benchmark_name: str
     model: str
     engine: str
-    metrics: Dict[str, float] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, float] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     samples: int = 0
     errors: int = 0
     warmup_samples: int = 0
@@ -61,7 +61,7 @@ class BaseBenchmark(ABC):
 class BenchmarkSuite:
     """Run a collection of benchmarks and aggregate results."""
 
-    def __init__(self, benchmarks: Optional[List[BaseBenchmark]] = None) -> None:
+    def __init__(self, benchmarks: list[BaseBenchmark] | None = None) -> None:
         self._benchmarks = benchmarks or []
 
     def run_all(
@@ -71,17 +71,17 @@ class BenchmarkSuite:
         *,
         num_samples: int = 10,
         **kwargs: Any,
-    ) -> List[BenchmarkResult]:
+    ) -> list[BenchmarkResult]:
         """Run all benchmarks and return a list of results."""
-        results: List[BenchmarkResult] = []
+        results: list[BenchmarkResult] = []
         for bench in self._benchmarks:
             result = bench.run(engine, model, num_samples=num_samples, **kwargs)
             results.append(result)
         return results
 
-    def to_jsonl(self, results: List[BenchmarkResult]) -> str:
+    def to_jsonl(self, results: list[BenchmarkResult]) -> str:
         """Serialize results to JSONL format (one JSON object per line)."""
-        lines: List[str] = []
+        lines: list[str] = []
         for r in results:
             obj = {
                 "benchmark_name": r.benchmark_name,
@@ -95,7 +95,7 @@ class BenchmarkSuite:
             lines.append(json.dumps(obj))
         return "\n".join(lines)
 
-    def summary(self, results: List[BenchmarkResult]) -> Dict[str, Any]:
+    def summary(self, results: list[BenchmarkResult]) -> dict[str, Any]:
         """Create a summary dict from benchmark results."""
         return {
             "benchmark_count": len(results),

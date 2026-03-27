@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis._rust_bridge import get_rust_module
 from openjarvis.core.events import EventType, get_event_bus
@@ -13,7 +13,7 @@ from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 _rust = get_rust_module()
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """Lowercase whitespace tokenizer."""
     return text.lower().split()
 
@@ -35,7 +35,7 @@ class BM25Memory(MemoryBackend):
             self._rust_impl = None
             # Pure-Python fallback: simple in-memory document store
             import uuid as _uuid
-            self._docs: Dict[str, Dict[str, Any]] = {}
+            self._docs: dict[str, dict[str, Any]] = {}
             self._uuid = _uuid
         else:
             self._rust_impl = _r.BM25Memory()
@@ -47,7 +47,7 @@ class BM25Memory(MemoryBackend):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Persist *content* and return a unique document id."""
         meta_json = json.dumps(metadata) if metadata else None
@@ -74,7 +74,7 @@ class BM25Memory(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Search for *query* and return the top-k results."""
         if not query.strip():
             return []

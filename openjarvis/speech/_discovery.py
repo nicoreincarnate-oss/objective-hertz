@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openjarvis.core.config import JarvisConfig
@@ -19,8 +19,8 @@ DISCOVERY_ORDER = [
 
 def _create_backend(
     key: str,
-    config: "JarvisConfig",
-) -> Optional["SpeechBackend"]:
+    config: JarvisConfig,
+) -> SpeechBackend | None:
     """Try to instantiate a speech backend by registry key."""
     from openjarvis.core.registry import SpeechRegistry
 
@@ -52,7 +52,7 @@ def _create_backend(
         return None
 
 
-def get_speech_backend(config: "JarvisConfig") -> Optional["SpeechBackend"]:
+def get_speech_backend(config: JarvisConfig) -> SpeechBackend | None:
     """Resolve the speech backend from config.
 
     If ``config.speech.backend`` is ``"auto"``, tries backends in

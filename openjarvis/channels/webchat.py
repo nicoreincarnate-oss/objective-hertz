@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -35,11 +35,11 @@ class WebChatChannel(BaseChannel):
     def __init__(
         self,
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
-        self._messages: List[ChannelMessage] = []
+        self._handlers: list[ChannelHandler] = []
+        self._messages: list[ChannelMessage] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -60,7 +60,7 @@ class WebChatChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Append a message to the in-memory queue."""
         msg = ChannelMessage(
@@ -78,7 +78,7 @@ class WebChatChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["webchat"]
 
@@ -88,7 +88,7 @@ class WebChatChannel(BaseChannel):
 
     # -- webchat-specific helpers -----------------------------------------------
 
-    def get_messages(self) -> List[ChannelMessage]:
+    def get_messages(self) -> list[ChannelMessage]:
         """Return all messages stored in the in-memory queue."""
         return self._messages
 

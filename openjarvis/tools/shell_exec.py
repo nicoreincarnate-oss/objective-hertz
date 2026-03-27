@@ -6,13 +6,13 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, List
-
-logger = logging.getLogger(__name__)
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
+
+logger = logging.getLogger(__name__)
 
 # Maximum output size per stream (100 KB)
 _MAX_OUTPUT_BYTES = 102_400
@@ -122,7 +122,7 @@ class ShellExecTool(BaseTool):
             if val is not None:
                 env[key] = val
 
-        env_passthrough: List[str] = params.get("env_passthrough") or []
+        env_passthrough: list[str] = params.get("env_passthrough") or []
         for key in env_passthrough:
             val = os.environ.get(key)
             if val is not None:

@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -61,16 +61,16 @@ class WhatsAppBaileysChannel(BaseChannel):
         auth_dir: str = "",
         assistant_name: str = "Jarvis",
         assistant_has_own_number: bool = False,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._auth_dir = auth_dir
         self._assistant_name = assistant_name
         self._assistant_has_own_number = assistant_has_own_number
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
-        self._process: Optional[subprocess.Popen] = None
-        self._reader_thread: Optional[threading.Thread] = None
+        self._process: subprocess.Popen | None = None
+        self._reader_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._runtime_dir = _DEFAULT_RUNTIME_DIR
         self._last_qr: str = ""
@@ -202,7 +202,7 @@ class WhatsAppBaileysChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a WhatsApp JID via the bridge subprocess."""
         if self._process is None or self._status != ChannelStatus.CONNECTED:
@@ -225,7 +225,7 @@ class WhatsAppBaileysChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["whatsapp_baileys"]
 
@@ -235,7 +235,7 @@ class WhatsAppBaileysChannel(BaseChannel):
 
     # -- internal helpers -------------------------------------------------------
 
-    def _write_command(self, cmd: Dict[str, Any]) -> None:
+    def _write_command(self, cmd: dict[str, Any]) -> None:
         """Write a JSON-line command to the bridge's stdin."""
         if self._process is None or self._process.stdin is None:
             raise RuntimeError("Bridge process not running")
@@ -270,7 +270,7 @@ class WhatsAppBaileysChannel(BaseChannel):
                 logger.debug("Reader loop error", exc_info=True)
                 self._status = ChannelStatus.ERROR
 
-    def _handle_bridge_event(self, event: Dict[str, Any]) -> None:
+    def _handle_bridge_event(self, event: dict[str, Any]) -> None:
         """Dispatch a single JSON event from the bridge."""
         event_type = event.get("type", "")
 

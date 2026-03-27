@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -56,7 +56,7 @@ def _is_read_only_query(query: str) -> bool:
     return False
 
 
-def _format_table(columns: List[str], rows: List[Tuple[Any, ...]]) -> str:
+def _format_table(columns: list[str], rows: list[tuple[Any, ...]]) -> str:
     """Format query results as a pipe-delimited table."""
     if not columns:
         return "(no columns)"
@@ -151,8 +151,8 @@ class DatabaseQueryTool(BaseTool):
 
     def execute(self, **params: Any) -> ToolResult:
         query: str = params.get("query", "")
-        db_path: Optional[str] = params.get("db_path")
-        db_url: Optional[str] = params.get("db_url")
+        db_path: str | None = params.get("db_path")
+        db_url: str | None = params.get("db_url")
         read_only: bool = params.get("read_only", True)
         max_rows: int = params.get("max_rows", 100)
 
@@ -189,7 +189,7 @@ class DatabaseQueryTool(BaseTool):
     def _execute_sqlite(
         self,
         query: str,
-        db_path: Optional[str],
+        db_path: str | None,
         read_only: bool,
         max_rows: int,
     ) -> ToolResult:
@@ -232,7 +232,7 @@ class DatabaseQueryTool(BaseTool):
             cursor.execute(query)
 
             # Fetch column names
-            column_names: List[str] = []
+            column_names: list[str] = []
             if cursor.description:
                 column_names = [desc[0] for desc in cursor.description]
 
@@ -317,7 +317,7 @@ class DatabaseQueryTool(BaseTool):
             cursor.execute(query)
 
             # Fetch column names
-            column_names: List[str] = []
+            column_names: list[str] = []
             if cursor.description:
                 column_names = [desc[0] for desc in cursor.description]
 

@@ -8,7 +8,7 @@ for pre-extracted data.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.core.config import SFTConfig
 from openjarvis.core.registry import LearningRegistry
@@ -30,11 +30,11 @@ class SFTTrainer:
         self.config = config
 
     @property
-    def target_module_list(self) -> List[str]:
+    def target_module_list(self) -> list[str]:
         """Parse comma-separated target_modules string into a list."""
         return [m.strip() for m in self.config.target_modules.split(",") if m.strip()]
 
-    def train(self, trace_store: Any) -> Dict[str, Any]:
+    def train(self, trace_store: Any) -> dict[str, Any]:
         """End-to-end: mine SFT pairs from traces, then train.
 
         Parameters
@@ -49,7 +49,7 @@ class SFTTrainer:
         pairs = self._mine_pairs(trace_store)
         return self.train_on_pairs(pairs)
 
-    def train_on_pairs(self, pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def train_on_pairs(self, pairs: list[dict[str, Any]]) -> dict[str, Any]:
         """Train on pre-extracted SFT pairs.
 
         Parameters
@@ -75,7 +75,7 @@ class SFTTrainer:
 
         return self._train_full(pairs)
 
-    def _mine_pairs(self, trace_store: Any) -> List[Dict[str, Any]]:
+    def _mine_pairs(self, trace_store: Any) -> list[dict[str, Any]]:
         """Extract SFT pairs from the trace store using TrainingDataMiner."""
         from openjarvis.learning.training.data import TrainingDataMiner
 
@@ -83,7 +83,7 @@ class SFTTrainer:
         agent_filter = self.config.agent_filter or None
         return miner.extract_sft_pairs(agent=agent_filter)
 
-    def _train_lora(self, pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _train_lora(self, pairs: list[dict[str, Any]]) -> dict[str, Any]:
         """Train using LoRA via the existing LoRATrainer."""
         try:
             from openjarvis.learning.training.lora import (
@@ -123,7 +123,7 @@ class SFTTrainer:
             logger.warning("SFT LoRA training failed: %s", exc)
             return {"status": "error", "reason": str(exc)}
 
-    def _train_full(self, pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _train_full(self, pairs: list[dict[str, Any]]) -> dict[str, Any]:
         """Full fine-tuning (no LoRA). Placeholder for future implementation."""
         return {
             "status": "error",
@@ -138,7 +138,7 @@ class _SFTLearningPolicy(IntelligenceLearningPolicy):
     def __init__(self, **kwargs: object) -> None:
         pass
 
-    def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+    def update(self, trace_store: Any, **kwargs: object) -> dict[str, Any]:
         from openjarvis.core.config import SFTConfig
 
         config = SFTConfig()

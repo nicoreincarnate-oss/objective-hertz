@@ -12,7 +12,7 @@ import logging
 import re
 import string
 from collections import Counter
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -77,7 +77,7 @@ class AMABenchScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response", "f1": 0.0}
 
@@ -123,7 +123,7 @@ class AMABenchScorer(LLMJudgeScorer):
         }
 
 
-def _parse_judge_label(raw: str) -> Optional[str]:
+def _parse_judge_label(raw: str) -> str | None:
     """Parse binary yes/no label from judge response.
 
     Handles models that emit <think>...</think> blocks before the answer,

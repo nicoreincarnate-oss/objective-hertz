@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.events import Event, EventBus, EventType
 from openjarvis.core.types import StepType, Trace, TraceStep
@@ -127,7 +127,7 @@ class TraceStore:
             )
         self._conn.commit()
 
-    def get(self, trace_id: str) -> Optional[Trace]:
+    def get(self, trace_id: str) -> Trace | None:
         """Retrieve a trace by id, or ``None`` if not found."""
         row = self._conn.execute(
             "SELECT * FROM traces WHERE trace_id = ?", (trace_id,)
@@ -139,16 +139,16 @@ class TraceStore:
     def list_traces(
         self,
         *,
-        agent: Optional[str] = None,
-        model: Optional[str] = None,
-        outcome: Optional[str] = None,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        agent: str | None = None,
+        model: str | None = None,
+        outcome: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
         limit: int = 100,
-    ) -> List[Trace]:
+    ) -> list[Trace]:
         """Query traces with optional filters."""
-        clauses: List[str] = []
-        params: List[Any] = []
+        clauses: list[str] = []
+        params: list[Any] = []
         if agent is not None:
             clauses.append("agent = ?")
             params.append(agent)

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.core.types import ModelSpec, Quantization
 
-BUILTIN_MODELS: List[ModelSpec] = [
+BUILTIN_MODELS: list[ModelSpec] = [
     # -----------------------------------------------------------------------
     # Local models — Dense
     # -----------------------------------------------------------------------
@@ -842,7 +840,7 @@ def register_builtin_models() -> None:
             ModelRegistry.register_value(spec.model_id, spec)
 
 
-def merge_discovered_models(engine_key: str, model_ids: List[str]) -> None:
+def merge_discovered_models(engine_key: str, model_ids: list[str]) -> None:
     """Create minimal ``ModelSpec`` entries for models not already in the registry."""
     for model_id in model_ids:
         if not ModelRegistry.contains(model_id):

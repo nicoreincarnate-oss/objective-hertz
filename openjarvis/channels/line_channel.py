@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -41,7 +41,7 @@ class LineChannel(BaseChannel):
         channel_access_token: str = "",
         *,
         channel_secret: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._channel_access_token = channel_access_token or os.environ.get(
             "LINE_CHANNEL_ACCESS_TOKEN", ""
@@ -50,7 +50,7 @@ class LineChannel(BaseChannel):
             "LINE_CHANNEL_SECRET", ""
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -63,11 +63,11 @@ class LineChannel(BaseChannel):
             return
         try:
             import linebot  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "line-bot-sdk not installed. Install with: "
                 "uv sync --extra channel-line"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -82,7 +82,7 @@ class LineChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a push message to a LINE user or group.
 
@@ -131,7 +131,7 @@ class LineChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["line"]
 

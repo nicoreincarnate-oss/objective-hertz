@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import os
-from typing import List, Optional
 
 from openjarvis.core.registry import SpeechRegistry
 from openjarvis.speech._stubs import SpeechBackend, TranscriptionResult
@@ -21,9 +20,9 @@ class OpenAIWhisperBackend(SpeechBackend):
 
     backend_id = "openai"
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
         if self._api_key and OpenAI is not None:
             self._client = OpenAI(api_key=self._api_key)
 
@@ -32,7 +31,7 @@ class OpenAIWhisperBackend(SpeechBackend):
         audio: bytes,
         *,
         format: str = "wav",
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> TranscriptionResult:
         """Transcribe audio using OpenAI's Whisper API."""
         if self._client is None:
@@ -60,5 +59,5 @@ class OpenAIWhisperBackend(SpeechBackend):
     def health(self) -> bool:
         return self._client is not None and bool(self._api_key)
 
-    def supported_formats(self) -> List[str]:
+    def supported_formats(self) -> list[str]:
         return ["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"]

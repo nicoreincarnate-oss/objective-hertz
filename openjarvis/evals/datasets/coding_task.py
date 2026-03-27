@@ -7,7 +7,7 @@ code generation accuracy.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -235,14 +235,14 @@ class CodingTaskDataset(DatasetProvider):
     dataset_name = "Coding Task"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         rows = list(_TASKS)
 

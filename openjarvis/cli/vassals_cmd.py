@@ -169,7 +169,7 @@ def vassals_budget():
     cap = budget.get("monthly_cap", 800)
     color = "green" if percent < 80 else ("yellow" if percent < 100 else "red")
     click.echo(f"  Spent:   ${spent:.2f} / ${cap:.2f}")
-    click.echo(f"  Used:    " + click.style(f"{percent:.0f}%", fg=color))
+    click.echo("  Used:    " + click.style(f"{percent:.0f}%", fg=color))
     if budget.get("exceeded"):
         click.echo(click.style("  ⚠ BUDGET EXCEEDED — pipeline may be paused", fg="red"))
     click.echo()

@@ -11,7 +11,7 @@ after calling ``task.validate()``, and this scorer reads those fields.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -37,7 +37,7 @@ class WorkArenaScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         meta = record.metadata
 
         is_resolved = meta.get("is_resolved")
@@ -55,7 +55,7 @@ class WorkArenaScorer(Scorer):
                 ),
             }
 
-        result_meta: Dict[str, Any] = {
+        result_meta: dict[str, Any] = {
             "task_id": meta.get("task_id", ""),
             "level": meta.get("level", ""),
             "category": meta.get("category", ""),

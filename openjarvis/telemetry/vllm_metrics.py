@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import List, Tuple
 
 import httpx
 
@@ -26,14 +25,14 @@ class VLLMMetrics:
 
 
 def _parse_histogram_buckets(
-    lines: List[str], metric_prefix: str
-) -> Tuple[List[Tuple[float, float]], float, float]:
+    lines: list[str], metric_prefix: str
+) -> tuple[list[tuple[float, float]], float, float]:
     """Parse Prometheus histogram buckets, sum, and count for a metric.
 
     Returns (buckets, sum_value, count_value) where buckets is a sorted
     list of (upper_bound, cumulative_count) pairs.
     """
-    buckets: List[Tuple[float, float]] = []
+    buckets: list[tuple[float, float]] = []
     sum_value = 0.0
     count_value = 0.0
 
@@ -72,7 +71,7 @@ def _parse_histogram_buckets(
 
 
 def _percentile_from_buckets(
-    buckets: List[Tuple[float, float]], percentile: float
+    buckets: list[tuple[float, float]], percentile: float
 ) -> float:
     """Estimate a percentile from Prometheus histogram buckets.
 
@@ -108,7 +107,7 @@ def _percentile_from_buckets(
     return 0.0
 
 
-def _parse_gauge(lines: List[str], metric_name: str) -> float:
+def _parse_gauge(lines: list[str], metric_name: str) -> float:
     """Parse a Prometheus gauge value."""
     for line in lines:
         line = line.strip()

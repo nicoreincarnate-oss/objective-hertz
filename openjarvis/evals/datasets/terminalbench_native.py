@@ -7,8 +7,9 @@ and test-based evaluation.
 from __future__ import annotations
 
 import random
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -21,7 +22,7 @@ except ImportError:
     _HAS_TERMINALBENCH = False
 
 
-def _load_task_yaml(task_dir: Path) -> Dict[str, Any]:
+def _load_task_yaml(task_dir: Path) -> dict[str, Any]:
     """Load task.yaml from a task directory."""
     task_file = task_dir / "task.yaml"
     if not task_file.exists():
@@ -32,7 +33,7 @@ def _load_task_yaml(task_dir: Path) -> Dict[str, Any]:
     except ImportError:
         # Fallback: parse instruction manually
         text = task_file.read_text()
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         # Extract instruction block
         if "instruction:" in text:
             idx = text.index("instruction:")
@@ -67,23 +68,23 @@ class TerminalBenchNativeDataset(DatasetProvider):
         self,
         name: str = "terminal-bench-core",
         version: str = "0.1.1",
-        path: Optional[str] = None,
-        task_ids: Optional[List[str]] = None,
-        n_tasks: Optional[int] = None,
+        path: str | None = None,
+        task_ids: list[str] | None = None,
+        n_tasks: int | None = None,
     ) -> None:
         self._name = name
         self._version = version
         self._path = Path(path) if path else None
         self._task_ids = task_ids
         self._n_tasks = n_tasks
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         if not _HAS_TERMINALBENCH:
             raise ImportError(
@@ -92,7 +93,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
                 "Install it with: pip install terminal-bench"
             )
 
-        tb_kwargs: Dict[str, Any] = {}
+        tb_kwargs: dict[str, Any] = {}
         if self._name is not None:
             tb_kwargs["name"] = self._name
         if self._version is not None:
@@ -107,7 +108,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
         tb_dataset = _TBDataset(**tb_kwargs)
 
         # v2 API: tasks is a list of Path objects (task directories)
-        task_dirs: List[Path] = list(tb_dataset.tasks)
+        task_dirs: list[Path] = list(tb_dataset.tasks)
 
         if seed is not None:
             rng = random.Random(seed)
@@ -130,7 +131,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
 
     def _convert_task(
         self, task_dir: Path, idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         task_data = _load_task_yaml(task_dir)
 
         instruction = task_data.get("instruction", "").strip()
@@ -140,7 +141,7 @@ class TerminalBenchNativeDataset(DatasetProvider):
         task_id = task_dir.name or f"tbn_{idx}"
         category_val = task_data.get("category", "terminal")
 
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "task_id": task_id,
             "task_dir": str(task_dir),
             "category": category_val,

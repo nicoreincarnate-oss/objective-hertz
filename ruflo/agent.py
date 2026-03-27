@@ -26,7 +26,6 @@ import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("perseus.ruflo")
 
@@ -341,7 +340,7 @@ async def _handle_code_review(payload: dict) -> dict:
     """Review code for issues."""
     try:
         from shared.llm_client import llm
-        file_path = payload.get("file", "")
+        _file_path = payload.get("file", "")
         result = await llm.generate(
             f"Review this code for bugs, security issues, and performance problems:\n{payload.get('code', '')[:3000]}",
             model="smart",

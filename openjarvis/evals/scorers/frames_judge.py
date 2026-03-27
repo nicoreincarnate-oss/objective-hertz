@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -48,7 +48,7 @@ class FRAMESScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -80,7 +80,7 @@ class FRAMESScorer(LLMJudgeScorer):
                     LOGGER.warning("Could not parse grade from response: %s", raw[:50])
                     is_correct = False
 
-            meta: Dict[str, Any] = {
+            meta: dict[str, Any] = {
                 "raw_judge_output": raw,
             }
             extracted = re.search(

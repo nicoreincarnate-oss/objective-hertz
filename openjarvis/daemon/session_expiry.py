@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 from openjarvis.core.types import Message
 
@@ -18,7 +18,7 @@ class SessionExpiryHook:
         self._executor = executor
         self._flush_min_turns = flush_min_turns
 
-    def on_session_expiry(self, session_id: str, messages: List[Message]) -> None:
+    def on_session_expiry(self, session_id: str, messages: list[Message]) -> None:
         if len(messages) < self._flush_min_turns:
             return
         transcript = "\n".join(f"[{m.role}]: {m.content}" for m in messages)

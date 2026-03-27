@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -18,7 +18,7 @@ class RetrievalResult:
     content: str
     score: float = 0.0
     source: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MemoryBackend(ABC):
@@ -36,7 +36,7 @@ class MemoryBackend(ABC):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Persist *content* and return a unique document id."""
 
@@ -47,7 +47,7 @@ class MemoryBackend(ABC):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Search for *query* and return the top-k results."""
 
     @abstractmethod

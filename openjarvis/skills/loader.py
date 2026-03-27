@@ -83,11 +83,11 @@ def load_skill(
             )
             if not valid:
                 raise ValueError(f"Invalid signature for skill '{manifest.name}'")
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "Signature verification requires 'cryptography'. "
                 "Install with: uv sync --extra security-signing"
-            )
+            ) from err
 
     # Scan for prompt injection if requested
     if scan_for_injection:

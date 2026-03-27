@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -21,10 +21,10 @@ class SkillManifest:
     version: str = "0.1.0"
     description: str = ""
     author: str = ""
-    steps: List[SkillStep] = field(default_factory=list)
-    required_capabilities: List[str] = field(default_factory=list)
+    steps: list[SkillStep] = field(default_factory=list)
+    required_capabilities: list[str] = field(default_factory=list)
     signature: str = ""  # Base64-encoded Ed25519 signature
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def manifest_bytes(self) -> bytes:
         """Serialize the manifest (excluding signature) for signing/verification."""

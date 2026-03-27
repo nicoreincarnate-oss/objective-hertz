@@ -12,7 +12,7 @@ Requires the ``colbert-ai`` and ``torch`` packages::
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import torch  # noqa: F401
@@ -62,11 +62,11 @@ class ColBERTMemory(MemoryBackend):
         self._device = device
 
         # id -> (content, source, metadata)
-        self._documents: Dict[
-            str, Tuple[str, str, Dict[str, Any]]
+        self._documents: dict[
+            str, tuple[str, str, dict[str, Any]]
         ] = {}
         # id -> token-level embedding tensor
-        self._embeddings: Dict[str, Any] = {}
+        self._embeddings: dict[str, Any] = {}
 
         self._checkpoint_loaded: bool = False
         self._checkpoint_obj: Any = None
@@ -154,7 +154,7 @@ class ColBERTMemory(MemoryBackend):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Persist *content* and return a unique document id."""
         doc_id = uuid.uuid4().hex
@@ -179,7 +179,7 @@ class ColBERTMemory(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Search for *query* and return the top-k results."""
         if not query.strip() or not self._documents:
             bus = get_event_bus()
@@ -192,14 +192,14 @@ class ColBERTMemory(MemoryBackend):
 
         query_embs = self._encode(query)
 
-        scored: List[Tuple[str, float]] = []
+        scored: list[tuple[str, float]] = []
         for doc_id, doc_embs in self._embeddings.items():
             score = self._maxsim(query_embs, doc_embs)
             scored.append((doc_id, score))
 
         scored.sort(key=lambda pair: pair[1], reverse=True)
 
-        results: List[RetrievalResult] = []
+        results: list[RetrievalResult] = []
         for doc_id, score in scored[:top_k]:
             content, source, metadata = self._documents[doc_id]
             results.append(RetrievalResult(

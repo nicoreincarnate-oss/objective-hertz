@@ -21,13 +21,11 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import logging
 import os
 import re
 import signal
 import sys
 import threading
-import time
 from pathlib import Path
 
 from shared.config import config
@@ -227,10 +225,10 @@ class Orchestrator:
 
         # 1. Boot OJ runtime
         from shared.oj_bridge import (
-            get_bus,
-            get_trace_store,
             get_agent_manager,
             get_audit_logger,
+            get_bus,
+            get_trace_store,
         )
         bus = get_bus()
         get_trace_store()
@@ -270,7 +268,7 @@ class Orchestrator:
         logger.info("EventRelay wired")
 
         # 5. Start PerseusScheduler — THE strategic brain
-        from openjarvis.vassals.perseus_scheduler import PerseusScheduler, PerseusConfig
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig, PerseusScheduler
 
         sched_config = PerseusConfig(
             tick_interval=int(os.environ.get("SCHEDULER_TICK_INTERVAL", "60")),
@@ -475,7 +473,8 @@ class Orchestrator:
         """Listen for operator commands and decompose into agent work."""
         while self._running:
             try:
-                from shared.db import fetch_all, execute as db_execute
+                from shared.db import execute as db_execute
+                from shared.db import fetch_all
 
                 commands = await fetch_all(
                     """SELECT id, payload FROM task_queue
@@ -512,9 +511,9 @@ class Orchestrator:
 
     async def _handle_command(self, command: str):
         """Decompose a high-level operator command into agent tasks via LLM."""
-        from shared.llm_client import llm
         from shared.comms import delegate_task
         from shared.db import execute as db_execute
+        from shared.llm_client import llm
 
         logger.info("Boss received command: %s", command[:100])
 
@@ -589,8 +588,8 @@ class Orchestrator:
         """Monitor team progress and intervene when needed."""
         while self._running:
             try:
-                from shared.db import fetch_all, fetch_val
                 from shared.comms import ask_agent, send_alert
+                from shared.db import fetch_all, fetch_val
 
                 stale = await fetch_all(
                     """SELECT id, task_type, assigned_agent, created_at FROM task_queue
@@ -844,6 +843,7 @@ class Orchestrator:
         Friday 3 AM: code_refactor (complexity analysis)
         """
         import datetime as _dt
+
         from shared.comms import request_task
 
         # Wait for system to stabilize
@@ -899,7 +899,7 @@ class Orchestrator:
             try:
                 await asyncio.wait_for(self._supervisor.stop_all(), timeout=15.0)
                 logger.info("All vassals stopped")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Vassal shutdown timed out")
 
         # Close DB pool
@@ -946,6 +946,7 @@ def main():
 async def main_with_a2a():
     """Entry point for Orchestrator + A2A server."""
     import uvicorn
+
     from shared.a2a_wrapper import AgentCard, create_a2a_app
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

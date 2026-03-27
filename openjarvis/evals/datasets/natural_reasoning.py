@@ -6,7 +6,7 @@ Adapted from IPW's reasoning benchmark loaders.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -27,14 +27,14 @@ class NaturalReasoningDataset(DatasetProvider):
     _default_split = "train"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -69,7 +69,7 @@ class NaturalReasoningDataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         # Extract question text
         question_text = str(
             raw.get("question") or raw.get("problem") or ""

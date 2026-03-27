@@ -6,7 +6,7 @@ Adapted from IPW's mmlu_pro.py dataset loader.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -30,14 +30,14 @@ class MMLUProDataset(DatasetProvider):
     _default_split = "test"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -72,7 +72,7 @@ class MMLUProDataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         question = str(raw.get("question") or "").strip()
         options_raw = raw.get("options") or []
         options = [str(o).strip() for o in options_raw if str(o).strip()]

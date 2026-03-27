@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import random
+from collections.abc import Iterable, MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Sequence
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -29,12 +30,12 @@ class IPWDataset(DatasetProvider):
 
     def __init__(
         self,
-        data_dir: Optional[str] = None,
-        dataset_name: Optional[str] = None,
+        data_dir: str | None = None,
+        dataset_name: str | None = None,
     ) -> None:
         self._data_dir = data_dir
         self._dataset_name = dataset_name or _DEFAULT_DATASET_NAME
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     # ------------------------------------------------------------------
     # DatasetProvider interface
@@ -43,9 +44,9 @@ class IPWDataset(DatasetProvider):
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         data_path = self._resolve_data_path()
 
@@ -154,9 +155,9 @@ class IPWDataset(DatasetProvider):
         return list(dataset)
 
     @staticmethod
-    def _load_jsonl(path: Path) -> List[MutableMapping[str, Any]]:
+    def _load_jsonl(path: Path) -> list[MutableMapping[str, Any]]:
         """Load records from a JSONL file."""
-        rows: List[MutableMapping[str, Any]] = []
+        rows: list[MutableMapping[str, Any]] = []
         with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -167,7 +168,7 @@ class IPWDataset(DatasetProvider):
     @staticmethod
     def _convert_row(
         raw: MutableMapping[str, Any], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         problem = str(
             raw.get("problem") or raw.get("prompt") or ""
         ).strip()
@@ -181,7 +182,7 @@ class IPWDataset(DatasetProvider):
             return None
 
         # Store the entire raw dict as metadata for downstream analysis
-        metadata: Dict[str, Any] = dict(raw)
+        metadata: dict[str, Any] = dict(raw)
 
         return EvalRecord(
             record_id=f"ipw-{idx}",

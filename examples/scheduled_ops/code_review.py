@@ -12,7 +12,7 @@ Or register as a scheduled task::
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -44,7 +44,7 @@ import click
 )
 def main(repo_path: str, days: int, model: str | None, engine_key: str | None) -> None:
     """Review recent commits and produce a summary report."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     prompt = (
         f"You are a senior code reviewer. Examine the git repository at "
         f"'{repo_path}'. Review the commits from the last {days} days "

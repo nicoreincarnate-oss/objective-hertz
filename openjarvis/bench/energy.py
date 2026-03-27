@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.bench._stats import compute_stats
 from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
@@ -40,7 +40,7 @@ class EnergyBenchmark(BaseBenchmark):
         *,
         num_samples: int = 10,
         warmup_samples: int = 5,
-        energy_monitor: Optional[Any] = None,
+        energy_monitor: Any | None = None,
         **kwargs: Any,
     ) -> BenchmarkResult:
         messages = [Message(role=Role.USER, content=_PROMPT)]
@@ -51,12 +51,12 @@ class EnergyBenchmark(BaseBenchmark):
             except Exception as exc:
                 logger.debug("Warmup request failed: %s", exc)
 
-        per_energy_j: List[float] = []
-        per_power_w: List[float] = []
-        per_tps: List[float] = []
-        per_ept: List[float] = []  # energy per token
-        per_latency: List[float] = []
-        per_tokens: List[float] = []
+        per_energy_j: list[float] = []
+        per_power_w: list[float] = []
+        per_tps: list[float] = []
+        per_ept: list[float] = []  # energy per token
+        per_latency: list[float] = []
+        per_tokens: list[float] = []
         errors = 0
         energy_method = ""
 

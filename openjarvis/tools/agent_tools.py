@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Module-level state — tracks spawned agents
 # ---------------------------------------------------------------------------
 
-_SPAWNED_AGENTS: Dict[str, Dict[str, Any]] = {}
+_SPAWNED_AGENTS: dict[str, dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ class AgentSpawnTool(BaseTool):
         query = params.get("query", "")
         tools = params.get("tools", "")
 
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "agent_id": agent_id,
             "agent_type": agent_type,
             "status": "running",
@@ -110,7 +110,7 @@ class AgentSpawnTool(BaseTool):
 
         _SPAWNED_AGENTS[agent_id] = entry
 
-        result_data: Dict[str, Any] = {
+        result_data: dict[str, Any] = {
             "agent_id": agent_id,
             "agent_type": agent_type,
             "status": "running",

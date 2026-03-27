@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, List
+from typing import Any
 
 from openjarvis.bench._stats import compute_stats
 from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
@@ -49,7 +49,7 @@ class LatencyBenchmark(BaseBenchmark):
             except Exception as exc:
                 logger.debug("Warmup request failed: %s", exc)
 
-        latencies: List[float] = []
+        latencies: list[float] = []
         errors = 0
 
         for i in range(num_samples):

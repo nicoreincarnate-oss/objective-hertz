@@ -271,7 +271,7 @@ class GRPOTrainer:
         all_old_log_probs: list[list[Any]] = []
         all_ref_log_probs: list[list[Any]] = []
 
-        for prompt, gt in zip(prompts, ground_truths):
+        for prompt, gt in zip(prompts, ground_truths, strict=False):
             rewards = []
             log_probs = []
             old_lps = []
@@ -353,14 +353,14 @@ class GRPOTrainer:
         )
 
         for rewards, log_probs, old_lps, ref_lps in zip(
-            all_rewards, all_log_probs, all_old_log_probs, all_ref_log_probs
+            all_rewards, all_log_probs, all_old_log_probs, all_ref_log_probs, strict=False
         ):
             r_tensor = torch.tensor(rewards, device=policy_model.device)
             mean_r = r_tensor.mean()
             std_r = r_tensor.std() + 1e-8
             advantages = (r_tensor - mean_r) / std_r
 
-            for adv, lp, old_lp, ref_lp in zip(advantages, log_probs, old_lps, ref_lps):
+            for adv, lp, old_lp, ref_lp in zip(advantages, log_probs, old_lps, ref_lps, strict=False):
                 ratio = torch.exp(lp - old_lp)  # importance ratio
                 clipped = torch.clamp(
                     ratio,

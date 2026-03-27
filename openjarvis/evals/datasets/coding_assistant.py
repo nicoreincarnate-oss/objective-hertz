@@ -12,7 +12,8 @@ Difficulty tiers:
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -38,7 +39,7 @@ Fix the bug(s) in the source code so that ALL tests pass. Return the complete fi
 # EASY tasks (10): single-line bugs
 # ---------------------------------------------------------------------------
 
-_EASY_TASKS: List[Dict[str, Any]] = [
+_EASY_TASKS: list[dict[str, Any]] = [
     {
         "bug_report": "The paginate function returns one fewer item than expected on the last page.",
         "buggy_code": (
@@ -374,7 +375,7 @@ _EASY_TASKS: List[Dict[str, Any]] = [
 # MEDIUM tasks (10): multi-line logic bugs
 # ---------------------------------------------------------------------------
 
-_MEDIUM_TASKS: List[Dict[str, Any]] = [
+_MEDIUM_TASKS: list[dict[str, Any]] = [
     {
         "bug_report": "The LRU cache evicts the wrong item — it removes the most recently used instead of least recently used.",
         "buggy_code": (
@@ -874,7 +875,7 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
 # HARD tasks (10): subtle bugs
 # ---------------------------------------------------------------------------
 
-_HARD_TASKS: List[Dict[str, Any]] = [
+_HARD_TASKS: list[dict[str, Any]] = [
     {
         "bug_report": "The financial_round function has rounding errors for currency calculations.",
         "buggy_code": (
@@ -1361,7 +1362,7 @@ _HARD_TASKS: List[Dict[str, Any]] = [
 ]
 
 
-def _build_all_tasks() -> List[Dict[str, Any]]:
+def _build_all_tasks() -> list[dict[str, Any]]:
     """Combine all difficulty tiers with assigned difficulty labels."""
     tasks = []
     for task in _EASY_TASKS:
@@ -1383,14 +1384,14 @@ class CodingAssistantDataset(DatasetProvider):
     dataset_name = "Coding Assistant"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         tasks = list(_ALL_TASKS)
         if seed is not None:

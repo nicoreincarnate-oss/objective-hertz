@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from openjarvis.evals.core.backend import InferenceBackend
 
@@ -19,7 +19,7 @@ class JarvisDirectBackend(InferenceBackend):
 
     def __init__(
         self,
-        engine_key: Optional[str] = None,
+        engine_key: str | None = None,
         telemetry: bool = False,
         gpu_metrics: bool = False,
     ) -> None:
@@ -56,7 +56,7 @@ class JarvisDirectBackend(InferenceBackend):
         system: str = "",
         temperature: float = 0.0,
         max_tokens: int = 2048,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from openjarvis.core.types import Message, Role
 
         messages = []

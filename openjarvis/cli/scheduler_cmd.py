@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import signal
 import sys
-from typing import Optional
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 
-def _get_store() -> "SchedulerStore":  # noqa: F821
+def _get_store() -> SchedulerStore:  # noqa: F821
     """Build a SchedulerStore from user config."""
     from openjarvis.core.config import DEFAULT_CONFIG_DIR, load_config
     from openjarvis.scheduler.store import SchedulerStore
@@ -23,7 +22,7 @@ def _get_store() -> "SchedulerStore":  # noqa: F821
     return SchedulerStore(db_path)
 
 
-def _get_scheduler(store: "SchedulerStore") -> "TaskScheduler":  # noqa: F821
+def _get_scheduler(store: SchedulerStore) -> TaskScheduler:  # noqa: F821
     """Build a TaskScheduler from a store."""
     from openjarvis.scheduler.scheduler import TaskScheduler
 
@@ -86,7 +85,7 @@ def scheduler_create(
     type=click.Choice(["active", "paused", "completed", "cancelled"]),
     help="Filter by status.",
 )
-def scheduler_list(status: Optional[str]) -> None:
+def scheduler_list(status: str | None) -> None:
     """List scheduled tasks."""
     console = Console()
     store = _get_store()

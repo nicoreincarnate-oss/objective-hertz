@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,9 @@ class DashboardApp:
     Requires: ``uv sync --extra dashboard``
     """
 
-    def __init__(self, config: Optional[Any] = None) -> None:
+    def __init__(self, config: Any | None = None) -> None:
         self._config = config
-        self._events: List[Dict[str, Any]] = []
+        self._events: list[dict[str, Any]] = []
 
     @staticmethod
     def available() -> bool:
@@ -47,11 +47,11 @@ class DashboardApp:
                 Log,
                 Static,
             )
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "TUI dashboard requires 'textual'. "
                 "Install with: uv sync --extra dashboard"
-            )
+            ) from err
 
         class JarvisDashboard(App):
             """OpenJarvis TUI Dashboard."""
@@ -170,7 +170,7 @@ class DashboardApp:
         app.run()
 
 
-def launch_dashboard(config: Optional[Any] = None) -> None:
+def launch_dashboard(config: Any | None = None) -> None:
     """Convenience function to launch the dashboard."""
     app = DashboardApp(config=config)
     if not app.available():

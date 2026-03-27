@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -39,12 +39,12 @@ class FeishuChannel(BaseChannel):
         app_id: str = "",
         *,
         app_secret: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._app_id = app_id or os.environ.get("FEISHU_APP_ID", "")
         self._app_secret = app_secret or os.environ.get("FEISHU_APP_SECRET", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -69,7 +69,7 @@ class FeishuChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Feishu chat via the Open API."""
         if not self._app_id or not self._app_secret:
@@ -112,7 +112,7 @@ class FeishuChannel(BaseChannel):
                 "Authorization": f"Bearer {tenant_token}",
                 "Content-Type": "application/json",
             }
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "receive_id": channel,
                 "msg_type": "text",
                 "content": json.dumps({"text": content}),
@@ -136,7 +136,7 @@ class FeishuChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["feishu"]
 

@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +37,8 @@ class CapabilityGrant:
 class AgentPolicy:
     """Policy for a specific agent."""
     agent_id: str
-    grants: List[CapabilityGrant] = field(default_factory=list)
-    deny: List[str] = field(default_factory=list)  # explicit denials
+    grants: list[CapabilityGrant] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)  # explicit denials
 
 
 class CapabilityPolicy:
@@ -56,10 +55,10 @@ class CapabilityPolicy:
     def __init__(
         self,
         *,
-        policy_path: Optional[str] = None,
+        policy_path: str | None = None,
         default_deny: bool = False,
     ) -> None:
-        self._policies: Dict[str, AgentPolicy] = {}
+        self._policies: dict[str, AgentPolicy] = {}
         self._default_deny = default_deny
 
         from openjarvis._rust_bridge import get_rust_module
@@ -123,12 +122,12 @@ class CapabilityPolicy:
         # No matching grant found
         return not self._default_deny
 
-    def list_grants(self, agent_id: str) -> List[CapabilityGrant]:
+    def list_grants(self, agent_id: str) -> list[CapabilityGrant]:
         """List all grants for an agent."""
         policy = self._policies.get(agent_id)
         return list(policy.grants) if policy else []
 
-    def list_agents(self) -> List[str]:
+    def list_agents(self) -> list[str]:
         """List all agents with explicit policies."""
         return list(self._policies.keys())
 
@@ -167,7 +166,7 @@ class CapabilityPolicy:
 
 
 # Default capability requirements for built-in tools
-DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
+DEFAULT_TOOL_CAPABILITIES: dict[str, list[str]] = {
     "file_read": [Capability.FILE_READ],
     "web_search": [Capability.NETWORK_FETCH],
     "code_interpreter": [Capability.CODE_EXECUTE],

@@ -6,7 +6,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -29,10 +29,10 @@ class _Hunk:
     old_count: int
     new_start: int
     new_count: int
-    lines: List[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
 
 
-def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
+def _parse_patch(patch_text: str) -> tuple[str | None, list[_Hunk]]:
     """Parse a unified diff string into a target path and list of hunks.
 
     Returns
@@ -48,9 +48,9 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
         If the patch text contains no valid hunks or is malformed.
     """
     lines = patch_text.splitlines(keepends=True)
-    target_path: Optional[str] = None
-    hunks: List[_Hunk] = []
-    current_hunk: Optional[_Hunk] = None
+    target_path: str | None = None
+    hunks: list[_Hunk] = []
+    current_hunk: _Hunk | None = None
 
     for raw_line in lines:
         line = raw_line.rstrip("\n\r")
@@ -100,7 +100,7 @@ def _parse_patch(patch_text: str) -> tuple[Optional[str], List[_Hunk]]:
     return target_path, hunks
 
 
-def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
+def _apply_hunks(original: str, hunks: list[_Hunk]) -> str:
     """Apply parsed hunks to the original file content.
 
     Raises
@@ -119,7 +119,7 @@ def _apply_hunks(original: str, hunks: List[_Hunk]) -> str:
     for hunk_idx, hunk in enumerate(hunks):
         # Position in orig_lines (0-indexed)
         pos = hunk.old_start - 1 + offset
-        new_lines: List[str] = []
+        new_lines: list[str] = []
         check_pos = pos
 
         for diff_line in hunk.lines:
@@ -304,7 +304,7 @@ class ApplyPatchTool(BaseTool):
 
         # Backup
         backup = params.get("backup", True)
-        backup_path: Optional[str] = None
+        backup_path: str | None = None
         if backup:
             bak = Path(str(path) + ".bak")
             try:

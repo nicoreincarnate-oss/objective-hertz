@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -30,11 +30,11 @@ _URL_PATTERN = re.compile(r"https?://\S+")
 
 def _exact_match_score(
     model_answer: str,
-    exact_facts: List[str],
-) -> Tuple[float, List[Dict[str, Any]]]:
+    exact_facts: list[str],
+) -> tuple[float, list[dict[str, Any]]]:
     """Check if exact facts appear in model output."""
     ans_norm = normalize_str(model_answer)
-    details: List[Dict[str, Any]] = []
+    details: list[dict[str, Any]] = []
 
     for fact in exact_facts:
         fact_norm = normalize_str(fact)
@@ -95,7 +95,7 @@ class BrowserAssistantScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -107,7 +107,7 @@ class BrowserAssistantScorer(Scorer):
 
         # --- Tier 1: Exact match ---
         exact_score = 1.0
-        exact_details: List[Dict[str, Any]] = []
+        exact_details: list[dict[str, Any]] = []
         if exact_facts:
             exact_score, exact_details = _exact_match_score(
                 model_answer, exact_facts,
@@ -115,7 +115,7 @@ class BrowserAssistantScorer(Scorer):
 
         # --- Tier 2: Semantic checklist ---
         semantic_score = 1.0
-        semantic_details: List[Dict[str, Any]] = []
+        semantic_details: list[dict[str, Any]] = []
         if semantic_facts:
             if self._judge_backend and self._judge_model:
                 scorer = ChecklistScorer(
@@ -156,7 +156,7 @@ class BrowserAssistantScorer(Scorer):
 
         # --- Quality checklist ---
         quality_score = 0.0
-        quality_details: List[Dict[str, Any]] = []
+        quality_details: list[dict[str, Any]] = []
         if self._judge_backend and self._judge_model:
             items = [
                 "No fabricated numbers or statistics",

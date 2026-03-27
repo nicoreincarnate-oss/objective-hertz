@@ -257,7 +257,7 @@ class TestLoadEvalConfig:
     def test_malformed_toml(self, tmp_path):
         p = tmp_path / "bad.toml"
         p.write_text("[[[ invalid toml")
-        with pytest.raises(Exception):  # tomllib raises various errors
+        with pytest.raises((ValueError, TypeError, OSError)):  # tomllib raises various errors
             load_eval_config(p)
 
     def test_empty_models_list(self, tmp_path):

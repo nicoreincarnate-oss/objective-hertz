@@ -16,7 +16,7 @@ import shutil
 import sqlite3
 import subprocess
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.types import EvalRecord
 from openjarvis.evals.environments.base import TaskEnvironment
@@ -102,16 +102,16 @@ class DBEnvironment(TaskEnvironment):
 
     def __init__(self, use_mysql: bool = True) -> None:
         self._use_mysql = use_mysql and _mysql_available()
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._mysql_conn: Any = None  # mysql.connector connection
-        self._mysql_port: Optional[int] = None
-        self._mysql_container: Optional[str] = None
-        self._record: Optional[EvalRecord] = None
-        self._table_info: Dict[str, Any] = {}
-        self._answer_info: Dict[str, Any] = {}
+        self._mysql_port: int | None = None
+        self._mysql_container: str | None = None
+        self._record: EvalRecord | None = None
+        self._table_info: dict[str, Any] = {}
+        self._answer_info: dict[str, Any] = {}
         self._answer_type: str = "direct"
-        self._agent_final_answer: Optional[str] = None
-        self._agent_sql_history: List[str] = []
+        self._agent_final_answer: str | None = None
+        self._agent_sql_history: list[str] = []
         self._is_done = False
         self._degraded = False
 
@@ -148,7 +148,7 @@ class DBEnvironment(TaskEnvironment):
 
         return self._format_schema_observation()
 
-    def step(self, agent_response: str) -> Tuple[str, bool]:
+    def step(self, agent_response: str) -> tuple[str, bool]:
         # Check for "Action: Answer" / "Final Answer:"
         answer_match = re.search(
             r"(?:Action:\s*Answer\s*\n\s*)?Final\s+Answer:\s*(.+)",
@@ -204,8 +204,8 @@ class DBEnvironment(TaskEnvironment):
         except (sqlite3.Error, Exception) as exc:
             return f"Error: SQL execution failed: {exc}", False
 
-    def evaluate(self) -> Tuple[Optional[bool], Dict[str, Any]]:
-        meta: Dict[str, Any] = {
+    def evaluate(self) -> tuple[bool | None, dict[str, Any]]:
+        meta: dict[str, Any] = {
             "match_type": f"interactive_db_{self._answer_type}",
             "agent_sql_history": self._agent_sql_history,
             "degraded_mode": self._degraded,
@@ -218,8 +218,8 @@ class DBEnvironment(TaskEnvironment):
             return self._evaluate_direct(meta)
 
     def _evaluate_md5(
-        self, meta: Dict[str, Any],
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+        self, meta: dict[str, Any],
+    ) -> tuple[bool | None, dict[str, Any]]:
         """Evaluate DML tasks by comparing table state after agent's SQL."""
         table_name = self._table_info.get("name", "data")
         expected_sql = self._answer_info.get("sql", "")
@@ -295,8 +295,8 @@ class DBEnvironment(TaskEnvironment):
         return is_correct, meta
 
     def _evaluate_direct(
-        self, meta: Dict[str, Any],
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+        self, meta: dict[str, Any],
+    ) -> tuple[bool | None, dict[str, Any]]:
         """Evaluate SELECT tasks by comparing result tuples."""
         expected_direct = self._answer_info.get("direct")
         meta["expected_sql"] = self._answer_info.get("sql", "")
@@ -436,7 +436,7 @@ class DBEnvironment(TaskEnvironment):
         finally:
             cursor.close()
 
-    def _execute_mysql_select(self, sql: str) -> List[List[Any]]:
+    def _execute_mysql_select(self, sql: str) -> list[list[Any]]:
         """Execute a SELECT on MySQL and return rows as list of lists."""
         cursor = self._mysql_conn.cursor()
         try:
@@ -445,7 +445,7 @@ class DBEnvironment(TaskEnvironment):
         finally:
             cursor.close()
 
-    def _get_mysql_table_rows(self, table_name: str) -> List[List[Any]]:
+    def _get_mysql_table_rows(self, table_name: str) -> list[list[Any]]:
         """Read all rows from a MySQL table."""
         cursor = self._mysql_conn.cursor()
         try:
@@ -570,15 +570,15 @@ class KGEnvironment(TaskEnvironment):
     def max_turns(self) -> int:
         return MAX_TURNS_KG
 
-    def __init__(self, sparql_endpoint: Optional[str] = None) -> None:
+    def __init__(self, sparql_endpoint: str | None = None) -> None:
         self._sparql_endpoint = sparql_endpoint
-        self._record: Optional[EvalRecord] = None
-        self._variables: List[_Variable] = []
-        self._entity_dict: Dict[str, str] = {}
-        self._answer_list: List[str] = []
-        self._action_list: List[Dict[str, Any]] = []
+        self._record: EvalRecord | None = None
+        self._variables: list[_Variable] = []
+        self._entity_dict: dict[str, str] = {}
+        self._answer_list: list[str] = []
+        self._action_list: list[dict[str, Any]] = []
         self._action_idx: int = 0
-        self._agent_final_answer: Optional[str] = None
+        self._agent_final_answer: str | None = None
         self._is_done = False
         self._degraded = False
 
@@ -590,7 +590,7 @@ class KGEnvironment(TaskEnvironment):
         self._variables = []
         self._action_idx = 0
         self._agent_final_answer = None
-        self._final_answer_variable: Optional[_Variable] = None
+        self._final_answer_variable: _Variable | None = None
         self._is_done = False
 
         if not self._sparql_endpoint:
@@ -603,7 +603,7 @@ class KGEnvironment(TaskEnvironment):
                 )
 
         # Initialize variables for known entities
-        for name, mid in self._entity_dict.items():
+        for _name, mid in self._entity_dict.items():
             var = _Variable(len(self._variables), mid, "entity")
             self._variables.append(var)
 
@@ -617,7 +617,7 @@ class KGEnvironment(TaskEnvironment):
         obs += f"Question: {record.metadata.get('question', record.problem)}"
         return obs
 
-    def step(self, agent_response: str) -> Tuple[str, bool]:
+    def step(self, agent_response: str) -> tuple[str, bool]:
         # Check for Final Answer with variable reference (#N) — original format
         var_ref_match = re.search(
             r"Final\s+[Aa]nswer:\s*(?:[Vv]ar(?:iable)?\s*)?#(\d+)",
@@ -735,12 +735,12 @@ class KGEnvironment(TaskEnvironment):
             f"Output: [] (no SPARQL endpoint — simulated empty result)"
         )
 
-    def evaluate(self) -> Tuple[Optional[bool], Dict[str, Any]]:
+    def evaluate(self) -> tuple[bool | None, dict[str, Any]]:
         expected = self._answer_list
         expected_set = set(_normalize_entity(a) for a in expected)
 
         # Extract agent answers — handle both variable references and raw entities
-        agent_answers: List[str] = []
+        agent_answers: list[str] = []
         if self._agent_final_answer:
             # If answer came from a variable reference (#N), the program
             # may contain entity IDs or a LISP expression.  Extract entities.
@@ -769,7 +769,7 @@ class KGEnvironment(TaskEnvironment):
             else 0.0
         )
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "match_type": "interactive_kg",
             "expected_answers": sorted(expected_set),
             "agent_answers": sorted(agent_set),
@@ -811,12 +811,12 @@ class OSEnvironment(TaskEnvironment):
     def max_turns(self) -> int:
         return MAX_TURNS_OS
 
-    def __init__(self, image: Optional[str] = None, timeout: int = 120) -> None:
+    def __init__(self, image: str | None = None, timeout: int = 120) -> None:
         self._image = image
         self._timeout = timeout
-        self._container_name: Optional[str] = None
-        self._record: Optional[EvalRecord] = None
-        self._agent_commands: List[str] = []
+        self._container_name: str | None = None
+        self._record: EvalRecord | None = None
+        self._agent_commands: list[str] = []
         self._is_done = False
 
     def reset(self, record: EvalRecord) -> str:
@@ -888,7 +888,7 @@ class OSEnvironment(TaskEnvironment):
 
         return record.metadata.get("instruction", record.problem)
 
-    def step(self, agent_response: str) -> Tuple[str, bool]:
+    def step(self, agent_response: str) -> tuple[str, bool]:
         # Check for "Act: finish"
         finish_match = re.search(r"Act:\s*finish", agent_response, re.IGNORECASE)
         if finish_match:
@@ -905,7 +905,7 @@ class OSEnvironment(TaskEnvironment):
             ), False
 
         # Execute commands
-        outputs: List[str] = []
+        outputs: list[str] = []
         for cmd in commands:
             self._agent_commands.append(cmd)
             try:
@@ -928,8 +928,8 @@ class OSEnvironment(TaskEnvironment):
 
         return "\n---\n".join(outputs), False
 
-    def evaluate(self) -> Tuple[Optional[bool], Dict[str, Any]]:
-        meta: Dict[str, Any] = {
+    def evaluate(self) -> tuple[bool | None, dict[str, Any]]:
+        meta: dict[str, Any] = {
             "match_type": "interactive_os",
             "agent_commands": self._agent_commands,
             "scorable": True,
@@ -996,7 +996,7 @@ class OSEnvironment(TaskEnvironment):
 # Helpers (shared with scorer — avoid duplication)
 # ====================================================================
 
-def _build_sqlite_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
+def _build_sqlite_db(table_info: dict[str, Any]) -> sqlite3.Connection:
     """Build an in-memory SQLite DB from table_info."""
     conn = sqlite3.connect(":memory:")
     table_name = table_info.get("name", "data")
@@ -1031,8 +1031,8 @@ def _build_sqlite_db(table_info: Dict[str, Any]) -> sqlite3.Connection:
 
 
 def _get_table_rows(
-    conn: Optional[sqlite3.Connection], table_name: str,
-) -> List[List[Any]]:
+    conn: sqlite3.Connection | None, table_name: str,
+) -> list[list[Any]]:
     if conn is None:
         return []
     cursor = conn.execute(f'SELECT * FROM "{table_name}" ORDER BY rowid')
@@ -1040,20 +1040,20 @@ def _get_table_rows(
 
 
 def _compare_table_states(
-    expected: List[List[Any]], actual: List[List[Any]],
-) -> Tuple[bool, str]:
+    expected: list[list[Any]], actual: list[list[Any]],
+) -> tuple[bool, str]:
     if len(expected) != len(actual):
         return False, f"row_count_mismatch: expected {len(expected)}, got {len(actual)}"
-    for i, (exp_row, act_row) in enumerate(zip(expected, actual)):
+    for i, (exp_row, act_row) in enumerate(zip(expected, actual, strict=False)):
         if len(exp_row) != len(act_row):
             return False, f"col_count_mismatch at row {i}"
-        for j, (ev, av) in enumerate(zip(exp_row, act_row)):
+        for j, (ev, av) in enumerate(zip(exp_row, act_row, strict=False)):
             if not values_match(ev, av):
                 return False, f"value_mismatch at row {i} col {j}: {ev!r} vs {av!r}"
     return True, "all_match"
 
 
-def _extract_bash_commands_from_response(text: str) -> List[str]:
+def _extract_bash_commands_from_response(text: str) -> list[str]:
     """Extract bash commands from agent response.
 
     Supports multiple formats matching the original:
@@ -1061,7 +1061,7 @@ def _extract_bash_commands_from_response(text: str) -> List[str]:
     2. Act: ```bash\\n<cmd>\\n```          (shorthand)
     3. ```bash\\n<cmd>\\n```               (bare code block)
     """
-    commands: List[str] = []
+    commands: list[str] = []
 
     # Original format: Act: bash\n```bash\n...\n```
     for m in re.finditer(
@@ -1100,8 +1100,8 @@ def _extract_bash_commands_from_response(text: str) -> List[str]:
 def create_task_environment(
     record: EvalRecord,
     *,
-    sparql_endpoint: Optional[str] = None,
-    os_image: Optional[str] = None,
+    sparql_endpoint: str | None = None,
+    os_image: str | None = None,
     os_timeout: int = 120,
 ) -> TaskEnvironment:
     """Factory: create the right environment for a LifelongAgentBench record."""

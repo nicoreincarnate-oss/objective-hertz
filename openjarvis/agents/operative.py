@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.core.events import EventBus
@@ -44,15 +44,15 @@ class OperativeAgent(ToolUsingAgent):
         engine: InferenceEngine,
         model: str,
         *,
-        tools: Optional[List[BaseTool]] = None,
-        bus: Optional[EventBus] = None,
+        tools: list[BaseTool] | None = None,
+        bus: EventBus | None = None,
         max_turns: int = 20,
         temperature: float = 0.3,
         max_tokens: int = 2048,
-        system_prompt: Optional[str] = None,
-        operator_id: Optional[str] = None,
-        session_store: Optional[Any] = None,
-        memory_backend: Optional[Any] = None,
+        system_prompt: str | None = None,
+        operator_id: str | None = None,
+        session_store: Any | None = None,
+        memory_backend: Any | None = None,
         interactive: bool = False,
         confirm_callback=None,
         **kwargs: Any,
@@ -71,7 +71,7 @@ class OperativeAgent(ToolUsingAgent):
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Execute a single operator tick."""
@@ -214,10 +214,10 @@ class OperativeAgent(ToolUsingAgent):
     def _build_operative_messages(
         self,
         input: str,
-        context: Optional[AgentContext],
+        context: AgentContext | None,
         *,
-        system_prompt: Optional[str] = None,
-        session_messages: Optional[list[Message]] = None,
+        system_prompt: str | None = None,
+        session_messages: list[Message] | None = None,
     ) -> list[Message]:
         """Build message list with system prompt, session history, and input."""
         messages: list[Message] = []

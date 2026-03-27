@@ -13,7 +13,6 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 # ── Config ──────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -19,7 +19,7 @@ class LogHubScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -51,7 +51,7 @@ class LogHubScorer(LLMJudgeScorer):
 
     def _llm_fallback(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         """Use LLM judge when keyword extraction fails."""
         prompt = (
             f"A log analysis agent was asked to classify a log session.\n\n"

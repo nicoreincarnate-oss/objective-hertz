@@ -8,7 +8,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, FrozenSet, Optional, Set
 
 
 class TaintLabel(str, Enum):
@@ -22,7 +21,7 @@ class TaintLabel(str, Enum):
 @dataclass(frozen=True)
 class TaintSet:
     """Immutable set of taint labels attached to data."""
-    labels: FrozenSet[TaintLabel] = field(default_factory=frozenset)
+    labels: frozenset[TaintLabel] = field(default_factory=frozenset)
 
     def union(self, other: TaintSet) -> TaintSet:
         """Merge two taint sets."""
@@ -44,7 +43,7 @@ class TaintSet:
 # Sink policy: which taint labels are forbidden for each tool
 # If a tool appears here, data with any of the listed labels MUST NOT
 # be passed to that tool.
-SINK_POLICY: Dict[str, Set[TaintLabel]] = {
+SINK_POLICY: dict[str, set[TaintLabel]] = {
     "web_search": {TaintLabel.PII, TaintLabel.SECRET},
     "channel_send": {TaintLabel.SECRET},
     "code_interpreter": {TaintLabel.SECRET},
@@ -69,7 +68,7 @@ _SECRET_PATTERNS = [
 ]
 
 
-def check_taint(tool_name: str, taint: TaintSet) -> Optional[str]:
+def check_taint(tool_name: str, taint: TaintSet) -> str | None:
     """Check if *taint* labels violate the sink policy for *tool_name*.
 
     Returns a violation description string, or None if clean.

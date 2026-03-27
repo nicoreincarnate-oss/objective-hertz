@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.engine._base import InferenceEngine
 
@@ -23,7 +23,7 @@ class MultiEngine(InferenceEngine):
 
     def __init__(self, engines: list[tuple[str, InferenceEngine]]) -> None:
         self._engines = engines
-        self._model_map: Dict[str, InferenceEngine] = {}
+        self._model_map: dict[str, InferenceEngine] = {}
         self._refresh_map()
 
     def _refresh_map(self) -> None:
@@ -71,7 +71,7 @@ class MultiEngine(InferenceEngine):
         temperature: float = 0.7,
         max_tokens: int = 1024,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return self._engine_for(model).generate(
             messages, model=model, temperature=temperature,
             max_tokens=max_tokens, **kwargs,
@@ -92,7 +92,7 @@ class MultiEngine(InferenceEngine):
         ):
             yield token
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         self._refresh_map()
         return list(self._model_map.keys())
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.types import EvalRecord
 
@@ -17,9 +17,9 @@ def _strip_think_tags(text: str) -> str:
     return _THINK_TAG_RE.sub("", text).strip()
 
 
-def _format_messages(messages: List[Dict[str, str]]) -> str:
+def _format_messages(messages: list[dict[str, str]]) -> str:
     """Format a message list as a single prompt string with role labels."""
-    parts: List[str] = []
+    parts: list[str] = []
     for msg in messages:
         role = msg["role"]
         content = msg["content"]
@@ -52,7 +52,7 @@ class TaskEnvironment(ABC):
         """
 
     @abstractmethod
-    def step(self, agent_response: str) -> Tuple[str, bool]:
+    def step(self, agent_response: str) -> tuple[str, bool]:
         """Process an agent response.
 
         Returns:
@@ -63,7 +63,7 @@ class TaskEnvironment(ABC):
         """
 
     @abstractmethod
-    def evaluate(self) -> Tuple[Optional[bool], Dict[str, Any]]:
+    def evaluate(self) -> tuple[bool | None, dict[str, Any]]:
         """Evaluate the final state after interaction completes.
 
         Returns:
@@ -80,10 +80,10 @@ class TaskEnvironment(ABC):
         """
         return 15
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027
         """Release resources (Docker containers, DB connections, etc.)."""
 
-    def __enter__(self) -> "TaskEnvironment":
+    def __enter__(self) -> TaskEnvironment:
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -92,7 +92,7 @@ class TaskEnvironment(ABC):
     def run_agent_loop(
         self,
         generate_fn: Any,
-        record: "EvalRecord",
+        record: EvalRecord,
     ) -> str:
         """Run the full reset → [generate → step] × N → evaluate cycle.
 
@@ -111,14 +111,14 @@ class TaskEnvironment(ABC):
         """
         self.reset(record)
 
-        messages: List[Dict[str, str]] = []
+        messages: list[dict[str, str]] = []
 
         # Use the full record.problem as the first user message — it
         # already contains the system prompt, schema, and task instruction.
         messages.append({"role": "user", "content": record.problem})
 
-        all_responses: List[str] = []
-        turn_wall_clocks: List[float] = []
+        all_responses: list[str] = []
+        turn_wall_clocks: list[float] = []
         last_response = ""
 
         for _ in range(self.max_turns):
@@ -140,12 +140,12 @@ class TaskEnvironment(ABC):
             if done:
                 break
 
-        self.last_eval_result: Optional[Tuple[Optional[bool], Dict[str, Any]]] = (
+        self.last_eval_result: tuple[bool | None, dict[str, Any]] | None = (
             self.evaluate()
         )
-        self.all_responses: List[str] = all_responses
-        self.turn_wall_clocks: List[float] = turn_wall_clocks
-        self.interaction_history: List[Dict[str, str]] = [
+        self.all_responses: list[str] = all_responses
+        self.turn_wall_clocks: list[float] = turn_wall_clocks
+        self.interaction_history: list[dict[str, str]] = [
             msg for msg in messages if msg.get("role") != "system"
         ]
         return last_response

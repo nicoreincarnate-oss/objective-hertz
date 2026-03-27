@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -51,7 +51,7 @@ class RocketChatChannel(BaseChannel):
         password: str = "",
         auth_token: str = "",
         user_id: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._url = url or os.environ.get("ROCKETCHAT_URL", "")
         self._user = user or os.environ.get("ROCKETCHAT_USER", "")
@@ -59,7 +59,7 @@ class RocketChatChannel(BaseChannel):
         self._auth_token = auth_token or os.environ.get("ROCKETCHAT_AUTH_TOKEN", "")
         self._user_id = user_id or os.environ.get("ROCKETCHAT_USER_ID", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -78,11 +78,11 @@ class RocketChatChannel(BaseChannel):
             return
         try:
             import rocketchat_API  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "rocketchat_API not installed. Install with: "
                 "uv sync --extra channel-rocketchat"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -97,7 +97,7 @@ class RocketChatChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Rocket.Chat channel or DM.
 
@@ -143,7 +143,7 @@ class RocketChatChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["rocketchat"]
 

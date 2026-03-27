@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
@@ -42,7 +42,7 @@ class OllamaEngine(InferenceEngine):
         self._host = host.rstrip("/")
         self._client = httpx.Client(base_url=self._host, timeout=timeout)
         # Last stream usage — captured from Ollama's final chunk
-        self._last_stream_usage: Dict[str, int] = {}
+        self._last_stream_usage: dict[str, int] = {}
 
     def generate(
         self,
@@ -52,7 +52,7 @@ class OllamaEngine(InferenceEngine):
         temperature: float = 0.7,
         max_tokens: int = 1024,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         msg_dicts = messages_to_dicts(messages)
         # Ollama expects tool_call arguments as dicts, not JSON strings
         for md in msg_dicts:
@@ -64,7 +64,7 @@ class OllamaEngine(InferenceEngine):
                         fn["arguments"] = json.loads(args)
                     except (json.JSONDecodeError, TypeError):
                         pass
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": msg_dicts,
             "stream": False,
@@ -108,7 +108,7 @@ class OllamaEngine(InferenceEngine):
         prompt_tokens = data.get("prompt_eval_count", 0)
         completion_tokens = data.get("eval_count", 0)
         content = data.get("message", {}).get("content", "")
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "content": content,
             "usage": {
                 "prompt_tokens": prompt_tokens,
@@ -152,7 +152,7 @@ class OllamaEngine(InferenceEngine):
         max_tokens: int = 1024,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages_to_dicts(messages),
             "stream": True,
@@ -191,7 +191,7 @@ class OllamaEngine(InferenceEngine):
                 f"Ollama not reachable at {self._host}"
             ) from exc
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         try:
             resp = self._client.get("/api/tags")
             resp.raise_for_status()

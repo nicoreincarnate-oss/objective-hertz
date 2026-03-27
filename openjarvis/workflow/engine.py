@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.workflow.graph import WorkflowGraph
@@ -28,7 +28,7 @@ class WorkflowEngine:
     def __init__(
         self,
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
         max_parallel: int = 4,
         default_node_timeout: int = 300,
     ) -> None:
@@ -42,7 +42,7 @@ class WorkflowEngine:
         system: Any = None,  # JarvisSystem
         *,
         initial_input: str = "",
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> WorkflowResult:
         """Execute a workflow graph end-to-end."""
         valid, msg = graph.validate()
@@ -61,9 +61,9 @@ class WorkflowEngine:
             )
 
         # State: outputs keyed by node_id
-        outputs: Dict[str, str] = {"_input": initial_input}
+        outputs: dict[str, str] = {"_input": initial_input}
         ctx = dict(context or {})
-        all_steps: List[WorkflowStepResult] = []
+        all_steps: list[WorkflowStepResult] = []
         success = True
 
         stages = graph.execution_stages()
@@ -139,8 +139,8 @@ class WorkflowEngine:
     def _execute_node(
         self,
         node: WorkflowNode,
-        outputs: Dict[str, str],
-        ctx: Dict[str, Any],
+        outputs: dict[str, str],
+        ctx: dict[str, Any],
         system: Any,
         graph: WorkflowGraph,
     ) -> WorkflowStepResult:
@@ -191,7 +191,7 @@ class WorkflowEngine:
         return result
 
     def _get_node_input(
-        self, node: WorkflowNode, outputs: Dict[str, str], graph: WorkflowGraph,
+        self, node: WorkflowNode, outputs: dict[str, str], graph: WorkflowGraph,
     ) -> str:
         """Get input for a node from predecessor outputs."""
         preds = graph.predecessors(node.id)
@@ -201,7 +201,7 @@ class WorkflowEngine:
         return outputs.get("_input", "")
 
     def _run_agent_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self, node: WorkflowNode, outputs: dict[str, str],
         system: Any, graph: WorkflowGraph,
     ) -> WorkflowStepResult:
         """Execute an agent node."""
@@ -231,7 +231,7 @@ class WorkflowEngine:
             )
 
     def _run_tool_node(
-        self, node: WorkflowNode, outputs: Dict[str, str], system: Any,
+        self, node: WorkflowNode, outputs: dict[str, str], system: Any,
     ) -> WorkflowStepResult:
         """Execute a tool node."""
         tool_name = node.config.get("tool_name", "")
@@ -273,10 +273,10 @@ class WorkflowEngine:
             # Safe to evaluate with restricted namespace
             return str(eval(expr, {"__builtins__": {}}, {"outputs": outputs}))
         except Exception as e:
-            raise ValueError(f"Cannot evaluate condition '{expr}': {e}")
+            raise ValueError(f"Cannot evaluate condition '{expr}': {e}") from e
 
     def _run_condition_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self, node: WorkflowNode, outputs: dict[str, str],
     ) -> WorkflowStepResult:
         """Evaluate a condition expression against outputs."""
         expr = node.condition_expr
@@ -295,7 +295,7 @@ class WorkflowEngine:
         )
 
     def _run_transform_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self, node: WorkflowNode, outputs: dict[str, str],
     ) -> WorkflowStepResult:
         """Apply a text transformation."""
         expr = node.transform_expr
@@ -311,14 +311,16 @@ class WorkflowEngine:
         return WorkflowStepResult(node_id=node.id, output=combined)
 
     def _run_loop_node(
-        self, node: WorkflowNode, outputs: Dict[str, str],
+        self, node: WorkflowNode, outputs: dict[str, str],
         system: Any, graph: WorkflowGraph,
     ) -> WorkflowStepResult:
         """Execute a loop node (re-runs agent until condition or max iterations)."""
         input_text = self._get_node_input(node, outputs, graph)
         max_iter = node.max_iterations
         last_output = input_text
-        for i in range(max_iter):
+        iterations_done = 0
+        for _ in range(max_iter):
+            iterations_done += 1
             if system:
                 result = system.ask(last_output, agent=node.agent or None)
                 last_output = result.get("content", "")
@@ -335,7 +337,7 @@ class WorkflowEngine:
             node_id=node.id,
             success=True,
             output=last_output,
-            metadata={"iterations": i + 1},
+            metadata={"iterations": iterations_done},
         )
 
 

@@ -16,8 +16,9 @@ import json
 import logging
 import random
 import tarfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -51,17 +52,17 @@ class DeepPlanningDataset(DatasetProvider):
 
     def __init__(
         self,
-        cache_dir: Optional[str] = None,
+        cache_dir: str | None = None,
     ) -> None:
         self._cache_dir = cache_dir
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         snapshot_dir = self._find_snapshot_dir()
         if snapshot_dir is None:
@@ -71,7 +72,7 @@ class DeepPlanningDataset(DatasetProvider):
                 logger.error("Failed to download DeepPlanning dataset")
                 return
 
-        records: List[EvalRecord] = []
+        records: list[EvalRecord] = []
         for level in [1, 2, 3]:
             tar_path = snapshot_dir / f"database_level{level}.tar.gz"
             if not tar_path.exists():
@@ -95,7 +96,7 @@ class DeepPlanningDataset(DatasetProvider):
     def size(self) -> int:
         return len(self._records)
 
-    def _find_snapshot_dir(self) -> Optional[Path]:
+    def _find_snapshot_dir(self) -> Path | None:
         """Find the HF cache snapshot directory for Qwen/DeepPlanning."""
         base = Path.home() / ".cache" / "huggingface" / "hub"
         ds_dir = base / "datasets--Qwen--DeepPlanning" / "snapshots"
@@ -108,24 +109,24 @@ class DeepPlanningDataset(DatasetProvider):
         """Trigger HF datasets download to populate the cache."""
         try:
             from datasets import load_dataset
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "datasets required for DeepPlanning. "
                 "Install with: pip install datasets"
-            )
+            ) from err
         logger.info("Downloading Qwen/DeepPlanning from HuggingFace...")
         # Loading triggers the download even though we don't use the result
         load_dataset("Qwen/DeepPlanning", split="train")
 
     def _extract_cases(
         self, tar_path: Path, level: int,
-    ) -> List[EvalRecord]:
+    ) -> list[EvalRecord]:
         """Extract shopping cases from a tar.gz archive."""
-        records: List[EvalRecord] = []
+        records: list[EvalRecord] = []
         try:
             with tarfile.open(tar_path, "r:gz") as tf:
                 # Build index of all members by directory
-                members_by_dir: Dict[str, Dict[str, Any]] = {}
+                members_by_dir: dict[str, dict[str, Any]] = {}
                 for m in tf.getmembers():
                     parts = Path(m.name).parts
                     if len(parts) >= 2:
@@ -162,11 +163,11 @@ class DeepPlanningDataset(DatasetProvider):
 
     def _case_to_record(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         level: int,
         case_name: str,
         products_text: str = "",
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         """Convert a validation_cases.json to an EvalRecord."""
         query = data.get("query", "")
         if not query:

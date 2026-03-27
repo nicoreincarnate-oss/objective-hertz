@@ -8,7 +8,7 @@ class registered as ``"learned"`` in ``RouterPolicyRegistry``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import RouterPolicyRegistry
 from openjarvis.core.types import RoutingContext
@@ -28,9 +28,9 @@ class LearnedRouterPolicy(RouterPolicy):
 
     def __init__(
         self,
-        analyzer: Optional[Any] = None,
+        analyzer: Any | None = None,
         *,
-        available_models: Optional[List[str]] = None,
+        available_models: list[str] | None = None,
         default_model: str = "",
         fallback_model: str = "",
     ) -> None:
@@ -38,12 +38,12 @@ class LearnedRouterPolicy(RouterPolicy):
         self._available = available_models or []
         self._default = default_model
         self._fallback = fallback_model
-        self._policy_map: Dict[str, str] = {}
-        self._confidence: Dict[str, int] = {}
+        self._policy_map: dict[str, str] = {}
+        self._confidence: dict[str, int] = {}
         self.min_samples: int = 5
 
     @property
-    def policy_map(self) -> Dict[str, str]:
+    def policy_map(self) -> dict[str, str]:
         """Current learned routing decisions (read-only copy)."""
         return dict(self._policy_map)
 
@@ -71,9 +71,9 @@ class LearnedRouterPolicy(RouterPolicy):
     def update_from_traces(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> dict[str, Any]:
         """Recompute the policy map from trace history via TraceAnalyzer."""
         if self._analyzer is None:
             return {"error": "no analyzer configured"}
@@ -84,16 +84,16 @@ class LearnedRouterPolicy(RouterPolicy):
         if not traces:
             return {"updated": False, "reason": "no traces"}
 
-        groups: Dict[str, list] = {}
+        groups: dict[str, list] = {}
         for t in traces:
             qclass = classify_query(t.query)
             groups.setdefault(qclass, []).append(t)
 
         old_map = dict(self._policy_map)
-        changes: Dict[str, Dict[str, str]] = {}
+        changes: dict[str, dict[str, str]] = {}
 
         for qclass, class_traces in groups.items():
-            model_scores: Dict[str, _ModelScore] = {}
+            model_scores: dict[str, _ModelScore] = {}
             for t in class_traces:
                 if not t.model:
                     continue
@@ -136,8 +136,8 @@ class LearnedRouterPolicy(RouterPolicy):
         self,
         query: str,
         model: str,
-        outcome: Optional[str],
-        feedback: Optional[float],
+        outcome: str | None,
+        feedback: float | None,
     ) -> None:
         """Record a single observation for online (incremental) updates."""
         qclass = classify_query(query)
@@ -154,7 +154,7 @@ class LearnedRouterPolicy(RouterPolicy):
             if current_count < self.min_samples:
                 self._policy_map[qclass] = model
 
-    def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+    def update(self, trace_store: Any, **kwargs: object) -> dict[str, Any]:
         """Batch update: analyze trace outcomes and update the policy map.
 
         This is the batch learning interface (from the old SFTRouterPolicy).
@@ -165,7 +165,7 @@ class LearnedRouterPolicy(RouterPolicy):
             logger.warning("Learned router update failed: %s", exc)
             return {"updated": False, "reason": "Could not access trace store"}
 
-        class_model_scores: Dict[str, Dict[str, List[float]]] = {}
+        class_model_scores: dict[str, dict[str, list[float]]] = {}
         for trace in traces:
             query_class = classify_query(trace.query)
             model = trace.model or "unknown"

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 def hint_no_config() -> str:
     """Return a suggestion when no config file is found."""
@@ -15,7 +13,7 @@ def hint_no_config() -> str:
     )
 
 
-def hint_no_engine(engine_name: Optional[str] = None) -> str:
+def hint_no_engine(engine_name: str | None = None) -> str:
     """Return a suggestion when the inference engine is unreachable."""
     name = engine_name or "ollama"
     return (
@@ -26,7 +24,7 @@ def hint_no_engine(engine_name: Optional[str] = None) -> str:
     )
 
 
-def hint_no_model(model_name: Optional[str] = None) -> str:
+def hint_no_model(model_name: str | None = None) -> str:
     """Return a suggestion when no model is available."""
     if model_name:
         return (

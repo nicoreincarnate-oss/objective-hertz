@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.tracker import ResultTracker
 from openjarvis.evals.core.types import EvalResult, MetricStats, RunConfig, RunSummary
@@ -16,7 +16,7 @@ except ImportError:
 LOGGER = logging.getLogger(__name__)
 
 
-def _flatten_metric_stats(prefix: str, ms: Optional[MetricStats]) -> Dict[str, float]:
+def _flatten_metric_stats(prefix: str, ms: MetricStats | None) -> dict[str, float]:
     """Flatten a MetricStats into a dict with prefixed keys."""
     if ms is None:
         return {}
@@ -49,7 +49,7 @@ class WandbTracker(ResultTracker):
             )
         self._project = project
         self._entity = entity or None
-        self._tags: List[str] = [
+        self._tags: list[str] = [
             t.strip() for t in tags.split(",") if t.strip()
         ] if tags else []
         self._group = group or None
@@ -88,7 +88,7 @@ class WandbTracker(ResultTracker):
         if self._run is None:
             return
         self._step += 1
-        log_data: Dict[str, Any] = {
+        log_data: dict[str, Any] = {
             "sample/is_correct": 1.0 if result.is_correct else 0.0,
             "sample/latency_seconds": result.latency_seconds,
             "sample/prompt_tokens": result.prompt_tokens,
@@ -108,7 +108,7 @@ class WandbTracker(ResultTracker):
     def on_summary(self, summary: RunSummary) -> None:
         if self._run is None:
             return
-        flat: Dict[str, Any] = {
+        flat: dict[str, Any] = {
             "accuracy": summary.accuracy,
             "total_samples": summary.total_samples,
             "scored_samples": summary.scored_samples,

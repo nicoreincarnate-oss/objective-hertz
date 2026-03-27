@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -58,7 +57,7 @@ class ScanFinding:
 class ScanResult:
     """Aggregated result from one or more scanners."""
 
-    findings: List[ScanFinding] = field(default_factory=list)
+    findings: list[ScanFinding] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
@@ -66,7 +65,7 @@ class ScanResult:
         return len(self.findings) == 0
 
     @property
-    def highest_threat(self) -> Optional[ThreatLevel]:
+    def highest_threat(self) -> ThreatLevel | None:
         """Return the highest threat level among findings, or ``None``."""
         if not self.findings:
             return None
@@ -86,7 +85,7 @@ class SecurityEvent:
 
     event_type: SecurityEventType
     timestamp: float
-    findings: List[ScanFinding] = field(default_factory=list)
+    findings: list[ScanFinding] = field(default_factory=list)
     content_preview: str = ""
     action_taken: str = ""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -17,8 +17,8 @@ from openjarvis.tools._stubs import ToolExecutor
 class SkillResult:
     skill_name: str = ""
     success: bool = True
-    step_results: List[ToolResult] = field(default_factory=list)
-    context: Dict[str, Any] = field(default_factory=dict)
+    step_results: list[ToolResult] = field(default_factory=list)
+    context: dict[str, Any] = field(default_factory=dict)
 
 
 class SkillExecutor:
@@ -32,7 +32,7 @@ class SkillExecutor:
         self,
         tool_executor: ToolExecutor,
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._tool_executor = tool_executor
         self._bus = bus
@@ -41,11 +41,11 @@ class SkillExecutor:
         self,
         manifest: SkillManifest,
         *,
-        initial_context: Optional[Dict[str, Any]] = None,
+        initial_context: dict[str, Any] | None = None,
     ) -> SkillResult:
         """Execute all steps in a skill manifest."""
-        ctx: Dict[str, Any] = dict(initial_context or {})
-        all_results: List[ToolResult] = []
+        ctx: dict[str, Any] = dict(initial_context or {})
+        all_results: list[ToolResult] = []
 
         if self._bus:
             self._bus.publish(
@@ -98,7 +98,7 @@ class SkillExecutor:
         )
 
     @staticmethod
-    def _render_template(template: str, ctx: Dict[str, Any]) -> str:
+    def _render_template(template: str, ctx: dict[str, Any]) -> str:
         """Render {key} placeholders with proper JSON escaping.
 
         When a placeholder appears inside a JSON string (detected by

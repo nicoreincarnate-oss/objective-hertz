@@ -6,8 +6,8 @@ import logging
 import platform
 import subprocess
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 from openjarvis.telemetry.energy_monitor import (
     EnergyMonitor,

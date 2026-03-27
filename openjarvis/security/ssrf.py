@@ -67,7 +67,7 @@ def _check_ssrf_python(url: str) -> str | None:
         resolved = socket.getaddrinfo(
             hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
         )
-        for family, stype, proto, canonname, sockaddr in resolved:
+        for _family, _stype, _proto, _canonname, sockaddr in resolved:
             ip = sockaddr[0]
             if is_private_ip(ip):
                 return f"URL resolves to private IP: {ip}"

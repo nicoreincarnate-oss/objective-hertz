@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -14,7 +13,7 @@ class Segment:
     text: str
     start: float  # Start time in seconds
     end: float  # End time in seconds
-    confidence: Optional[float] = None
+    confidence: float | None = None
 
 
 @dataclass
@@ -22,10 +21,10 @@ class TranscriptionResult:
     """Result of a speech-to-text transcription."""
 
     text: str
-    language: Optional[str] = None
-    confidence: Optional[float] = None
+    language: str | None = None
+    confidence: float | None = None
     duration_seconds: float = 0.0
-    segments: List[Segment] = field(default_factory=list)
+    segments: list[Segment] = field(default_factory=list)
 
 
 class SpeechBackend(ABC):
@@ -39,7 +38,7 @@ class SpeechBackend(ABC):
         audio: bytes,
         *,
         format: str = "wav",
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> TranscriptionResult:
         """Transcribe audio bytes to text."""
 
@@ -48,7 +47,7 @@ class SpeechBackend(ABC):
         """Check if the backend is ready."""
 
     @abstractmethod
-    def supported_formats(self) -> List[str]:
+    def supported_formats(self) -> list[str]:
         """Return list of supported audio formats."""
 
 

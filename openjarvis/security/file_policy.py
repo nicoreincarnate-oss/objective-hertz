@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List, Union
 
 DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset({
     ".env",
@@ -25,13 +25,14 @@ DEFAULT_SENSITIVE_PATTERNS: frozenset[str] = frozenset({
 })
 
 
-def is_sensitive_file(path: Union[str, Path]) -> bool:
+def is_sensitive_file(path: str | Path) -> bool:
     """Return ``True`` if *path* matches a sensitive file pattern.
 
     Checks both the filename and the full name against
     ``DEFAULT_SENSITIVE_PATTERNS`` using :func:`fnmatch.fnmatch`.
     """
     import fnmatch as _fnmatch
+
     from openjarvis._rust_bridge import get_rust_module
 
     _rust = get_rust_module()
@@ -44,7 +45,7 @@ def is_sensitive_file(path: Union[str, Path]) -> bool:
     return _rust.is_sensitive_file(str(path))
 
 
-def filter_sensitive_paths(paths: Iterable[Union[str, Path]]) -> List[Path]:
+def filter_sensitive_paths(paths: Iterable[str | Path]) -> list[Path]:
     """Return only non-sensitive paths from *paths*."""
     return [Path(p) for p in paths if not is_sensitive_file(p)]
 

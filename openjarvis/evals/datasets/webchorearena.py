@@ -18,8 +18,9 @@ import logging
 import os
 import random
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -51,7 +52,7 @@ class WebChoreArenaDataset(DatasetProvider):
     def __init__(
         self,
         subset: str = "all",
-        cache_dir: Optional[str] = None,
+        cache_dir: str | None = None,
         headless: bool = True,
     ) -> None:
         self._subset = subset  # "all", "small", or a site name
@@ -60,14 +61,14 @@ class WebChoreArenaDataset(DatasetProvider):
             else Path.home() / ".cache" / "webchorearena"
         )
         self._headless = headless
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         repo_dir = self._cache_dir / "repo"
         config_dir = repo_dir / "AgentOccam" / "config_files"
@@ -93,10 +94,10 @@ class WebChoreArenaDataset(DatasetProvider):
     def size(self) -> int:
         return len(self._records)
 
-    def verify_requirements(self) -> List[str]:
+    def verify_requirements(self) -> list[str]:
         import urllib.request
 
-        issues: List[str] = []
+        issues: list[str] = []
         try:
             import playwright  # noqa: F401
         except ImportError:
@@ -171,9 +172,9 @@ class WebChoreArenaDataset(DatasetProvider):
         )
         logger.info("WebChoreArena cloned to %s", repo_dir)
 
-    def _load_tasks(self, config_dir: Path) -> List[Dict[str, Any]]:
+    def _load_tasks(self, config_dir: Path) -> list[dict[str, Any]]:
         """Load task definitions from the original config_files/ directory."""
-        tasks: List[Dict[str, Any]] = []
+        tasks: list[dict[str, Any]] = []
 
         if self._subset == "small":
             small_ids = self._load_small_set_ids(config_dir)
@@ -223,7 +224,7 @@ class WebChoreArenaDataset(DatasetProvider):
         return ids
 
     def _task_to_record(
-        self, task: Dict[str, Any], idx: int,
+        self, task: dict[str, Any], idx: int,
     ) -> EvalRecord:
         """Convert an original WebChoreArena task config into an EvalRecord."""
         task_id = str(task.get("task_id", idx))

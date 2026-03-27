@@ -35,7 +35,8 @@ import ast
 import json
 import logging
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -116,7 +117,7 @@ def _parse_field(raw: Any) -> Any:
     return raw
 
 
-def _parse_skills(raw: Any) -> List[str]:
+def _parse_skills(raw: Any) -> list[str]:
     if isinstance(raw, list):
         return [str(s) for s in raw]
     if isinstance(raw, str):
@@ -151,9 +152,9 @@ class LifelongAgentDataset(DatasetProvider):
     def __init__(
         self,
         subset: str = "all",
-        cache_dir: Optional[str] = None,
-        sparql_endpoint: Optional[str] = None,
-        os_image: Optional[str] = None,
+        cache_dir: str | None = None,
+        sparql_endpoint: str | None = None,
+        os_image: str | None = None,
     ) -> None:
         if subset != "all" and subset not in _VALID_SUBSETS:
             raise ValueError(
@@ -164,21 +165,21 @@ class LifelongAgentDataset(DatasetProvider):
         self._cache_dir = cache_dir
         self._sparql_endpoint = sparql_endpoint
         self._os_image = os_image
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         subsets = (
             list(_VALID_SUBSETS) if self._subset == "all"
             else [self._subset]
         )
         self._records = []
-        load_failures: List[str] = []
+        load_failures: list[str] = []
 
         for subset in subsets:
             rows = self._load_subset_from_hf(subset)
@@ -237,7 +238,7 @@ class LifelongAgentDataset(DatasetProvider):
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)
 
-    def iter_episodes(self) -> Iterable[List[EvalRecord]]:
+    def iter_episodes(self) -> Iterable[list[EvalRecord]]:
         """Yield one lifelong episode per subset, ordered by sample_index.
 
         The original benchmark processes all tasks within a subset
@@ -246,7 +247,7 @@ class LifelongAgentDataset(DatasetProvider):
         subset and sorts by ``sample_index`` so the eval runner can
         replicate this lifelong protocol when ``episode_mode=True``.
         """
-        by_subset: Dict[str, List[EvalRecord]] = defaultdict(list)
+        by_subset: dict[str, list[EvalRecord]] = defaultdict(list)
         for record in self._records:
             by_subset[record.metadata["subset"]].append(record)
 
@@ -278,7 +279,7 @@ class LifelongAgentDataset(DatasetProvider):
     def size(self) -> int:
         return len(self._records)
 
-    def verify_requirements(self) -> List[str]:
+    def verify_requirements(self) -> list[str]:
         missing = []
         try:
             import datasets  # noqa: F401
@@ -292,7 +293,7 @@ class LifelongAgentDataset(DatasetProvider):
     # HuggingFace loading
     # ------------------------------------------------------------------
 
-    def _load_subset_from_hf(self, subset: str) -> List[Dict[str, Any]]:
+    def _load_subset_from_hf(self, subset: str) -> list[dict[str, Any]]:
         try:
             from datasets import load_dataset
         except ImportError as exc:
@@ -303,7 +304,7 @@ class LifelongAgentDataset(DatasetProvider):
 
         # Try loading with data_files (the HF dataset stores subsets as
         # separate parquet directories without formal configs)
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "data_files": f"{subset}/*.parquet",
             "split": "train",
         }
@@ -343,7 +344,7 @@ class LifelongAgentDataset(DatasetProvider):
     # db_bench records
     # ------------------------------------------------------------------
 
-    def _row_to_record_db(self, row: Dict[str, Any]) -> Optional[EvalRecord]:
+    def _row_to_record_db(self, row: dict[str, Any]) -> EvalRecord | None:
         """Convert a db_bench row.
 
         Schema: sample_index, instruction, table_info, answer_info, skill_list
@@ -418,7 +419,7 @@ class LifelongAgentDataset(DatasetProvider):
     # knowledge_graph records
     # ------------------------------------------------------------------
 
-    def _row_to_record_kg(self, row: Dict[str, Any]) -> Optional[EvalRecord]:
+    def _row_to_record_kg(self, row: dict[str, Any]) -> EvalRecord | None:
         """Convert a knowledge_graph row.
 
         Schema: sample_index, question, qid, source, entity_dict,
@@ -472,7 +473,7 @@ class LifelongAgentDataset(DatasetProvider):
     # os_interaction records
     # ------------------------------------------------------------------
 
-    def _row_to_record_os(self, row: Dict[str, Any]) -> Optional[EvalRecord]:
+    def _row_to_record_os(self, row: dict[str, Any]) -> EvalRecord | None:
         """Convert an os_interaction row.
 
         Schema: sample_index, instruction, initialization_command_item,

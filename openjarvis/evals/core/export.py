@@ -6,13 +6,14 @@ import json
 import math
 import statistics
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from openjarvis.evals.core.trace import QueryTrace
 
 
-def _agg_stats(values: Sequence[Optional[float]]) -> dict[str, Optional[float]]:
+def _agg_stats(values: Sequence[float | None]) -> dict[str, float | None]:
     """Return {avg, median, min, max, std} filtering None values."""
     clean = [v for v in values if v is not None]
     if not clean:
@@ -28,9 +29,9 @@ def _agg_stats(values: Sequence[Optional[float]]) -> dict[str, Optional[float]]:
 
 def _compute_efficiency(
     traces: list[QueryTrace],
-    total_gpu_energy: Optional[float],
-    total_cpu_energy: Optional[float],
-) -> dict[str, Optional[float]]:
+    total_gpu_energy: float | None,
+    total_cpu_energy: float | None,
+) -> dict[str, float | None]:
     """Compute efficiency metrics from traces and aggregate energy."""
     scored = [t for t in traces if t.is_resolved is not None]
     resolved = sum(1 for t in scored if t.is_resolved is True)
@@ -66,7 +67,7 @@ def _compute_efficiency(
 
 def _compute_normalized(
     traces: list[QueryTrace],
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Recompute stats after trimming top/bottom 5% outliers by wall_clock.
 
     Returns None if fewer than 4 traces (trimming would remove too much data).
@@ -214,7 +215,7 @@ def export_summary_json(
     config: dict[str, Any],
     path: Path,
     *,
-    bench_energy: Optional[dict[str, Any]] = None,
+    bench_energy: dict[str, Any] | None = None,
 ) -> Path:
     """Export aggregate summary as JSON.
 
@@ -389,7 +390,7 @@ def export_summary_json(
     return path
 
 
-def export_artifacts_manifest(run_dir: Path) -> Optional[Path]:
+def export_artifacts_manifest(run_dir: Path) -> Path | None:
     """Scan ``{run_dir}/artifacts/`` and write ``artifacts_manifest.json``.
 
     The manifest lists every per-query artifact directory together with

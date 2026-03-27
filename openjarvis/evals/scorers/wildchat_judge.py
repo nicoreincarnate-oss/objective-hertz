@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -70,7 +70,7 @@ class WildChatScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         reference = record.reference
         if not reference or not reference.strip():
             return None, {"reason": "empty_reference"}
@@ -93,7 +93,7 @@ class WildChatScorer(LLMJudgeScorer):
         result1 = self._verdict_to_bool(verdict1, generated_is_a=True)
         result2 = self._verdict_to_bool(verdict2, generated_is_a=False)
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "generated_as_a": {"verdict": verdict1, "response": response1},
             "generated_as_b": {"verdict": verdict2, "response": response2},
         }
@@ -106,7 +106,7 @@ class WildChatScorer(LLMJudgeScorer):
 
     def _get_judge_verdict(
         self, problem: str, response_a: str, response_b: str,
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         prompt = (
             f"<|User Prompt|>\n{problem}\n\n"
             f"<|The Start of Assistant A's Answer|>\n{response_a}\n"
@@ -133,8 +133,8 @@ class WildChatScorer(LLMJudgeScorer):
 
     @staticmethod
     def _verdict_to_bool(
-        verdict: Optional[str], generated_is_a: bool,
-    ) -> Optional[bool]:
+        verdict: str | None, generated_is_a: bool,
+    ) -> bool | None:
         if not verdict:
             return None
 

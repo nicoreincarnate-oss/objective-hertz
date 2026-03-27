@@ -14,8 +14,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -27,17 +26,17 @@ class VassalProcess:
     """Configuration + runtime state for a vassal process."""
 
     name: str
-    command: List[str]  # e.g. ["python", "-m", "titan.daemon"]
+    command: list[str]  # e.g. ["python", "-m", "titan.daemon"]
     cwd: str = ""  # working directory
-    env: Dict[str, str] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
     a2a_port: int = 0
     restart_on_crash: bool = True
     max_restart_attempts: int = 5
     restart_backoff_seconds: float = 5.0
 
     # Runtime state
-    process: Optional[subprocess.Popen] = field(default=None, repr=False)
-    pid: Optional[int] = None
+    process: subprocess.Popen | None = field(default=None, repr=False)
+    pid: int | None = None
     started_at: float = 0.0
     restart_count: int = 0
     last_crash: float = 0.0
@@ -58,8 +57,8 @@ class VassalSupervisor:
     def __init__(self, bus: EventBus, project_dir: str = "") -> None:
         self._bus = bus
         self._project_dir = project_dir
-        self._vassals: Dict[str, VassalProcess] = {}
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._vassals: dict[str, VassalProcess] = {}
+        self._monitor_task: asyncio.Task | None = None
 
     # ── Registration ──────────────────────────────────────────────────
 
@@ -103,7 +102,7 @@ class VassalSupervisor:
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
-    async def start_all(self) -> Dict[str, bool]:
+    async def start_all(self) -> dict[str, bool]:
         """Start all registered vassals. Returns name → success."""
         results = {}
         for name in self._vassals:
@@ -256,7 +255,7 @@ class VassalSupervisor:
 
     # ── Status ────────────────────────────────────────────────────────
 
-    def status(self) -> Dict[str, Dict[str, Any]]:
+    def status(self) -> dict[str, dict[str, Any]]:
         """Return status of all vassal processes."""
         result = {}
         for name, v in self._vassals.items():

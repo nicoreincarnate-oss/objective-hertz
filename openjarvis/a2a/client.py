@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.a2a.protocol import A2ARequest, A2ATask, AgentCard
 
@@ -17,7 +17,7 @@ class A2AClient:
     def __init__(self, base_url: str, *, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._card: Optional[AgentCard] = None
+        self._card: AgentCard | None = None
 
     def discover(self) -> AgentCard:
         """Fetch the agent card from /.well-known/agent.json."""
@@ -43,9 +43,9 @@ class A2AClient:
         input_text: str,
         *,
         request_id: str = "",
-        headers: Optional[dict[str, str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        timeout: Optional[float] = None,
+        headers: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        timeout: float | None = None,
         **kwargs: Any,
     ) -> A2ATask:
         """Send a task to the remote agent and return the result.
@@ -86,7 +86,7 @@ class A2AClient:
             history=result.get("history", []),
         )
 
-    def get_task(self, task_id: str, *, timeout: Optional[float] = None) -> A2ATask:
+    def get_task(self, task_id: str, *, timeout: float | None = None) -> A2ATask:
         """Get the status of a previously submitted task."""
         import httpx
         request = A2ARequest(

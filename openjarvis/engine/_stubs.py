@@ -7,9 +7,9 @@ Phase 1 will provide concrete implementations (vLLM, Ollama, etc.).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from openjarvis.core.types import Message
 
@@ -27,7 +27,7 @@ class ResponseFormat:
     """
 
     type: str = "json_object"
-    schema: Optional[Dict[str, Any]] = field(default=None)
+    schema: dict[str, Any] | None = field(default=None)
 
 
 class InferenceEngine(ABC):
@@ -48,7 +48,7 @@ class InferenceEngine(ABC):
         temperature: float = 0.7,
         max_tokens: int = 1024,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Synchronous completion — returns a dict with ``content`` and ``usage``."""
 
     @abstractmethod
@@ -66,17 +66,17 @@ class InferenceEngine(ABC):
         yield ""  # pragma: no cover
 
     @abstractmethod
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """Return identifiers of models available on this engine."""
 
     @abstractmethod
     def health(self) -> bool:
         """Return ``True`` when the engine is reachable and healthy."""
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027
         """Release resources (HTTP clients, connections, threads, etc.)."""
 
-    def prepare(self, model: str) -> None:
+    def prepare(self, model: str) -> None:  # noqa: B027
         """Optional warm-up hook called before the first request."""
 
 

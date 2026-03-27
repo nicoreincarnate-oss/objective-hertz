@@ -7,7 +7,7 @@ import os
 import smtplib
 import threading
 from email.mime.text import MIMEText
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -57,7 +57,7 @@ class EmailChannel(BaseChannel):
         username: str = "",
         password: str = "",
         use_tls: bool = True,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._smtp_host = smtp_host
         self._smtp_port = smtp_port
@@ -67,9 +67,9 @@ class EmailChannel(BaseChannel):
         self._password = password or os.environ.get("EMAIL_PASSWORD", "")
         self._use_tls = use_tls
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
-        self._listener_thread: Optional[threading.Thread] = None
+        self._listener_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     # -- connection lifecycle ---------------------------------------------------
@@ -109,7 +109,7 @@ class EmailChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send an email via SMTP. ``channel`` is the recipient address."""
         if not self._smtp_host or not self._username:
@@ -147,7 +147,7 @@ class EmailChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["email"]
 

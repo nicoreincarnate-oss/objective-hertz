@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, List, Optional, Tuple
 
 from openjarvis.telemetry.energy_monitor import (
     EnergyMonitor,
@@ -39,7 +39,7 @@ class NvidiaEnergyMonitor(EnergyMonitor):
 
     def __init__(self, poll_interval_ms: int = 50) -> None:
         self._poll_interval_s = poll_interval_ms / 1000.0
-        self._handles: List = []
+        self._handles: list = []
         self._device_count = 0
         self._device_name = ""
         self._initialized = False
@@ -93,9 +93,9 @@ class NvidiaEnergyMonitor(EnergyMonitor):
     def energy_method(self) -> str:
         return "hw_counter" if self._hw_counter_available else "polling"
 
-    def _read_energy_counters(self) -> List[float]:
+    def _read_energy_counters(self) -> list[float]:
         """Read total energy (millijoules) from all devices."""
-        readings: List[float] = []
+        readings: list[float] = []
         for handle in self._handles:
             try:
                 mj = pynvml.nvmlDeviceGetTotalEnergyConsumption(handle)
@@ -105,12 +105,12 @@ class NvidiaEnergyMonitor(EnergyMonitor):
                 readings.append(0.0)
         return readings
 
-    def _poll_once(self) -> Tuple[List[float], List[float], List[float], List[float]]:
+    def _poll_once(self) -> tuple[list[float], list[float], list[float], list[float]]:
         """Read power/utilization/memory/temperature from all devices."""
-        powers: List[float] = []
-        utils: List[float] = []
-        mems: List[float] = []
-        temps: List[float] = []
+        powers: list[float] = []
+        utils: list[float] = []
+        mems: list[float] = []
+        temps: list[float] = []
         for handle in self._handles:
             try:
                 power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)
@@ -129,11 +129,11 @@ class NvidiaEnergyMonitor(EnergyMonitor):
 
     def _polling_loop(
         self,
-        power_ticks: List[List[float]],
-        util_ticks: List[float],
-        mem_ticks: List[float],
-        temp_ticks: List[float],
-        timestamps: List[float],
+        power_ticks: list[list[float]],
+        util_ticks: list[float],
+        mem_ticks: list[float],
+        temp_ticks: list[float],
+        timestamps: list[float],
         lock: threading.Lock,
         stop_event: threading.Event,
     ) -> None:
@@ -170,16 +170,16 @@ class NvidiaEnergyMonitor(EnergyMonitor):
             return
 
         # Read hw counters at start
-        energy_start: Optional[List[float]] = None
+        energy_start: list[float] | None = None
         if self._hw_counter_available:
             energy_start = self._read_energy_counters()
 
         # Start polling thread for utilization metrics + fallback power
-        power_ticks: List[List[float]] = []
-        util_ticks: List[float] = []
-        mem_ticks: List[float] = []
-        temp_ticks: List[float] = []
-        timestamps: List[float] = []
+        power_ticks: list[list[float]] = []
+        util_ticks: list[float] = []
+        mem_ticks: list[float] = []
+        temp_ticks: list[float] = []
+        timestamps: list[float] = []
         lock = threading.Lock()
         stop_event = threading.Event()
 
@@ -204,7 +204,7 @@ class NvidiaEnergyMonitor(EnergyMonitor):
                 energy_end = self._read_energy_counters()
                 total_mj = sum(
                     end - start
-                    for start, end in zip(energy_start, energy_end)
+                    for start, end in zip(energy_start, energy_end, strict=False)
                 )
                 result.energy_joules = total_mj / 1000.0
                 result.gpu_energy_joules = result.energy_joules

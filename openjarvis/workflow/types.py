@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 
 
 class NodeType(str, Enum):
@@ -21,8 +21,8 @@ class WorkflowNode:
     id: str
     node_type: NodeType
     agent: str = ""
-    tools: List[str] = field(default_factory=list)
-    config: Dict[str, Any] = field(default_factory=dict)
+    tools: list[str] = field(default_factory=list)
+    config: dict[str, Any] = field(default_factory=dict)
     # For condition nodes
     condition_expr: str = ""
     # For loop nodes
@@ -44,17 +44,17 @@ class WorkflowStepResult:
     success: bool = True
     output: str = ""
     duration_seconds: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
 class WorkflowResult:
     workflow_name: str = ""
     success: bool = True
-    steps: List[WorkflowStepResult] = field(default_factory=list)
+    steps: list[WorkflowStepResult] = field(default_factory=list)
     final_output: str = ""
     total_duration_seconds: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = [

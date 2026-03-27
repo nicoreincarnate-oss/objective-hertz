@@ -208,7 +208,7 @@ def load_recipe(path: str | Path) -> Recipe:
     if schedule_sec and kind == "discrete":
         kind = "operator"
 
-    return Recipe(
+    recipe = Recipe(
         name=recipe_sec.get("name", path.stem),
         description=recipe_sec.get("description", ""),
         version=recipe_sec.get("version", "0.1.0"),

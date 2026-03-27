@@ -280,7 +280,7 @@ class OrchestratorGRPOTrainer:
 
         reward_fn = MultiObjectiveReward(RewardWeights(), Normalizers())
 
-        for prompt, gt in zip(prompts, ground_truths):
+        for prompt, gt in zip(prompts, ground_truths, strict=False):
             group_rewards: list[float] = []
             group_responses: list[str] = []
 
@@ -311,7 +311,7 @@ class OrchestratorGRPOTrainer:
             else:
                 advantages = [0.0] * len(group_rewards)
 
-            for resp, adv, rew in zip(group_responses, advantages, group_rewards):
+            for resp, adv, rew in zip(group_responses, advantages, group_rewards, strict=False):
                 all_prompts.append(prompt)
                 all_responses.append(resp)
                 all_advantages.append(adv)
@@ -321,7 +321,7 @@ class OrchestratorGRPOTrainer:
         total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
 
         for prompt, response, advantage in zip(
-            all_prompts, all_responses, all_advantages
+            all_prompts, all_responses, all_advantages, strict=False
         ):
             current_lp = self._compute_log_probs(prompt, response)
             with torch.no_grad():
@@ -407,7 +407,7 @@ class OrchestratorGRPOTrainer:
         )
 
         log_probs = []
-        for token_id, logits in zip(generated_ids, outputs.scores):
+        for token_id, logits in zip(generated_ids, outputs.scores, strict=False):
             probs = F.softmax(logits[0], dim=-1)
             tid = token_id.item()
             if 0 <= tid < probs.shape[0]:
