@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -40,7 +39,7 @@ class LoopGuard:
     4. Context overflow recovery: 4-stage compression of message history
     """
 
-    def __init__(self, config: LoopGuardConfig, *, bus: Optional[EventBus] = None):
+    def __init__(self, config: LoopGuardConfig, *, bus: EventBus | None = None):
         self._config = config
         self._bus = bus
         # Track call hashes and their counts
@@ -96,13 +95,12 @@ class LoopGuard:
     def _python_check(self, tool_name: str, arguments: str) -> LoopVerdict:
         """Pure-Python fallback when Rust backend is not available."""
         # 1. Hash tracking — identical calls
-        # Mirror the Rust HashSet behavior so environments without the
-        # compiled extension still block the second identical call.
+        # Mirror the Rust backend behavior: block after max_identical_calls.
         call_hash = hashlib.sha256(
             f"{tool_name}:{arguments}".encode()
         ).hexdigest()[:16]
         self._call_counts[call_hash] = self._call_counts.get(call_hash, 0) + 1
-        if self._call_counts[call_hash] >= 2:
+        if self._call_counts[call_hash] > self._config.max_identical_calls:
             self._emit_triggered("identical_call", tool_name)
             return LoopVerdict(
                 blocked=True,

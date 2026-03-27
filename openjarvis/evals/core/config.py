@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-import sys
+import tomllib
 from pathlib import Path
-from typing import List
 
 from openjarvis.evals.core.types import (
     BenchmarkConfig,
@@ -17,17 +16,6 @@ from openjarvis.evals.core.types import (
     ModelConfig,
     RunConfig,
 )
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except ImportError as exc:
-        raise ImportError(
-            "Python 3.10 requires the 'tomli' package. "
-            "Install it with: pip install tomli"
-        ) from exc
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +31,7 @@ KNOWN_BENCHMARKS = {
     "knowledge_base", "coding_task",
     "coding_assistant", "security_scanner", "daily_digest",
     "doc_qa", "browser_assistant",
+    "deepplanning", "lifelong-agent", "loghub", "paperarena",
 }
 
 
@@ -118,7 +107,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
     if not models_raw:
         raise EvalConfigError("Config must define at least one [[models]] entry")
 
-    models: List[ModelConfig] = []
+    models: list[ModelConfig] = []
     for m in models_raw:
         if not m.get("name"):
             raise EvalConfigError("Each [[models]] entry must have a 'name' field")
@@ -146,7 +135,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
             "Config must define at least one [[benchmarks]] entry"
         )
 
-    benchmarks: List[BenchmarkConfig] = []
+    benchmarks: list[BenchmarkConfig] = []
     for b in benchmarks_raw:
         if not b.get("name"):
             raise EvalConfigError(
@@ -188,7 +177,7 @@ def load_eval_config(path: str | Path) -> EvalSuiteConfig:
     )
 
 
-def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
+def expand_suite(suite: EvalSuiteConfig) -> list[RunConfig]:
     """Expand an EvalSuiteConfig into a list of RunConfigs (models x benchmarks).
 
     Merge precedence (highest wins):
@@ -200,7 +189,7 @@ def expand_suite(suite: EvalSuiteConfig) -> List[RunConfig]:
     Returns:
         List of RunConfig, one per model-benchmark pair.
     """
-    configs: List[RunConfig] = []
+    configs: list[RunConfig] = []
     output_dir = suite.run.output_dir.rstrip("/")
 
     for model in suite.models:
