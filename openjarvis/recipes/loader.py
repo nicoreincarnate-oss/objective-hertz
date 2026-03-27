@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     import tomllib
@@ -42,57 +42,58 @@ class Recipe:
     kind: str = "discrete"  # "discrete" | "operator"
 
     # Intelligence
-    model: Optional[str] = None
-    quantization: Optional[str] = None
-    provider: Optional[str] = None
+    model: str | None = None
+    quantization: str | None = None
+    provider: str | None = None
 
     # Engine
-    engine_key: Optional[str] = None
+    engine_key: str | None = None
 
     # Agent
-    agent_type: Optional[str] = None
-    max_turns: Optional[int] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    tools: List[str] = field(default_factory=list)
-    system_prompt: Optional[str] = None
-    system_prompt_path: Optional[str] = None
+    agent_type: str | None = None
+    max_turns: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    tools: list[str] = field(default_factory=list)
+    system_prompt: str | None = None
+    system_prompt_path: str | None = None
 
     # Learning
-    routing_policy: Optional[str] = None
-    agent_policy: Optional[str] = None
+    routing_policy: str | None = None
+    agent_policy: str | None = None
 
     # Eval (discrete agents)
-    eval_suites: List[str] = field(default_factory=list)
-    eval_benchmarks: List[str] = field(default_factory=list)
-    eval_backend: Optional[str] = None
-    eval_max_samples: Optional[int] = None
-    eval_judge_model: Optional[str] = None
+    eval_suites: list[str] = field(default_factory=list)
+    eval_benchmarks: list[str] = field(default_factory=list)
+    eval_backend: str | None = None
+    eval_max_samples: int | None = None
+    eval_judge_model: str | None = None
 
     # Schedule (operators)
-    schedule_type: Optional[str] = None
-    schedule_value: Optional[str] = None
+    schedule_type: str | None = None
+    schedule_value: str | None = None
 
     # Channels (operators)
-    channels: List[str] = field(default_factory=list)
+    channels: list[str] = field(default_factory=list)
 
     # Security
-    required_capabilities: List[str] = field(default_factory=list)
+    required_capabilities: list[str] = field(default_factory=list)
 
     # Raw TOML data for forward-compat
-    raw: Dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
     # Conversion helpers
     # ------------------------------------------------------------------ #
 
-    def to_builder_kwargs(self) -> Dict[str, Any]:
+    def to_builder_kwargs(self) -> dict[str, Any]:
         """Convert recipe fields to kwargs for SystemBuilder/Jarvis.
 
         Returns a dict with only the non-None fields, keyed to match
         the SystemBuilder fluent API or Jarvis constructor parameters.
         """
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if self.model is not None:
             kwargs["model"] = self.model
         if self.engine_key is not None:
@@ -126,9 +127,9 @@ class Recipe:
 
     def to_eval_suite(
         self,
-        benchmarks: Optional[List[str]] = None,
-        max_samples: Optional[int] = None,
-        judge_model: Optional[str] = None,
+        benchmarks: list[str] | None = None,
+        max_samples: int | None = None,
+        judge_model: str | None = None,
     ) -> Any:
         """Convert this recipe into an ``EvalSuiteConfig``.
 
@@ -234,7 +235,7 @@ def load_recipe(path: str | Path) -> Recipe:
     )
 
 
-def _load_operator_as_recipe(path: Path, data: Dict[str, Any]) -> Recipe:
+def _load_operator_as_recipe(path: Path, data: dict[str, Any]) -> Recipe:
     """Convert a legacy ``[operator]`` manifest into a Recipe."""
     op = data["operator"]
     agent_data = op.get("agent", {})
@@ -278,10 +279,10 @@ def _load_operator_as_recipe(path: Path, data: Dict[str, Any]) -> Recipe:
 
 
 def discover_recipes(
-    extra_dirs: Optional[List[str | Path]] = None,
+    extra_dirs: list[str | Path] | None = None,
     *,
-    kind: Optional[str] = None,
-) -> List[Recipe]:
+    kind: str | None = None,
+) -> list[Recipe]:
     """Discover all TOML recipes from known directories.
 
     Search order (later entries override earlier ones by name):
@@ -295,7 +296,7 @@ def discover_recipes(
         extra_dirs: Additional directories to scan.
         kind: If set, filter to only "discrete" or "operator" recipes.
     """
-    dirs: List[Path] = [
+    dirs: list[Path] = [
         _PROJECT_RECIPES_DIR,
         _PROJECT_OPERATORS_DIR,
         _USER_RECIPES_DIR,
@@ -304,7 +305,7 @@ def discover_recipes(
     if extra_dirs:
         dirs.extend(Path(d) for d in extra_dirs)
 
-    recipes: Dict[str, Recipe] = {}
+    recipes: dict[str, Recipe] = {}
     for d in dirs:
         if not d.is_dir():
             continue
@@ -319,7 +320,7 @@ def discover_recipes(
     return list(recipes.values())
 
 
-def resolve_recipe(name: str) -> Optional[Recipe]:
+def resolve_recipe(name: str) -> Recipe | None:
     """Find a recipe by name from all known directories.
 
     Returns ``None`` if no recipe with the given name is found.

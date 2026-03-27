@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.backend import InferenceBackend
 from openjarvis.evals.core.scorer import LLMJudgeScorer
@@ -19,7 +19,7 @@ class PersonalBenchmarkScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         """Compare *model_answer* against *record.reference* using the judge LLM.
 
         Returns ``(is_correct, metadata)`` where *is_correct* indicates whether
@@ -40,7 +40,13 @@ class PersonalBenchmarkScorer(LLMJudgeScorer):
             prompt, system="You are an impartial quality judge.",
         )
         first_line = response.strip().split("\n")[0].strip().upper()
-        is_correct = first_line.startswith("YES")
+        if first_line.startswith("YES"):
+            is_correct: bool | None = True
+        elif first_line.startswith("NO"):
+            is_correct = False
+        else:
+            # Indeterminate — judge did not give a clear YES/NO
+            is_correct = None
         return is_correct, {"judge_response": response}
 
 

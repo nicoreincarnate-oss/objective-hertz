@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.types import RunSummary
 from openjarvis.recipes.loader import Recipe
@@ -16,9 +16,9 @@ class SearchDimension:
     name: str  # e.g. "agent.type", "intelligence.temperature"
     dim_type: str  # "categorical", "continuous", "integer", "subset", "text"
     # categorical/subset: explicit options
-    values: List[Any] = field(default_factory=list)
-    low: Optional[float] = None  # continuous/integer lower bound
-    high: Optional[float] = None  # continuous/integer upper bound
+    values: list[Any] = field(default_factory=list)
+    low: float | None = None  # continuous/integer lower bound
+    high: float | None = None  # continuous/integer upper bound
     description: str = ""  # human-readable explanation for the LLM optimizer
     primitive: str = ""  # intelligence | engine | agent | tools | learning
 
@@ -27,18 +27,18 @@ class SearchDimension:
 class SearchSpace:
     """The full space of configs the optimizer can propose."""
 
-    dimensions: List[SearchDimension] = field(default_factory=list)
-    fixed: Dict[str, Any] = field(default_factory=dict)  # params NOT being optimized
-    constraints: List[str] = field(default_factory=list)  # natural language constraints
+    dimensions: list[SearchDimension] = field(default_factory=list)
+    fixed: dict[str, Any] = field(default_factory=dict)  # params NOT being optimized
+    constraints: list[str] = field(default_factory=list)  # natural language constraints
 
     def to_prompt_description(self) -> str:
         """Render search space as structured text for the LLM optimizer."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("# Search Space")
         lines.append("")
 
         # Group dimensions by primitive
-        by_primitive: Dict[str, List[SearchDimension]] = {}
+        by_primitive: dict[str, list[SearchDimension]] = {}
         for dim in self.dimensions:
             key = dim.primitive or "other"
             by_primitive.setdefault(key, []).append(dim)
@@ -73,9 +73,10 @@ class SearchSpace:
 
 
 # Mapping from dotted param names to Recipe constructor fields.
-_PARAM_TO_RECIPE: Dict[str, str] = {
+_PARAM_TO_RECIPE: dict[str, str] = {
     "intelligence.model": "model",
     "intelligence.temperature": "temperature",
+    "intelligence.top_p": "top_p",
     "intelligence.max_tokens": "max_tokens",
     "intelligence.quantization": "quantization",
     "engine.backend": "engine_key",
@@ -102,8 +103,8 @@ class BenchmarkScore:
     samples_evaluated: int = 0
     errors: int = 0
     weight: float = 1.0
-    summary: Optional[Any] = None  # RunSummary
-    sample_scores: List["SampleScore"] = field(default_factory=list)
+    summary: Any | None = None  # RunSummary
+    sample_scores: list[SampleScore] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -111,13 +112,13 @@ class SampleScore:
     """Per-sample metrics from an evaluation trial."""
 
     record_id: str
-    is_correct: Optional[bool] = None
-    score: Optional[float] = None
+    is_correct: bool | None = None
+    score: float | None = None
     latency_seconds: float = 0.0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost_usd: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     ttft: float = 0.0
     energy_joules: float = 0.0
     power_watts: float = 0.0
@@ -137,9 +138,9 @@ class TrialFeedback:
     """Structured feedback from trial analysis."""
 
     summary_text: str = ""
-    failure_patterns: List[str] = field(default_factory=list)
-    primitive_ratings: Dict[str, str] = field(default_factory=dict)
-    suggested_changes: List[str] = field(default_factory=list)
+    failure_patterns: list[str] = field(default_factory=list)
+    primitive_ratings: dict[str, str] = field(default_factory=dict)
+    suggested_changes: list[str] = field(default_factory=list)
     target_primitive: str = ""
 
 
@@ -181,12 +182,12 @@ class TrialConfig:
     """A single candidate configuration proposed by the optimizer."""
 
     trial_id: str
-    params: Dict[str, Any] = field(default_factory=dict)  # dotted keys -> values
+    params: dict[str, Any] = field(default_factory=dict)  # dotted keys -> values
     reasoning: str = ""  # optimizer's explanation
 
     def to_recipe(self) -> Recipe:
         """Map params back to Recipe fields."""
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         for dotted_key, value in self.params.items():
             recipe_field = _PARAM_TO_RECIPE.get(dotted_key)
             if recipe_field is not None:
@@ -211,12 +212,12 @@ class TrialResult:
     total_tokens: int = 0
     samples_evaluated: int = 0
     analysis: str = ""
-    failure_modes: List[str] = field(default_factory=list)
-    per_sample_feedback: List[Dict[str, Any]] = field(default_factory=list)
-    summary: Optional[RunSummary] = None
-    sample_scores: List[SampleScore] = field(default_factory=list)
-    structured_feedback: Optional[TrialFeedback] = None
-    per_benchmark: List[BenchmarkScore] = field(default_factory=list)
+    failure_modes: list[str] = field(default_factory=list)
+    per_sample_feedback: list[dict[str, Any]] = field(default_factory=list)
+    summary: RunSummary | None = None
+    sample_scores: list[SampleScore] = field(default_factory=list)
+    structured_feedback: TrialFeedback | None = None
+    per_benchmark: list[BenchmarkScore] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -225,15 +226,15 @@ class OptimizationRun:
 
     run_id: str
     search_space: SearchSpace
-    trials: List[TrialResult] = field(default_factory=list)
-    best_trial: Optional[TrialResult] = None
-    best_recipe_path: Optional[str] = None
+    trials: list[TrialResult] = field(default_factory=list)
+    best_trial: TrialResult | None = None
+    best_recipe_path: str | None = None
     status: str = "running"  # running | completed | failed
     optimizer_model: str = ""
     benchmark: str = ""
-    benchmarks: List[str] = field(default_factory=list)
-    pareto_frontier: List[TrialResult] = field(default_factory=list)
-    objectives: List[ObjectiveSpec] = field(
+    benchmarks: list[str] = field(default_factory=list)
+    pareto_frontier: list[TrialResult] = field(default_factory=list)
+    objectives: list[ObjectiveSpec] = field(
         default_factory=lambda: list(DEFAULT_OBJECTIVES),
     )
 
