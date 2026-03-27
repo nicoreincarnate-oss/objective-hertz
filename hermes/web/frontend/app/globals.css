@@ -247,14 +247,15 @@
 
 @keyframes breathe {
   0%, 100% {
-    box-shadow: 0 0 24px rgba(88, 224, 255, 0.2), 0 0 48px rgba(17, 151, 255, 0.1);
+    opacity: 0.85;
   }
   50% {
-    box-shadow: 0 0 36px rgba(88, 224, 255, 0.3), 0 0 72px rgba(17, 151, 255, 0.16);
+    opacity: 1;
   }
 }
 
 .breathing-glow {
+  will-change: transform;
   animation: breathe 4s ease-in-out infinite;
 }
 
@@ -302,6 +303,7 @@
 }
 
 .glass-card {
+  contain: paint;
   background: linear-gradient(180deg, rgba(6, 20, 31, 0.76), rgba(4, 13, 22, 0.62));
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -372,6 +374,7 @@
 /* ── Phase 0: Glassmorphism Elevated ─────────────────────── */
 
 .glass-card-elevated {
+  contain: paint;
   background: linear-gradient(180deg, rgba(8, 24, 38, 0.82), rgba(4, 14, 22, 0.72));
   backdrop-filter: blur(var(--glass-blur-heavy));
   -webkit-backdrop-filter: blur(var(--glass-blur-heavy));

@@ -34,7 +34,7 @@ export function CinematicBackdrop({
         pointerColor="57, 243, 226"
         size="80%"
         blendingValue="hard-light"
-        interactive={true}
+        interactive={false}
         containerClassName="absolute inset-0 opacity-40"
       >
         <></>

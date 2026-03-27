@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { TrendingUp, ChevronRight, ArrowDown } from 'lucide-react'
 import {
@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { AnimatedBeam } from '@/components/ui/animated-beam'
 
 interface PipelinePulseProps {
   data: Record<string, number>
@@ -46,13 +45,6 @@ const STAGES = [
 export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
   const [selectedStage, setSelectedStage] = useState<string | null>(null)
 
-  // Refs for AnimatedBeam: one container + one ref per stage node
-  const containerRef = useRef<HTMLDivElement>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stageRefs = useRef<Array<React.RefObject<HTMLElement>>>(
-    STAGES.map(() => React.createRef<HTMLElement>() as React.RefObject<HTMLElement>)
-  )
-
   const total = Object.values(data).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
   const maxValue = Math.max(...Object.values(data).filter((v): v is number => typeof v === 'number'), 1)
   const discoveredCount = (data['discovered'] ?? 0) || 1
@@ -76,8 +68,8 @@ export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
           <span className="text-xs text-muted-foreground ml-auto">{total} leads total</span>
         </h2>
 
-        {/* Flow visualization — container ref needed for AnimatedBeam positioning */}
-        <div ref={containerRef} className="relative space-y-1">
+        {/* Flow visualization */}
+        <div className="relative space-y-1">
           {STAGES.map((stage, index) => {
             const value = data[stage.key] ?? 0
             const nextValue = index < STAGES.length - 1 ? (data[STAGES[index + 1].key] ?? 0) : 0
@@ -96,8 +88,8 @@ export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
                   onClick={() => setSelectedStage(stage.key)}
                   className="group w-full flex items-center gap-3 py-1.5 hover:bg-white/[0.03] rounded-lg px-2 -mx-2 transition-colors cursor-pointer"
                 >
-                  {/* Stage icon — ref target for AnimatedBeam */}
-                  <div ref={stageRefs.current[index] as React.RefObject<HTMLDivElement>} className="w-5 h-5 shrink-0 flex items-center justify-center">
+                  {/* Stage icon */}
+                  <div className="w-5 h-5 shrink-0 flex items-center justify-center">
                     <img
                       src={stage.icon}
                       alt={stage.label}
@@ -140,20 +132,11 @@ export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
                   <ChevronRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
                 </motion.button>
 
-                {/* Connector line replaced by AnimatedBeam between this icon and the next */}
-                {index < STAGES.length - 1 && containerRef.current && stageRefs.current[index].current && stageRefs.current[index + 1].current && (
-                  <AnimatedBeam
-                    containerRef={containerRef as React.RefObject<HTMLElement>}
-                    fromRef={stageRefs.current[index]}
-                    toRef={stageRefs.current[index + 1]}
-                    gradientStartColor={stage.color}
-                    gradientStopColor={STAGES[index + 1].color}
-                    pathColor={stage.color}
-                    pathOpacity={0.15}
-                    pathWidth={1}
-                    duration={3}
-                    delay={index * 0.15}
-                    curvature={0}
+                {/* Connector line between stages */}
+                {index < STAGES.length - 1 && (
+                  <div
+                    className="ml-[18px] w-px h-1"
+                    style={{ background: `linear-gradient(180deg, ${stage.color}40, ${STAGES[index + 1].color}40)` }}
                   />
                 )}
               </div>

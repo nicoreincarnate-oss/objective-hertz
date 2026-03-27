@@ -3,7 +3,6 @@
 import { motion } from 'framer-motion'
 import { Activity, Mail, Users, TrendingUp, Clock, Wifi, WifiOff } from 'lucide-react'
 import { SparklesText } from '@/components/ui/sparkles-text'
-import { AuroraBackground } from '@/components/ui/aurora-background'
 import { NumberTicker } from '@/components/ui/number-ticker'
 
 interface HeroCardProps {
@@ -26,7 +25,7 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
     return 'Runtime is clear'
   }
 
-  // Health status drives aurora intensity
+  // Health status drives aurora blob colors
   const healthLevel = pendingApprovals > 5 ? 'critical' : pendingApprovals > 0 ? 'warning' : 'healthy'
 
   return (
@@ -36,14 +35,6 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       transition={{ duration: 0.6 }}
       className="relative overflow-hidden"
     >
-      {/* AuroraBackground as the organic GPU-accelerated base layer */}
-      <AuroraBackground
-        className="absolute inset-0 rounded-2xl h-full w-full"
-        showRadialGradient={true}
-      >
-        <></>
-      </AuroraBackground>
-
       {/* Hero banner background image */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <img
