@@ -99,12 +99,21 @@ class SkillExecutor:
 
     @staticmethod
     def _render_template(template: str, ctx: Dict[str, Any]) -> str:
-        """Simple {key} placeholder rendering."""
+        """Render {key} placeholders with proper JSON escaping.
+
+        When a placeholder appears inside a JSON string (detected by
+        surrounding quotes), the substituted value is JSON-escaped to
+        prevent broken JSON from multiline content, quotes, or
+        backslashes in tool outputs.
+        """
         def _replace(match: re.Match) -> str:
             key = match.group(1)
             val = ctx.get(key, match.group(0))
             if isinstance(val, str):
-                return val
+                # JSON-escape the string value so it's safe inside a
+                # JSON string literal.  json.dumps adds surrounding
+                # quotes which we strip since the template already has them.
+                return json.dumps(val)[1:-1]
             return json.dumps(val)
 
         return re.sub(r"\{(\w+)\}", _replace, template)
