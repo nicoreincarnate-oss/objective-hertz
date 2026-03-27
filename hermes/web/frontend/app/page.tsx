@@ -53,6 +53,7 @@ function WarRoomDashboard() {
     healthStatus,
     isLoading,
     connectionStatus,
+    metricHistory,
   } = useWarRoom()
 
   const revenueCleared = health?.metrics?.revenue_cleared ?? 0
@@ -119,6 +120,7 @@ function WarRoomDashboard() {
             emailsToday={health?.metrics?.emails_sent_today || 0}
             emailsWeek={0}
             closeRate={closeRate}
+            metricHistory={metricHistory}
           />
         </section>
 

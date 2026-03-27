@@ -15,6 +15,7 @@ interface MetricsRowProps {
   pipelineVelocity?: number
   budgetRemaining?: number
   budgetTotal?: number
+  metricHistory?: Record<string, number[]>
 }
 
 type MetricColor = 'green' | 'amber' | 'gold' | 'muted' | 'teal'
@@ -29,16 +30,12 @@ interface MetricDef {
   color: MetricColor
   subtext: string
   sparklineColor: string
+  // Real time-series history — provided by WebSocket/backend when available
+  history?: number[]
 }
 
-// Deterministic sparkline — same value always produces same chart (not random)
-function makeSparkline(value: number): Array<{ v: number }> {
-  const base = Math.max(value, 0.5)
-  const seed = Math.abs(Math.sin(base * 12.9898) * 43758.5453) % 1
-  return Array.from({ length: 14 }, (_, i) => ({
-    v: base * (0.6 + 0.4 * Math.sin((i + seed * 6) * 0.7) * Math.cos((i + seed * 3) * 0.4)),
-  }))
-}
+// Sparkline data comes from the history prop when available.
+// Returns null when no real history exists — components show "No data yet" instead of fake charts.
 
 export function MetricsRow({
   revenueCleared,
@@ -49,6 +46,7 @@ export function MetricsRow({
   pipelineVelocity = 0,
   budgetRemaining,
   budgetTotal = 800,
+  metricHistory = {},
 }: MetricsRowProps) {
   const budget = budgetRemaining ?? budgetTotal
 
@@ -63,6 +61,7 @@ export function MetricsRow({
       color: 'green',
       subtext: 'Cleared',
       sparklineColor: '#62f1b5',
+      history: metricHistory['revenue_cleared'],
     },
     {
       icon: <Clock className="w-4 h-4" />,
@@ -74,6 +73,7 @@ export function MetricsRow({
       color: pendingRevenue > 0 ? 'amber' : 'muted',
       subtext: 'Awaiting',
       sparklineColor: '#ffb347',
+      history: metricHistory['revenue_pending'],
     },
     {
       icon: <Mail className="w-4 h-4" />,
@@ -85,6 +85,7 @@ export function MetricsRow({
       color: 'gold',
       subtext: `${emailsWeek}/wk`,
       sparklineColor: '#58e0ff',
+      history: metricHistory['emails_sent_today'],
     },
     {
       icon: <Percent className="w-4 h-4" />,
@@ -96,6 +97,7 @@ export function MetricsRow({
       color: closeRate >= 5 ? 'green' : 'amber',
       subtext: 'Conversion',
       sparklineColor: closeRate >= 5 ? '#62f1b5' : '#ffb347',
+      history: metricHistory['sales_closed'],
     },
     {
       icon: <Zap className="w-4 h-4" />,
@@ -141,7 +143,8 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
     muted: 'text-muted-foreground',
   }
 
-  const sparkData = makeSparkline(metric.value)
+  const hasHistory = metric.history && metric.history.length >= 2
+  const sparkData = hasHistory ? metric.history!.map(v => ({ v })) : null
 
   return (
     <motion.div
@@ -203,30 +206,38 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
             {metric.label} — trend
           </span>
-          <div className="flex-1 min-h-0" style={{ height: 52 }}>
-            <ResponsiveContainer width="100%" height={52}>
-              <AreaChart data={sparkData}>
-                <defs>
-                  <linearGradient id={`sp-${index}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={metric.sparklineColor} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={metric.sparklineColor} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <Area
-                  type="monotone"
-                  dataKey="v"
-                  stroke={metric.sparklineColor}
-                  strokeWidth={2}
-                  fill={`url(#sp-${index})`}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <div className={`text-sm font-bold ${colorClasses[metric.color]}`}>
-            {metric.prefix}{metric.value.toFixed(metric.decimals)}{metric.suffix}
-          </div>
+          {sparkData ? (
+            <>
+              <div className="flex-1 min-h-0" style={{ height: 52 }}>
+                <ResponsiveContainer width="100%" height={52}>
+                  <AreaChart data={sparkData}>
+                    <defs>
+                      <linearGradient id={`sp-${index}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={metric.sparklineColor} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={metric.sparklineColor} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="v"
+                      stroke={metric.sparklineColor}
+                      strokeWidth={2}
+                      fill={`url(#sp-${index})`}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className={`text-sm font-bold ${colorClasses[metric.color]}`}>
+                {metric.prefix}{metric.value.toFixed(metric.decimals)}{metric.suffix}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <span className="text-[11px] text-muted-foreground/50">No trend data yet</span>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
