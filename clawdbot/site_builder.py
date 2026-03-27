@@ -13,9 +13,11 @@ import json
 import logging
 import os
 import re
+from datetime import date
 from typing import Any
 
 from clawdbot.design_sources import _extract_research_facts
+from clawdbot.site_quality import evaluate_site_experience
 from shared.comms import record_decision
 from shared.db import emit_event
 from shared.llm_client import llm
@@ -32,6 +34,20 @@ DESIGN_DIRECTIONS = [
         "layout": "Centered single-column hero, strict grid, maximum whitespace",
         "animation": "Subtle fade-ins only",
         "copy_angle": "Direct, confident, short sentences",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            "https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js",
+        ],
+        "runtime_hints": [
+            "Use GSAP + ScrollTrigger for crisp scroll-driven reveals only where they clarify hierarchy.",
+            "Use Lenis for smooth scrolling if it improves the feeling of polish, not as a gimmick.",
+            "Prefer excellent easing, spacing, and restraint over lots of animation.",
+        ],
+        "fallback_rules": [
+            "All sections must read clearly with JavaScript disabled.",
+            "If animation fails, the hero must still feel intentional through typography and layout alone.",
+        ],
     },
     {
         "name": "bold-editorial",
@@ -41,6 +57,20 @@ DESIGN_DIRECTIONS = [
         "layout": "Multi-column editorial grid, split hero, pull-quotes",
         "animation": "Text reveals on scroll, parallax on images",
         "copy_angle": "Storytelling, PAS framework",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            "https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js",
+        ],
+        "runtime_hints": [
+            "Use GSAP timeline choreography for type, pull-quote, and image reveal sequences.",
+            "Use Lenis to make the editorial flow feel authored and premium.",
+            "Motion should reinforce story progression and section transitions.",
+        ],
+        "fallback_rules": [
+            "If JS fails, the editorial hierarchy and CTA sequence must still be obvious.",
+            "Do not rely on parallax for readability or meaning.",
+        ],
     },
     {
         "name": "dark-cinematic",
@@ -50,6 +80,21 @@ DESIGN_DIRECTIONS = [
         "layout": "Full-bleed dark sections, floating glow cards",
         "animation": "Glow pulses, particles, cursor effects",
         "copy_angle": "Bold, aspirational, power words",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            "https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js",
+            "https://cdn.jsdelivr.net/npm/pixi.js@8.2.6/dist/pixi.min.js",
+        ],
+        "runtime_hints": [
+            "Use GSAP for hero entrance, cards, and section pacing.",
+            "Use PixiJS only for subtle cinematic particle, grain, or glow layers if they materially improve the mood.",
+            "Make the page feel expensive, controlled, and dramatic rather than noisy.",
+        ],
+        "fallback_rules": [
+            "If canvas effects fail, fall back to static gradients, layered shadows, and typography.",
+            "Never make core navigation or CTA depend on PixiJS.",
+        ],
     },
     {
         "name": "organic-illustrated",
@@ -59,6 +104,19 @@ DESIGN_DIRECTIONS = [
         "layout": "Flowing sections with organic wave dividers, rounded cards",
         "animation": "Gentle fades, SVG path drawing",
         "copy_angle": "Warm, conversational, rhetorical questions",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+        ],
+        "runtime_hints": [
+            "Use GSAP sparingly for SVG path drawing, card reveals, or gentle entrance timing.",
+            "Lean on SVG, gradients, and illustration-like composition more than heavy JS.",
+            "Keep the emotional tone warm, human, and handcrafted.",
+        ],
+        "fallback_rules": [
+            "All decorative motion must degrade cleanly to static SVG or CSS.",
+            "Readable content and trust signals come before ornament.",
+        ],
     },
     {
         "name": "playful-animated",
@@ -68,8 +126,665 @@ DESIGN_DIRECTIONS = [
         "layout": "Bento grid layout, diagonal section breaks",
         "animation": "Bouncy springs, hover scale, count-ups, gradient mesh",
         "copy_angle": "Energetic, fun, analogies",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            "https://cdn.jsdelivr.net/npm/pixi.js@8.2.6/dist/pixi.min.js",
+            "https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.js",
+        ],
+        "runtime_hints": [
+            "Use GSAP for playful, elastic transitions and hover choreography.",
+            "Use PixiJS only if a lightweight hero or background canvas creates delight without hurting clarity.",
+            "Use Tone.js only for opt-in or click-triggered sound interactions; never autoplay sound.",
+        ],
+        "fallback_rules": [
+            "If JS fails, the site must still feel fun through color, shape, and typography.",
+            "If audio or canvas is used, provide a silent/static fallback immediately.",
+        ],
+    },
+    {
+        "name": "immersive-3d",
+        "style": "Spatial, sculptural, cinematic object-first storytelling",
+        "colors": "Moody charcoal + soft ivory + one acid accent",
+        "fonts": "General Sans (display) + Inter (body)",
+        "layout": "Hero anchored by a 3D object or spatial scene with layered supporting content",
+        "animation": "Camera-driven reveals, depth, parallax, sculptural motion",
+        "copy_angle": "Confident and world-building without losing clarity",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            "https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js",
+        ],
+        "runtime_hints": [
+            "Use Three.js only if it earns the concept, ideally in the hero or one signature section.",
+            "Use ScrollTrigger to drive camera, object motion, or reveal choreography.",
+            "Keep the 3D scene simple and performant enough to load from a CDN-only build.",
+        ],
+        "fallback_rules": [
+            "Provide a static hero composition or poster frame if WebGL is unavailable.",
+            "Never make important business information depend on Three.js rendering.",
+        ],
+    },
+    {
+        "name": "audio-reactive-canvas",
+        "style": "Instrument-like, rhythmic, visualized sound and energy",
+        "colors": "Near-black + neon cyan + warm amber",
+        "fonts": "Space Grotesk (display) + Inter (body)",
+        "layout": "Focused hero with one playable or reactive signature interaction",
+        "animation": "Reactive waveforms, pulses, and visualized timing",
+        "copy_angle": "Lean, precise, and sensory",
+        "cdn_deps": [
+            "https://cdn.jsdelivr.net/npm/pixi.js@8.2.6/dist/pixi.min.js",
+            "https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.js",
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+        ],
+        "runtime_hints": [
+            "Use PixiJS for the visual surface and Tone.js for click-triggered or opt-in reactive audio.",
+            "Do not autoplay sound; require a clear user gesture.",
+            "The page should feel like one memorable instrument-like moment, not a toy box.",
+        ],
+        "fallback_rules": [
+            "If audio is unavailable, fall back to the visual system only.",
+            "If canvas fails, show a strong static hero with the same emotional direction.",
+        ],
     },
 ]
+
+
+def _normalize_authored_entries(value: Any) -> list[dict[str, str]]:
+    """Normalize authored asset references from strings/lists/dicts into prompt-safe dicts."""
+    entries: list[dict[str, str]] = []
+
+    def add(item: Any) -> None:
+        if isinstance(item, str):
+            cleaned = item.strip()
+            if cleaned:
+                entries.append({"url": cleaned, "usage": "", "notes": ""})
+        elif isinstance(item, dict):
+            url = str(item.get("url", "") or item.get("src", "") or item.get("href", "")).strip()
+            usage = str(item.get("usage", "") or item.get("role", "") or item.get("placement", "")).strip()
+            notes = str(item.get("notes", "") or item.get("description", "") or item.get("prompt", "")).strip()
+            name = str(item.get("name", "") or item.get("title", "")).strip()
+            if url or usage or notes or name:
+                entry = {"url": url, "usage": usage, "notes": notes}
+                if name:
+                    entry["name"] = name
+                entries.append(entry)
+
+    if isinstance(value, list):
+        for item in value:
+            add(item)
+    else:
+        add(value)
+
+    return entries
+
+
+def _resolve_authored_assets(lead: dict, strategy: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve optional authored assets that the builder may embed if available."""
+    strategy = strategy or {}
+
+    def first_non_empty(*keys: str) -> Any:
+        for key in keys:
+            if key in lead and lead.get(key):
+                return lead.get(key)
+            if key in strategy and strategy.get(key):
+                return strategy.get(key)
+        return None
+
+    rive_assets = _normalize_authored_entries(
+        first_non_empty("rive_assets", "rive_urls", "rive_asset", "rive_url")
+    )
+    spline_assets = _normalize_authored_entries(
+        first_non_empty("spline_assets", "spline_scenes", "spline_urls", "spline_scene", "spline_url")
+    )
+    theatre_sequences = _normalize_authored_entries(
+        first_non_empty("theatre_sequences", "theatre_sequence", "theatre_notes", "theatre_js_notes")
+    )
+
+    return {
+        "rive_assets": rive_assets,
+        "spline_assets": spline_assets,
+        "theatre_sequences": theatre_sequences,
+        "has_authored_assets": bool(rive_assets or spline_assets or theatre_sequences),
+    }
+
+
+def _format_authored_asset_guidance(asset_pack: dict[str, Any]) -> str:
+    """Render optional authored assets into a prompt block."""
+    rive_assets = asset_pack.get("rive_assets", []) or []
+    spline_assets = asset_pack.get("spline_assets", []) or []
+    theatre_sequences = asset_pack.get("theatre_sequences", []) or []
+
+    if not rive_assets and not spline_assets and not theatre_sequences:
+        return """AUTHORED ASSETS:
+- No authored Rive, Spline, or Theatre.js inputs are available for this build.
+- Do not invent or fake those assets.
+- If they are absent, rely on HTML/CSS/SVG/Canvas composition instead."""
+
+    lines = ["AUTHORED ASSETS AVAILABLE:"]
+
+    if rive_assets:
+        lines.append("- Rive assets (optional; use for icon, hero accent, or microinteraction only):")
+        for item in rive_assets[:3]:
+            lines.append(
+                f"  - URL: {item.get('url', '') or 'n/a'} | usage: {item.get('usage', '') or 'microinteraction'} | notes: {item.get('notes', '') or 'keep it lightweight'}"
+            )
+    else:
+        lines.append("- No Rive assets available. Do not fake .riv usage.")
+
+    if spline_assets:
+        lines.append("- Spline assets (optional; use for a hero object or one spatial scene only):")
+        for item in spline_assets[:3]:
+            lines.append(
+                f"  - URL: {item.get('url', '') or 'n/a'} | usage: {item.get('usage', '') or 'hero scene'} | notes: {item.get('notes', '') or 'keep it focused'}"
+            )
+    else:
+        lines.append("- No Spline scenes available. Do not pretend a Spline asset exists.")
+
+    if theatre_sequences:
+        lines.append("- Theatre.js sequence notes (optional choreography input, not mandatory runtime):")
+        for item in theatre_sequences[:3]:
+            label = item.get("name", "") or item.get("usage", "") or "sequence"
+            lines.append(
+                f"  - {label}: {item.get('notes', '') or item.get('url', '') or 'Use as timing/choreography direction only.'}"
+            )
+    else:
+        lines.append("- No Theatre.js sequence notes available.")
+
+    lines.extend(
+        [
+            "AUTHORED ASSET RULES:",
+            "- Use authored assets only if they clearly strengthen the concept.",
+            "- If an authored asset is missing, brittle, or slows the page down, skip it and fall back gracefully.",
+            "- Never make core business info, CTA, or navigation depend on authored assets loading.",
+            "- If Theatre.js notes are present but a direct Theatre runtime is overkill, translate the timing into GSAP/Three behavior instead.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _site_build_settings() -> Any:
+    """Return site-build config with safe defaults for tests/fallbacks."""
+    try:
+        from shared.config import config as shared_config
+
+        return getattr(shared_config, "site_build", None) or getattr(shared_config, "config", None)
+    except Exception:
+        return None
+
+
+async def _safe_fetch_val(query: str, params: tuple = ()) -> Any:
+    try:
+        from shared.db import fetch_val
+    except Exception:
+        return None
+
+    try:
+        return await fetch_val(query, params)
+    except Exception:
+        return None
+
+
+def _infer_build_mode(lead: dict, strategy: dict[str, Any], site_type: str) -> str:
+    context = " ".join(
+        [
+            str(lead.get("industry", "")),
+            str(lead.get("business_name", "")),
+            str(lead.get("research_summary", "")),
+            json.dumps(strategy.get("reference_patterns", [])),
+            json.dumps(strategy.get("design_sources", [])),
+        ]
+    ).lower()
+
+    if any(keyword in context for keyword in ("music", "album", "audio", "sound", "dj")):
+        return "audio-reactive"
+    if any(keyword in context for keyword in ("museum", "archive", "retro", "nostalgia", "y2k", "collector")):
+        return "retro-interface"
+    if any(keyword in context for keyword in ("studio", "portfolio", "creative", "design", "agency", "editorial")):
+        return "editorial-motion"
+    if any(keyword in context for keyword in ("luxury", "furniture", "interior", "architecture", "gallery", "product")):
+        return "surreal-product"
+    if site_type == "full":
+        return "premium-conversion"
+    return "conversion"
+
+
+def _select_runtime_profile(build_mode: str, site_type: str) -> str:
+    if build_mode == "audio-reactive":
+        return "tone-pixi-lite" if site_type == "demo" else "tone-pixi"
+    if build_mode in {"editorial-motion", "surreal-product"}:
+        return "gsap-lenis"
+    if build_mode == "retro-interface":
+        return "retro-dom-motion"
+    return "dom-motion"
+
+
+def _runtime_bundle(build_mode: str, runtime_profile: str) -> dict[str, list[str]]:
+    """Return generic runtime guidance for the final synthesized build."""
+    if runtime_profile == "gsap-lenis":
+        return {
+            "cdn_deps": [
+                "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+                "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+                "https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js",
+            ],
+            "runtime_hints": [
+                "Use GSAP + ScrollTrigger for precise reveal timing and narrative pacing.",
+                "Use Lenis only if it improves the smoothness of the authored scroll experience.",
+            ],
+            "fallback_rules": [
+                "Respect prefers-reduced-motion and disable scroll-linked motion when requested.",
+                "The hero and CTA must still work if all JS fails.",
+            ],
+        }
+    if runtime_profile == "tone-pixi":
+        return {
+            "cdn_deps": [
+                "https://cdn.jsdelivr.net/npm/pixi.js@8.2.6/dist/pixi.min.js",
+                "https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.js",
+                "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            ],
+            "runtime_hints": [
+                "Use PixiJS for a single memorable interactive visual surface.",
+                "Use Tone.js only behind an explicit user gesture; never autoplay sound.",
+            ],
+            "fallback_rules": [
+                "If canvas or audio fails, fall back to a static hero and silent experience immediately.",
+                "Do not hide navigation, proof, or CTA inside the immersive layer.",
+            ],
+        }
+    if runtime_profile == "tone-pixi-lite":
+        return {
+            "cdn_deps": [
+                "https://cdn.jsdelivr.net/npm/pixi.js@8.2.6/dist/pixi.min.js",
+                "https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.js",
+            ],
+            "runtime_hints": [
+                "Keep the interactive layer lightweight and optional.",
+                "Use sound only after a user click and only if it clearly improves the concept.",
+            ],
+            "fallback_rules": [
+                "Provide a strong static design if JS, audio, or canvas fails.",
+            ],
+        }
+    if build_mode == "surreal-product":
+        return {
+            "cdn_deps": [
+                "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.min.js",
+                "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+                "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js",
+            ],
+            "runtime_hints": [
+                "If 3D earns the concept, use a restrained Three.js object or scene in the hero only.",
+                "Use GSAP for camera or object reveal choreography rather than constant motion.",
+            ],
+            "fallback_rules": [
+                "Show a static poster-like hero if WebGL is unavailable.",
+                "Never make important content depend on 3D rendering.",
+            ],
+        }
+    return {
+        "cdn_deps": [],
+        "runtime_hints": [
+            "Use CSS and light JavaScript only when they materially improve the page.",
+        ],
+        "fallback_rules": [
+            "All content and CTA paths must work without JavaScript.",
+        ],
+    }
+
+
+async def _resolve_build_plan(
+    lead: dict,
+    *,
+    site_type: str,
+    page_count: int,
+    strategy: dict[str, Any],
+) -> dict[str, Any]:
+    settings = _site_build_settings()
+    build_mode = strategy.get("build_mode") or _infer_build_mode(lead, strategy, site_type)
+    runtime_profile = strategy.get("runtime_profile") or _select_runtime_profile(build_mode, site_type)
+    monthly_paid_asset_cap = float(getattr(settings, "monthly_paid_asset_cap", 30.0) or 30.0)
+    per_site_asset_cap = float(
+        getattr(settings, "per_full_asset_cap", 0.08) if site_type == "full" else getattr(settings, "per_demo_asset_cap", 0.03)
+    )
+    max_assets = int(getattr(settings, "max_full_assets", 4) if site_type == "full" else getattr(settings, "max_demo_assets", 2))
+    variant_limit = int(getattr(settings, "full_variants", 5) if site_type == "full" else getattr(settings, "demo_variants", 3))
+
+    month_start = date.today().replace(day=1)
+    monthly_spend = float(
+        await _safe_fetch_val(
+            """SELECT COALESCE(SUM(amount), 0) FROM budget_tracking
+               WHERE month = %s AND category = 'recraft_api'""",
+            (month_start,),
+        )
+        or 0.0
+    )
+    current_client_spend = float(
+        await _safe_fetch_val(
+            """SELECT COALESCE(SUM(amount), 0) FROM budget_tracking
+               WHERE month = %s AND category = 'recraft_api' AND client_id = %s""",
+            (month_start, lead.get("id")),
+        )
+        or 0.0
+    )
+    remaining_monthly = max(0.0, monthly_paid_asset_cap - monthly_spend)
+    remaining_site = max(0.0, per_site_asset_cap - current_client_spend)
+    allow_paid_assets = remaining_monthly >= 0.01 and remaining_site >= 0.01 and max_assets > 0
+    runtime_bundle = _runtime_bundle(build_mode, runtime_profile)
+
+    return {
+        "site_type": site_type,
+        "page_count": page_count,
+        "build_mode": build_mode,
+        "runtime_profile": runtime_profile,
+        "variant_limit": max(1, variant_limit),
+        "max_assets": max(0, max_assets),
+        "allow_paid_assets": allow_paid_assets,
+        "remaining_monthly_asset_budget": round(remaining_monthly, 2),
+        "remaining_site_asset_budget": round(remaining_site, 2),
+        "governing_idea": strategy.get("governing_idea", strategy.get("visual_direction", "Memorable, business-specific conversion design")),
+        "emotional_target": strategy.get("emotional_target", "Trust and intrigue in the first 5 seconds"),
+        "signature_moments": strategy.get("signature_moments", []),
+        "cdn_deps": runtime_bundle["cdn_deps"],
+        "runtime_hints": runtime_bundle["runtime_hints"],
+        "fallback_rules": runtime_bundle["fallback_rules"],
+    }
+
+
+async def _generate_asset_pack(lead: dict, build_plan: dict[str, Any]) -> dict[str, Any]:
+    """Generate only the paid assets the site can justify and afford."""
+    if not build_plan.get("allow_paid_assets"):
+        return {
+            "logo_url": "",
+            "hero_url": "",
+            "assets_generated": 0,
+            "reason": "budget_guard",
+        }
+
+    from clawdbot.daemon import handle_image_generation
+
+    business_name = lead.get("business_name", "Business")
+    industry = lead.get("industry", "")
+    city = lead.get("city", "")
+    client_id = lead.get("id")
+    generated = 0
+    max_assets = int(build_plan.get("max_assets", 0))
+    asset_pack = {
+        "logo_url": "",
+        "hero_url": "",
+        "assets_generated": 0,
+        "reason": "generated",
+    }
+
+    if generated < max_assets:
+        logo = await handle_image_generation(
+            {
+                "type": "logo",
+                "business_name": business_name,
+                "industry": industry,
+                "client_id": client_id,
+            }
+        )
+        if logo.get("url"):
+            asset_pack["logo_url"] = logo["url"]
+            generated += 1
+
+    should_generate_hero = (
+        generated < max_assets
+        and build_plan.get("remaining_site_asset_budget", 0.0) >= 0.02
+        and (
+            build_plan.get("site_type") == "full"
+            or build_plan.get("build_mode") in {"editorial-motion", "surreal-product", "audio-reactive"}
+        )
+    )
+    if should_generate_hero:
+        hero = await handle_image_generation(
+            {
+                "type": "hero",
+                "business_name": business_name,
+                "industry": industry,
+                "city": city,
+                "client_id": client_id,
+            }
+        )
+        if hero.get("url"):
+            asset_pack["hero_url"] = hero["url"]
+            generated += 1
+
+    asset_pack["assets_generated"] = generated
+    return asset_pack
+
+
+INNER_PAGE_SPECS = {
+    "about.html": {
+        "title": "About",
+        "description": "Business story, team/founder background, values, years of experience, mission.",
+        "data_keys": ["research_summary", "research_facts"],
+    },
+    "services.html": {
+        "title": "Services",
+        "description": "Detailed service descriptions, specialties, process/approach, service areas.",
+        "data_keys": ["research_facts", "industry"],
+    },
+    "gallery.html": {
+        "title": "Gallery",
+        "description": "Portfolio/project showcase using a CSS grid. Use gradients, SVG, and layout to represent work — never stock images.",
+        "data_keys": ["research_facts", "industry"],
+    },
+    "contact.html": {
+        "title": "Contact",
+        "description": "Contact form, phone, email, business address, hours of operation, map placeholder.",
+        "data_keys": ["email", "city", "country", "contact_name"],
+    },
+}
+
+FULL_SITE_NAV_PAGES = ["index.html", "about.html", "services.html", "gallery.html", "contact.html"]
+
+
+def _extract_shared_shell(index_html: str) -> str:
+    """Extract the reusable design shell (head, nav, footer, styles) from an approved index.html.
+
+    This gives inner-page prompts the exact design system to match, so the LLM
+    only needs to generate the <main> content.
+    """
+    parts = []
+
+    head_match = re.search(r"<head[\s>].*?</head>", index_html, re.DOTALL | re.IGNORECASE)
+    if head_match:
+        parts.append(f"<!-- SHARED HEAD -->\n{head_match.group()}")
+
+    nav_match = re.search(r"<nav[\s>].*?</nav>", index_html, re.DOTALL | re.IGNORECASE)
+    if nav_match:
+        parts.append(f"<!-- SHARED NAV -->\n{nav_match.group()}")
+
+    # Also grab <header> if it wraps the nav
+    header_match = re.search(r"<header[\s>].*?</header>", index_html, re.DOTALL | re.IGNORECASE)
+    if header_match and nav_match and nav_match.group() in header_match.group():
+        parts = [p for p in parts if "SHARED NAV" not in p]
+        parts.append(f"<!-- SHARED HEADER -->\n{header_match.group()}")
+
+    footer_match = re.search(r"<footer[\s>].*?</footer>", index_html, re.DOTALL | re.IGNORECASE)
+    if footer_match:
+        parts.append(f"<!-- SHARED FOOTER -->\n{footer_match.group()}")
+
+    # Standalone <style> blocks not inside <head>
+    style_blocks = re.findall(r"<style[\s>].*?</style>", index_html, re.DOTALL | re.IGNORECASE)
+    for block in style_blocks:
+        if head_match and block in head_match.group():
+            continue
+        parts.append(f"<!-- SHARED STYLE -->\n{block}")
+
+    return "\n\n".join(parts) if parts else ""
+
+
+def _build_page_brief(page_name: str, lead: dict) -> str:
+    """Build a content brief for an inner page using lead data."""
+    spec = INNER_PAGE_SPECS.get(page_name, {})
+    title: str = str(spec.get("title", page_name.replace(".html", "").title()))
+    description = spec.get("description", f"Content for the {title} page.")
+
+    context_parts = []
+    for key in spec.get("data_keys", []):
+        value = lead.get(key)
+        if value:
+            if isinstance(value, dict):
+                context_parts.append(f"{key}: {json.dumps(value, default=str)[:800]}")
+            elif isinstance(value, str):
+                context_parts.append(f"{key}: {value[:600]}")
+            else:
+                context_parts.append(f"{key}: {value}")
+
+    business_name = lead.get("business_name", "Business")
+    industry = lead.get("industry", "")
+    city = lead.get("city", "")
+
+    return f"""PAGE: {title} ({page_name})
+Business: {business_name} ({industry}{f', {city}' if city else ''})
+Purpose: {description}
+
+Available business context:
+{chr(10).join(context_parts) if context_parts else f'Use general {industry} industry context to write compelling {title.lower()} content.'}
+
+Write real, specific content for this business — never placeholder text."""
+
+
+async def _build_single_page(
+    page_name: str,
+    page_brief: str,
+    shared_shell: str,
+    build_plan: dict[str, Any],
+) -> str:
+    """Generate a single inner page using the shared design shell from index.html."""
+    nav_links = "\n".join(
+        f"- {name.replace('.html', '').replace('index', 'Home').title()} → {name}"
+        for name in FULL_SITE_NAV_PAGES
+    )
+
+    prompt = f"""Build the complete HTML for an inner page of a multi-page website.
+
+{page_brief}
+
+DESIGN SYSTEM (use this EXACTLY — same head, nav, footer, fonts, colors, styles):
+{shared_shell}
+
+REQUIREMENTS:
+- Start with <!DOCTYPE html> and end with </html>.
+- Use the EXACT same <head>, <nav>/<header>, and <footer> from the design system above.
+- Only change the <main> content — everything else must match the home page.
+- Navigation links (mark {page_name} as the active/current page):
+{nav_links}
+- Use Tailwind CSS classes consistent with the home page.
+- Mobile responsive, accessible (WCAG 2.1 AA).
+- Never use placeholder text, lorem ipsum, or stock image URLs.
+- If no real images are available, use gradients, SVG patterns, or strong typography instead.
+
+Output ONLY the complete HTML. No explanation."""
+
+    result = await llm.generate(
+        prompt,
+        model="smart",
+        max_tokens=6000,
+        temperature=0.5,
+        pipeline_stage=f"site_build_{page_name}",
+    )
+
+    html = _extract_html(result)
+    if not html:
+        return ""
+
+    # Quick quality check — retry once if it fails basic markup
+    from clawdbot.site_quality import analyze_site_markup
+    check = analyze_site_markup(html, business_name="", site_type="full")
+    if not check.get("passed"):
+        logger.info("Inner page %s failed first QA check, retrying: %s", page_name, check.get("reason", ""))
+        retry_prompt = f"{prompt}\n\nPREVIOUS ATTEMPT FAILED QA: {check.get('reason', 'quality too low')}. Fix these issues."
+        retry_result = await llm.generate(
+            retry_prompt,
+            model="smart",
+            max_tokens=6000,
+            temperature=0.4,
+            pipeline_stage=f"site_build_{page_name}_retry",
+        )
+        retry_html = _extract_html(retry_result)
+        if retry_html:
+            html = retry_html
+
+    return html
+
+
+async def _generate_additional_pages(
+    index_html: str,
+    lead: dict,
+    brief: str,
+    build_plan: dict[str, Any],
+) -> dict[str, str]:
+    """Generate inner pages for a multi-page full site.
+
+    Extracts the shared design shell from the approved index.html, then generates
+    each inner page sequentially so they all share the same nav, footer, and design system.
+    """
+    shared_shell = _extract_shared_shell(index_html)
+    if not shared_shell:
+        logger.warning("Could not extract shared shell from index.html — inner pages may be inconsistent")
+        # Fall back to using the full index as context (truncated)
+        shared_shell = index_html[:6000]
+
+    page_count = build_plan.get("page_count", 5)
+    page_names = list(INNER_PAGE_SPECS.keys())[:page_count - 1]
+
+    pages: dict[str, str] = {"index.html": index_html}
+
+    for page_name in page_names:
+        try:
+            page_brief = _build_page_brief(page_name, lead)
+            html = await _build_single_page(page_name, page_brief, shared_shell, build_plan)
+
+            if html:
+                pages[page_name] = html
+                logger.info("Generated %s (%d chars)", page_name, len(html))
+            else:
+                # Minimal fallback — shared shell with a heading
+                title = str(INNER_PAGE_SPECS[page_name]["title"])
+                pages[page_name] = _minimal_fallback_page(shared_shell, title, lead)
+                logger.warning("Using minimal fallback for %s", page_name)
+
+        except Exception as e:
+            logger.warning("Failed to generate %s: %s — using fallback", page_name, e)
+            title = str(INNER_PAGE_SPECS[page_name]["title"])
+            pages[page_name] = _minimal_fallback_page(shared_shell, title, lead)
+
+    await emit_event("multipage_generation_completed", {
+        "client_id": lead.get("id"),
+        "business_name": lead.get("business_name"),
+        "pages_generated": len(pages),
+        "page_names": list(pages.keys()),
+    })
+
+    return pages
+
+
+def _minimal_fallback_page(shared_shell: str, title: str, lead: dict) -> str:
+    """Generate a minimal page using the shared shell when LLM generation fails."""
+    business_name = lead.get("business_name", "Business")
+    head = re.search(r"<head[\s>].*?</head>", shared_shell, re.DOTALL | re.IGNORECASE)
+    nav = re.search(r"<(?:header|nav)[\s>].*?</(?:header|nav)>", shared_shell, re.DOTALL | re.IGNORECASE)
+    footer = re.search(r"<footer[\s>].*?</footer>", shared_shell, re.DOTALL | re.IGNORECASE)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+{head.group() if head else '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>' + title + ' - ' + business_name + '</title><script src="https://cdn.tailwindcss.com"></script></head>'}
+<body class="bg-white text-gray-900">
+{nav.group() if nav else ''}
+<main class="max-w-4xl mx-auto px-6 py-20">
+  <h1 class="text-4xl font-bold mb-6">{title}</h1>
+  <p class="text-lg text-gray-600">Learn more about {business_name}.</p>
+</main>
+{footer.group() if footer else ''}
+</body>
+</html>"""
 
 
 async def build_demo_site(lead: dict) -> str:
@@ -85,15 +800,41 @@ async def build_full_site(lead: dict) -> str:
 async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     """Core build process: generate variants → review → synthesize → deploy."""
     business_name = lead.get("business_name", "Business")
-    industry = lead.get("industry", "general services")
+    _industry = lead.get("industry", "general services")
 
-    brief = await _build_product_brief(lead, site_type, page_count)
+    strategy = await _generate_reference_strategy(lead, site_type, page_count)
+    build_plan = await _resolve_build_plan(lead, site_type=site_type, page_count=page_count, strategy=strategy)
+    brief = await _build_product_brief(lead, site_type, page_count, strategy=strategy, build_plan=build_plan)
+    asset_pack = await _generate_asset_pack(lead, build_plan)
+    asset_pack.update(_resolve_authored_assets(lead, strategy))
 
-    # Generate a logo via Recraft if available
-    logo_url = await _generate_logo(business_name, industry)
+    await emit_event(
+        "site_build_plan",
+        {
+            "client_id": lead.get("id"),
+            "business_name": business_name,
+            "site_type": site_type,
+            "build_mode": build_plan.get("build_mode"),
+            "runtime_profile": build_plan.get("runtime_profile"),
+            "variant_limit": build_plan.get("variant_limit"),
+            "allow_paid_assets": build_plan.get("allow_paid_assets"),
+            "assets_generated": asset_pack.get("assets_generated", 0),
+            "authored_asset_tools": [
+                tool
+                for tool, available in (
+                    ("rive", bool(asset_pack.get("rive_assets"))),
+                    ("spline", bool(asset_pack.get("spline_assets"))),
+                    ("theatrejs", bool(asset_pack.get("theatre_sequences"))),
+                )
+                if available
+            ],
+            "remaining_monthly_asset_budget": build_plan.get("remaining_monthly_asset_budget"),
+            "remaining_site_asset_budget": build_plan.get("remaining_site_asset_budget"),
+        },
+    )
 
     # Phase 1: Build variants in parallel (Claude agents + v0.dev)
-    variants = await _build_variants(brief, logo_url, site_type)
+    variants = await _build_variants(brief, asset_pack, build_plan)
 
     if not variants:
         # Fallback: single v0.dev build (original behavior)
@@ -104,7 +845,7 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     synthesis = await _review_and_synthesize(variants, brief)
 
     # Phase 3: Build final page from synthesis
-    final_html = await _build_final(synthesis, brief, logo_url)
+    final_html = await _build_final(synthesis, brief, asset_pack, build_plan)
 
     if not final_html:
         # Fallback: use the best variant directly
@@ -112,28 +853,66 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
         if best < len(variants) and variants[best].get("html"):
             final_html = variants[best]["html"]
 
-    # Phase 4: Deploy via v0.dev
-    if final_html:
+    if not final_html:
+        # Last resort: direct v0.dev build
+        return await _v0_build_and_deploy(brief, business_name, site_type)
+
+    # Phase 4: Deploy
+    # Track the actual deploy method — not just what we attempted.
+    actual_method = "5_agent_process"
+    deployed_pages = ["index.html"]
+    if page_count > 1:
+        # Multi-page full site → generate inner pages + deploy to Netlify
+        try:
+            pages = await _generate_additional_pages(final_html, lead, brief, build_plan)
+            from clawdbot.netlify_deploy import deploy_static_site
+            url = await deploy_static_site(
+                pages,
+                business_name,
+                client_id=lead.get("id"),
+            )
+            actual_method = "multipage_netlify"
+            deployed_pages = list(pages.keys())
+        except Exception as e:
+            logger.warning("Multi-page deploy failed (%s), falling back to v0.dev with index only", e)
+            url = await _deploy_to_v0(final_html, business_name, site_type)
+            actual_method = "v0_fallback_from_netlify_failure"
+            deployed_pages = ["index.html"]
+    else:
+        # Single-page demo → deploy to v0.dev
         url = await _deploy_to_v0(final_html, business_name, site_type)
-        if url:
-            await emit_event("site_build_completed", {
-                "client_id": lead.get("id"),
-                "business_name": business_name,
-                "url": url,
-                "site_type": site_type,
-                "variants_built": len(variants),
-                "method": "5_agent_process",
-            })
-            return url
+
+    if url:
+        await emit_event("site_build_completed", {
+            "client_id": lead.get("id"),
+            "business_name": business_name,
+            "url": url,
+            "site_type": site_type,
+            "variants_built": len(variants),
+            "method": actual_method,
+            "build_mode": build_plan.get("build_mode"),
+            "runtime_profile": build_plan.get("runtime_profile"),
+            "assets_generated": asset_pack.get("assets_generated", 0),
+            "pages": deployed_pages,
+        })
+        return url
 
     # Last resort: direct v0.dev build
     return await _v0_build_and_deploy(brief, business_name, site_type)
 
 
-async def _build_product_brief(lead: dict, site_type: str, page_count: int) -> str:
+async def _build_product_brief(
+    lead: dict,
+    site_type: str,
+    page_count: int,
+    *,
+    strategy: dict[str, Any] | None = None,
+    build_plan: dict[str, Any] | None = None,
+) -> str:
     """Build the product brief from lead data plus an AI-generated strategy layer."""
     pages = "Home (landing page)" if page_count == 1 else "Home, About, Services, Gallery/Portfolio, Contact"
-    strategy = await _generate_reference_strategy(lead, site_type, page_count)
+    strategy = strategy or await _generate_reference_strategy(lead, site_type, page_count)
+    build_plan = build_plan or await _resolve_build_plan(lead, site_type=site_type, page_count=page_count, strategy=strategy)
     reference_patterns = ", ".join(strategy.get("reference_patterns", [])[:5]) or "No explicit references supplied"
     sections = ", ".join(strategy.get("sections", [])[:8]) or pages
     anti_patterns = ", ".join(strategy.get("anti_patterns", [])[:5]) or "Avoid generic template feel"
@@ -156,6 +935,16 @@ async def _build_product_brief(lead: dict, site_type: str, page_count: int) -> s
             f"- Typography: {skill_guidance.get('typography', 'Expressive display + clear sans body')}",
             f"- UX notes: {', '.join(skill_guidance.get('ux_notes', [])[:4]) or 'Prioritize proof near CTA and responsive clarity'}",
         ]
+    authored_assets = _resolve_authored_assets(lead, strategy)
+    authored_asset_labels = ", ".join(
+        label
+        for label, available in (
+            ("Rive", bool(authored_assets.get("rive_assets"))),
+            ("Spline", bool(authored_assets.get("spline_assets"))),
+            ("Theatre.js notes", bool(authored_assets.get("theatre_sequences"))),
+        )
+        if available
+    ) or "None"
 
     return f"""PRODUCT BRIEF:
 Business: {lead.get('business_name', 'Business')}
@@ -174,11 +963,22 @@ REFERENCE STRATEGY:
 - Visual direction: {strategy.get('visual_direction', 'high-trust premium clarity')}
 - Copy angle: {strategy.get('copy_angle', 'benefit-led and specific')}
 - Conversion strategy: {strategy.get('conversion_strategy', 'strong CTA with proof nearby')}
+- Governing idea: {strategy.get('governing_idea', build_plan.get('governing_idea', 'A site with one memorable idea, not just nice sections'))}
+- Emotional target: {strategy.get('emotional_target', build_plan.get('emotional_target', 'Instant trust with a little intrigue'))}
+- Signature moments: {', '.join(strategy.get('signature_moments', build_plan.get('signature_moments', []))[:4]) or 'Use one memorable motion or composition moment'}
 - Reference patterns to adapt: {reference_patterns}
 - Recommended sections: {sections}
 - Avoid: {anti_patterns}
 - Curated design sources: {design_source_titles}
 - Source adaptation rules: {', '.join(adaptation_rules[:4]) or 'Adapt inspiration into original code'}
+
+BUILD PLAN:
+- Build mode: {build_plan.get('build_mode', 'conversion')}
+- Runtime profile: {build_plan.get('runtime_profile', 'dom-motion')}
+- Variant budget: {build_plan.get('variant_limit', 3)} variants max
+- Paid assets allowed: {build_plan.get('allow_paid_assets', False)}
+- Remaining asset budget for this build: ${build_plan.get('remaining_site_asset_budget', 0.0):.2f}
+- Authored assets available: {authored_asset_labels}
 
 Guardrails:
 - Use references for pattern mining, not cloning.
@@ -187,6 +987,8 @@ Guardrails:
 - Use shadcn/ui as the visual/component spine, adapted into original code.
 - Reuse 21st.dev-style section patterns selectively when they improve conversion.
 - Treat Stitch as art direction/prototyping input, not production truth.
+- Never use Unsplash, Picsum, dummyimage, lorem ipsum, or generic placeholder assets in a prospect-facing or client-facing build.
+- If no image asset is provided, design around typography, composition, SVG, gradients, and layout instead of inserting stock placeholders.
 {(chr(10).join(skill_lines) + chr(10)) if skill_lines else ""}"""
 
 
@@ -283,11 +1085,16 @@ Return JSON:
   "market_position": "...",
   "audience": "...",
   "visual_direction": "...",
+  "governing_idea": "...",
+  "emotional_target": "...",
   "copy_angle": "...",
   "conversion_strategy": "...",
   "reference_patterns": ["..."],
   "sections": ["..."],
-  "anti_patterns": ["..."]
+  "anti_patterns": ["..."],
+  "signature_moments": ["..."],
+  "build_mode": "conversion|premium-conversion|editorial-motion|surreal-product|retro-interface|audio-reactive",
+  "runtime_profile": "dom-motion|gsap-lenis|retro-dom-motion|tone-pixi-lite|tone-pixi"
 }}
 """
 
@@ -295,11 +1102,16 @@ Return JSON:
         "market_position": "credible local operator",
         "audience": "buyers comparing a few providers before reaching out",
         "visual_direction": "clean, high-trust, premium but accessible",
+        "governing_idea": "Use one clear visual thesis that makes the business feel intentional and specific",
+        "emotional_target": "Trust in the first 5 seconds, then curiosity",
         "copy_angle": "specific benefits with clear local credibility",
         "conversion_strategy": "single primary CTA supported by proof and trust signals",
         "reference_patterns": ["clear hero promise", "proof near CTA", "service cards", "simple contact capture"],
         "sections": ["hero", "services", "proof", "FAQ", "contact"],
         "anti_patterns": ["copied branding", "generic stock-template feel", "cluttered multi-CTA hero"],
+        "signature_moments": ["hero composition with real presence", "one memorable motion or visual reveal"],
+        "build_mode": "conversion",
+        "runtime_profile": "dom-motion",
         "design_sources": design_source_payload.get("sources", []),
         "design_source_rules": design_source_payload.get("adaptation_rules", []),
         "skill_guidance": skill_guidance,
@@ -426,14 +1238,32 @@ async def _generate_logo(business_name: str, industry: str) -> str:
         return ""
 
 
-async def _build_variants(brief: str, logo_url: str, site_type: str) -> list[dict]:
-    """Build up to 5 design variants in parallel."""
-    # Use 3 agents for demos (faster), 5 for full sites
-    directions = DESIGN_DIRECTIONS[:3] if site_type == "demo" else DESIGN_DIRECTIONS
+async def _build_variants(brief: str, asset_pack: dict[str, Any], build_plan: dict[str, Any]) -> list[dict]:
+    """Build the planned set of design variants in parallel."""
+    direction_pool = list(DESIGN_DIRECTIONS)
+    build_mode = str(build_plan.get("build_mode", "conversion"))
+    runtime_profile = str(build_plan.get("runtime_profile", "dom-motion"))
+
+    def prioritize(name: str) -> None:
+        nonlocal direction_pool
+        for index, direction in enumerate(direction_pool):
+            if direction["name"] == name:
+                direction_pool.insert(0, direction_pool.pop(index))
+                break
+
+    if runtime_profile in {"tone-pixi", "tone-pixi-lite"}:
+        prioritize("audio-reactive-canvas")
+    elif build_mode in {"surreal-product", "premium-conversion"}:
+        prioritize("immersive-3d")
+        prioritize("dark-cinematic")
+    elif build_mode == "editorial-motion":
+        prioritize("bold-editorial")
+
+    directions = direction_pool[: max(1, int(build_plan.get("variant_limit", 3)))]
 
     tasks = []
     for direction in directions:
-        tasks.append(_build_one_variant(direction, brief, logo_url))
+        tasks.append(_build_one_variant(direction, brief, asset_pack, build_plan))
 
     # Also run v0.dev as a competing agent if API key is set
     if os.getenv("V0_API_KEY", ""):
@@ -453,11 +1283,34 @@ async def _build_variants(brief: str, logo_url: str, site_type: str) -> list[dic
     return variants
 
 
-async def _build_one_variant(direction: dict, brief: str, logo_url: str) -> dict:
+async def _build_one_variant(
+    direction: dict,
+    brief: str,
+    asset_pack: dict[str, Any],
+    build_plan: dict[str, Any],
+) -> dict:
     """Build a single variant using Claude with the design direction."""
+    logo_url = asset_pack.get("logo_url", "")
+    hero_url = asset_pack.get("hero_url", "")
     logo_line = f"\nLogo URL (use in the header): {logo_url}" if logo_url else ""
+    hero_line = f"\nHero asset URL (use if it strengthens the concept): {hero_url}" if hero_url else ""
+    runtime_profile = build_plan.get("runtime_profile", "dom-motion")
+    cdn_block = "\n".join(f"- {url}" for url in direction.get("cdn_deps", [])) or "- None required beyond standard HTML/CSS/JS"
+    hint_block = "\n".join(f"- {hint}" for hint in direction.get("runtime_hints", [])) or "- Use tasteful light motion only where it helps."
+    fallback_block = "\n".join(f"- {rule}" for rule in direction.get("fallback_rules", [])) or "- The page must still work if JavaScript fails."
+    authored_asset_block = _format_authored_asset_guidance(asset_pack)
 
-    prompt = f"""Build a complete, production-ready landing page as a single index.html file.
+    is_multipage = build_plan.get("page_count", 1) > 1
+    if is_multipage:
+        page_type_line = "Build the HOME PAGE (index.html) of a multi-page website."
+        nav_requirement = "- Include navigation linking to: Home (index.html), About (about.html), Services (services.html), Gallery (gallery.html), Contact (contact.html)"
+        file_requirement = "- Single index.html file (other pages will be generated separately to match this design)"
+    else:
+        page_type_line = "Build a complete, production-ready landing page as a single index.html file."
+        nav_requirement = ""
+        file_requirement = "- Single index.html file"
+
+    prompt = f"""{page_type_line}
 
 DESIGN DIRECTION: {direction['name']}
 Style: {direction['style']}
@@ -467,21 +1320,38 @@ Layout: {direction['layout']}
 Animation: {direction['animation']}
 Copy angle: {direction['copy_angle']}
 {logo_line}
+{hero_line}
 
 {brief}
 
 TECHNICAL REQUIREMENTS:
-- Single index.html file with Tailwind CSS CDN + Google Fonts
+{file_requirement} with Tailwind CSS CDN + Google Fonts
+{nav_requirement}
 - Use a shadcn/ui-inspired design system expressed in semantic HTML + Tailwind utilities
 - Adapt 21st.dev-style block patterns only when they fit the business and remain original
 - Use Stitch-like art direction exploration for bold visual hierarchy, but ship original code
-- Inline JavaScript for scroll animations via Intersection Observer
+- Runtime profile: {runtime_profile}
+- You may include these runtime libraries via CDN script tags if they genuinely improve the concept:
+{cdn_block}
+
+MOTION & INTERACTION GUIDANCE:
+{hint_block}
+
+{authored_asset_block}
+
+FALLBACK RULES:
+{fallback_block}
 - Mobile responsive with working hamburger menu
 - Accessible: WCAG 2.1 AA contrast, semantic HTML, alt text
 - Reduced motion support via prefers-reduced-motion
-- Fast: no heavy frameworks, lazy load images
-- Use Unsplash for placeholder images (search terms related to {direction['name']})
+- All animations must respect prefers-reduced-motion
+- All interactive elements must have non-JS fallbacks
+- The hero must still look intentional if JavaScript fails to load
+- Fast enough to be credible on a normal laptop and phone
+- Never use Unsplash, Picsum, placehold, dummyimage, lorem ipsum, or other placeholders
+- If no real asset URL is provided, use gradients, SVG, layout, and typography instead of fake stock imagery
 - Never copy third-party branding, layouts, or markup directly
+- Do NOT assume npm, bundlers, or a build step inside this single-file output
 
 Write the COMPLETE HTML. Start with <!DOCTYPE html> and end with </html>.
 Output ONLY the HTML code, no explanation."""
@@ -573,7 +1443,9 @@ Score each variant 1-10 on:
 2. Copy quality (benefit-focused, pain-first)
 3. CTA strategy (placement, text, urgency)
 4. Layout and flow
-5. Overall conversion potential
+5. Brand specificity / anti-template feel
+6. Motion/interaction quality
+7. Overall conversion potential
 
 Then create a cherry-pick plan: which specific elements to take from each variant
 for the final synthesized page.
@@ -626,17 +1498,41 @@ Return JSON:
     return synthesis
 
 
-async def _build_final(synthesis: dict, brief: str, logo_url: str) -> str:
+async def _build_final(
+    synthesis: dict,
+    brief: str,
+    asset_pack: dict[str, Any],
+    build_plan: dict[str, Any],
+) -> str:
     """Build the final page using Ralph Loop — retry until QA checks pass."""
     from shared.execution_loop import Step, TaskPlan, execute_plan
 
     cherry = synthesis.get("cherry_pick", {})
+    logo_url = asset_pack.get("logo_url", "")
+    hero_url = asset_pack.get("hero_url", "")
     logo_line = f"\nLogo URL: {logo_url}" if logo_url else ""
+    hero_line = f"\nHero asset URL: {hero_url}" if hero_url else ""
+    runtime_profile = build_plan.get("runtime_profile", "dom-motion")
+    cdn_block = "\n".join(f"- {url}" for url in build_plan.get("cdn_deps", [])) or "- None required beyond standard HTML/CSS/JS"
+    hint_block = "\n".join(f"- {hint}" for hint in build_plan.get("runtime_hints", [])) or "- Keep motion restrained and useful."
+    fallback_block = "\n".join(f"- {rule}" for rule in build_plan.get("fallback_rules", [])) or "- The page must still work if JavaScript fails."
+    authored_asset_block = _format_authored_asset_guidance(asset_pack)
 
-    build_prompt = f"""Build the FINAL production landing page combining the best elements.
+    is_multipage = build_plan.get("page_count", 1) > 1
+    if is_multipage:
+        page_type_instruction = "Build the FINAL production HOME PAGE (index.html) of a multi-page website, combining the best elements."
+        nav_requirement = "- Navigation must link to: Home (index.html), About (about.html), Services (services.html), Gallery (gallery.html), Contact (contact.html)"
+        file_requirement = "- Single index.html (other pages will be generated separately to match this design system)"
+    else:
+        page_type_instruction = "Build the FINAL production landing page combining the best elements."
+        nav_requirement = ""
+        file_requirement = "- Single index.html"
+
+    build_prompt = f"""{page_type_instruction}
 
 {brief}
 {logo_line}
+{hero_line}
 
 SYNTHESIS PLAN:
 {json.dumps(cherry, indent=2)}
@@ -652,15 +1548,30 @@ Apply these conversion psychology principles:
 - Risk reversal (guarantee, no contracts)
 
 TECHNICAL REQUIREMENTS:
-- Single index.html with Tailwind CSS CDN + Google Fonts
+{file_requirement} with Tailwind CSS CDN + Google Fonts
+{nav_requirement}
 - Use a shadcn/ui-inspired component system translated into original HTML/Tailwind
 - Borrow 21st.dev-style section ideas only as adapted patterns, never copied code
 - Preserve the strongest Stitch-like visual direction from the synthesis plan
-- Inline JS for scroll animations (Intersection Observer)
+- Runtime profile: {runtime_profile}
+- You may include these runtime libraries via CDN script tags if they genuinely improve the concept:
+{cdn_block}
+
+MOTION & INTERACTION GUIDANCE:
+{hint_block}
+
+{authored_asset_block}
+
+FALLBACK RULES:
+{fallback_block}
 - Mobile responsive with hamburger menu
 - WCAG 2.1 AA accessible
 - prefers-reduced-motion support
+- All animations must respect prefers-reduced-motion
+- Interactive or immersive elements must have non-JS fallbacks
+- If WebGL or audio fails, the hero must still work as a strong static composition
 - Lazy load images
+- Never ship placeholder images or placeholder copy
 - No direct copying of markup, branding, or images from references
 
 Write the COMPLETE HTML. Start with <!DOCTYPE html> and end with </html>.
@@ -670,21 +1581,23 @@ Output ONLY the HTML code."""
         html = _extract_html(result)
         if not html:
             return {"passed": False, "error": "No valid HTML found in output"}
-        issues = []
-        if len(html) < 3000:
-            issues.append("HTML too short — likely incomplete page")
-        if "<nav" not in html.lower():
-            issues.append("Missing navigation/header")
+        analysis = await evaluate_site_experience(
+            html=html,
+            business_name="",
+            site_type=str(build_plan.get("site_type", "demo")),
+            context={
+                "runtime_profile": runtime_profile,
+                "build_mode": build_plan.get("build_mode", "conversion"),
+                "governing_idea": build_plan.get("governing_idea", ""),
+            },
+        )
+        issues = list(analysis.get("issues", []))
         if "tailwindcss" not in html.lower() and "tailwind" not in html.lower():
-            issues.append("Missing Tailwind CSS CDN")
-        if "<form" not in html.lower() and "contact" not in html.lower():
-            issues.append("Missing contact form or CTA")
+            issues.append("missing_tailwind")
         if "prefers-reduced-motion" not in html:
-            issues.append("Missing reduced-motion media query")
-        if "<footer" not in html.lower():
-            issues.append("Missing footer section")
+            issues.append("missing_reduced_motion")
         if issues:
-            return {"passed": False, "error": "; ".join(issues)}
+            return {"passed": False, "error": "; ".join(issues[:8])}
         return {"passed": True}
 
     plan = TaskPlan(

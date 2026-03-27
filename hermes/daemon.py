@@ -14,6 +14,7 @@ from shared import db
 from shared.agent_base import AgentBase
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
 
 logger = setup_logging("hermes")
 
@@ -38,8 +39,10 @@ class HermesDaemon(AgentBase):
         self._stopped.clear()
         self._running = True
 
-        # Start the web dashboard in a background task
-        dashboard_task = asyncio.create_task(self._run_dashboard())
+        # Start the web dashboard in a background task (skip if standalone dashboard is running)
+        dashboard_task = None
+        if not os.getenv("SKIP_INTERNAL_DASHBOARD"):
+            dashboard_task = asyncio.create_task(self._run_dashboard())
 
         try:
             _token = (config.telegram.bot_token or "").strip()
@@ -55,7 +58,7 @@ class HermesDaemon(AgentBase):
                 except Exception as e:
                     logger.warning("Telegram bot failed to initialize (%s) — running dashboard + alerts only", e)
                     await asyncio.gather(self._alert_loop(), self._active_forward_loop())
-                    return
+                    return  # Do NOT fall through to bot.start() on a failed bot
                 await bot.start()
                 try:
                     await bot.updater.start_polling()
@@ -120,7 +123,11 @@ class HermesDaemon(AgentBase):
                     payload = msg.get("payload", {})
                     if isinstance(payload, str):
                         import json
-                        payload = json.loads(payload)
+                        try:
+                            payload = json.loads(payload)
+                        except json.JSONDecodeError:
+                            logger.warning("Malformed JSON payload in event %s, skipping", msg.get("id"))
+                            continue
                     text = str(payload.get("text", payload.get("message", "")))
                     if not text:
                         continue
@@ -131,29 +138,31 @@ class HermesDaemon(AgentBase):
                         routing = await llm.generate(
                             f"Operator message: \"{text}\"\n\n"
                             f"Who needs this? Reply with ONLY one of: titan, clawdbot, both, neither",
-                            tier="fast", max_tokens=10, temperature=0.1)
+                            model="fast", max_tokens=10, temperature=0.1)
                         routing = routing.strip().lower()
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("LLM routing failed: %s", e)
                         # Fallback to keyword matching
-                        routing = ""
+                        targets = set()
                         if any(kw in text.lower() for kw in ("lead", "pipeline", "email", "deal", "revenue")):
-                            routing = "titan"
+                            targets.add("titan")
                         if any(kw in text.lower() for kw in ("skill", "scrape", "browser", "site", "build")):
-                            routing = "both" if routing == "titan" else "clawdbot"
+                            targets.add("clawdbot")
+                        routing = "both" if len(targets) == 2 else targets.pop() if targets else ""
 
                     from shared.comms import ask_agent
                     if routing in ("titan", "both"):
                         try:
                             await ask_agent("hermes", "titan",
                                 f"Operator context for you: {text[:500]}", timeout=10)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Titan keyword matching failed: %s", e)
                     if routing in ("clawdbot", "both"):
                         try:
                             await ask_agent("hermes", "clawdbot",
                                 f"Operator context for you: {text[:500]}", timeout=10)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("ClawdBot keyword matching failed: %s", e)
 
                     _forwarded_ids.add(msg_id)
                     # Keep set bounded
@@ -175,7 +184,7 @@ class HermesDaemon(AgentBase):
                         sender="hermes",
                     )
             except Exception as e:
-                self.logger.debug(f"Active forward loop: {e}")
+                logger.debug(f"Active forward loop: {e}")
 
             await asyncio.sleep(30)
 
@@ -209,15 +218,22 @@ async def main():
     hermes = HermesDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "hermes")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(hermes.stop()))
 
-    await hermes.start()
+    try:
+        await hermes.start()
+    except Exception as exc:
+        capture_exception(exc, service_name="hermes", category="main")
+        logger.exception("Hermes crashed")
+        raise
 
 
 async def main_with_a2a():
     """Entry point for Hermes daemon + A2A server."""
     import uvicorn as _uvicorn
+
     from hermes.a2a_server import create_hermes_a2a
 
     hermes = HermesDaemon()

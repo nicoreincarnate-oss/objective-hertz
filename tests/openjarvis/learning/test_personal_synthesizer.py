@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,7 +32,7 @@ def _make_trace(
     feedback: float | None = 0.9,
     model: str = "test-model",
     engine: str = "test-engine",
-    metadata: Dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> Trace:
     return Trace(
         trace_id=trace_id,
@@ -386,7 +386,8 @@ class TestPersonalBenchmarkScorer:
         scorer = self._make_scorer("YES")
         assert scorer.scorer_id == "personal_judge"
 
-    def test_score_empty_response_treated_as_no(self) -> None:
+    def test_score_empty_response_treated_as_indeterminate(self) -> None:
         scorer = self._make_scorer("")
         is_correct, _ = scorer.score(self._make_record(), "4")
-        assert is_correct is False
+        # Empty judge response is indeterminate (neither YES nor NO)
+        assert is_correct is None

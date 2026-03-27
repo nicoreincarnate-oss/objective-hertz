@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 try:
     import tomllib  # Python 3.11+
@@ -47,7 +47,7 @@ class HardwareInfo:
     cpu_brand: str = ""
     cpu_count: int = 0
     ram_gb: float = 0.0
-    gpu: Optional[GpuInfo] = None
+    gpu: GpuInfo | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ def _run_cmd(cmd: list[str]) -> str:
         return ""
 
 
-def _detect_nvidia_gpu() -> Optional[GpuInfo]:
+def _detect_nvidia_gpu() -> GpuInfo | None:
     if not shutil.which("nvidia-smi"):
         return None
     raw = _run_cmd([
@@ -92,7 +92,7 @@ def _detect_nvidia_gpu() -> Optional[GpuInfo]:
         return None
 
 
-def _detect_amd_gpu() -> Optional[GpuInfo]:
+def _detect_amd_gpu() -> GpuInfo | None:
     if not shutil.which("rocm-smi"):
         return None
     raw = _run_cmd(["rocm-smi", "--showproductname"])
@@ -126,7 +126,7 @@ def _detect_amd_gpu() -> Optional[GpuInfo]:
     return GpuInfo(vendor="amd", name=name, vram_gb=vram_gb, count=count)
 
 
-def _detect_apple_gpu() -> Optional[GpuInfo]:
+def _detect_apple_gpu() -> GpuInfo | None:
     if platform.system() != "Darwin":
         return None
     raw = _run_cmd(["system_profiler", "SPDisplaysDataType"])
@@ -1139,7 +1139,7 @@ class JarvisConfig:
 # ---------------------------------------------------------------------------
 
 
-def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
+def _apply_toml_section(target: Any, section: dict[str, Any]) -> None:
     """Overlay TOML key/value pairs onto a dataclass instance.
 
     Recursively handles nested dicts when the target attribute is itself
@@ -1157,7 +1157,7 @@ def _apply_toml_section(target: Any, section: Dict[str, Any]) -> None:
                 setattr(target, key, value)
 
 
-def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
+def _migrate_toml_data(data: dict[str, Any], cfg: JarvisConfig) -> None:
     """Migrate old-format TOML keys to new structure in-place.
 
     Handles cross-section moves that can't be solved by backward-compat
@@ -1189,7 +1189,7 @@ def _migrate_toml_data(data: Dict[str, Any], cfg: "JarvisConfig") -> None:
                 )
 
 
-def load_config(path: Optional[Path] = None) -> JarvisConfig:
+def load_config(path: Path | None = None) -> JarvisConfig:
     """Detect hardware, build defaults, overlay TOML overrides.
 
     Parameters

@@ -8,7 +8,6 @@ grading pipeline and the GRPO policy gradient.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
 
 from openjarvis.learning.intelligence.orchestrator.types import Episode
 
@@ -99,7 +98,7 @@ class MultiObjectiveReward:
             - self.weights.gamma_power * power_penalty
         )
 
-    def compute_with_breakdown(self, episode: Episode) -> Dict[str, float]:
+    def compute_with_breakdown(self, episode: Episode) -> dict[str, float]:
         """Compute reward with detailed per-component breakdown."""
         accuracy_reward = 1.0 if episode.correct else 0.0
 
@@ -146,7 +145,7 @@ class MultiObjectiveReward:
             "total_latency_seconds": episode.total_latency_seconds,
         }
 
-    def compute_batch(self, episodes: List[Episode]) -> List[float]:
+    def compute_batch(self, episodes: list[Episode]) -> list[float]:
         """Compute rewards for a batch of episodes."""
         return [self.compute(ep) for ep in episodes]
 

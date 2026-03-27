@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.traces.store import TraceStore
 
@@ -20,7 +20,7 @@ class PersonalBenchmarkSample:
     agent: str = ""
     category: str = "chat"
     feedback_score: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -28,7 +28,7 @@ class PersonalBenchmark:
     """A synthesized benchmark from user interaction traces."""
 
     workflow_id: str
-    samples: List[PersonalBenchmarkSample] = field(default_factory=list)
+    samples: list[PersonalBenchmarkSample] = field(default_factory=list)
     created_at: float = 0.0
 
 
@@ -80,13 +80,13 @@ class PersonalBenchmarkSynthesizer:
         ]
 
         # Group by query class
-        groups: Dict[str, list] = defaultdict(list)
+        groups: dict[str, list] = defaultdict(list)
         for trace in qualified:
             key = _query_class_key(trace.agent, trace.query)
             groups[key].append(trace)
 
         # Pick best trace per class
-        samples: List[PersonalBenchmarkSample] = []
+        samples: list[PersonalBenchmarkSample] = []
         for _key, traces in groups.items():
             best = max(traces, key=lambda t: t.feedback or 0.0)
             samples.append(

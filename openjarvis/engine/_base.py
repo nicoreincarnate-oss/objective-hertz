@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.core.types import Message
 from openjarvis.engine._stubs import InferenceEngine
@@ -13,11 +13,11 @@ class EngineConnectionError(Exception):
     """Raised when an engine is unreachable."""
 
 
-def messages_to_dicts(messages: Sequence[Message]) -> List[Dict[str, Any]]:
+def messages_to_dicts(messages: Sequence[Message]) -> list[dict[str, Any]]:
     """Convert ``Message`` objects to OpenAI-format dicts."""
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for m in messages:
-        d: Dict[str, Any] = {"role": m.role.value, "content": m.content}
+        d: dict[str, Any] = {"role": m.role.value, "content": m.content}
         if m.name:
             d["name"] = m.name
         if m.tool_calls:

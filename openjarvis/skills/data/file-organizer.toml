@@ -6,7 +6,7 @@ author = "openjarvis"
 
 [[skill.steps]]
 tool_name = "shell_exec"
-arguments_template = '{"command": "find {directory} -maxdepth 1 -type f -exec file --mime-type {} \\;"}'
+arguments_template = '{"command": "find \"{directory}\" -maxdepth 1 -type f -exec file --mime-type {} \\;"}'
 output_key = "file_listing"
 
 [[skill.steps]]
@@ -16,7 +16,7 @@ output_key = "organization_plan"
 
 [[skill.steps]]
 tool_name = "shell_exec"
-arguments_template = '{"command": "mkdir -p {directory}/images {directory}/documents {directory}/code {directory}/archives {directory}/media {directory}/other"}'
+arguments_template = '{"command": "mkdir -p \"{directory}/images\" \"{directory}/documents\" \"{directory}/code\" \"{directory}/archives\" \"{directory}/media\" \"{directory}/other\""}'
 output_key = "dirs_created"
 
 [[skill.steps]]

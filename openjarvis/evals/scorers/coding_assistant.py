@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -40,10 +40,10 @@ def _extract_code(answer: str) -> str:
     return "\n".join(code_lines) if code_lines else answer.strip()
 
 
-def _extract_test_functions(test_code: str) -> Dict[str, str]:
+def _extract_test_functions(test_code: str) -> dict[str, str]:
     """Parse test code into individual test functions by name."""
-    tests: Dict[str, str] = {}
-    current_name: Optional[str] = None
+    tests: dict[str, str] = {}
+    current_name: str | None = None
     current_lines: list[str] = []
     preamble: list[str] = []
 
@@ -110,7 +110,7 @@ class CodingAssistantScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -132,7 +132,7 @@ class CodingAssistantScorer(Scorer):
         tests_fixed = 0
         tests_to_fix = len(originally_failing)
         regressions = 0
-        test_results: Dict[str, bool] = {}
+        test_results: dict[str, bool] = {}
 
         for name, fn_code in test_fns.items():
             passed = _run_single_test(fixed_code, fn_code)

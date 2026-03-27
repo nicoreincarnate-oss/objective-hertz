@@ -7,10 +7,10 @@ Money on the table > leads in the pipe > new discovery.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 
-def decide_priorities(state: Dict[str, Any]) -> Dict[str, Any]:
+def decide_priorities(state: dict[str, Any]) -> dict[str, Any]:
     """Decide which pipeline tasks to schedule based on current state.
 
     Parameters
@@ -28,9 +28,9 @@ def decide_priorities(state: Dict[str, Any]) -> Dict[str, Any]:
         skip: list of task names to skip this cycle
         reasoning: human-readable explanation
     """
-    schedule_now: List[str] = []
-    skip_now: List[str] = []
-    reasons: List[str] = []
+    schedule_now: list[str] = []
+    skip_now: list[str] = []
+    reasons: list[str] = []
 
     hot = state.get("hot_leads", 0)
     ready_close = state.get("ready_to_close", 0)

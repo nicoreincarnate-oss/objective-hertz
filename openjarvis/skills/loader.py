@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from openjarvis.skills.types import SkillManifest, SkillStep
 
@@ -17,7 +16,7 @@ def load_skill(
     path: str | Path,
     *,
     verify_signature: bool = False,
-    public_key: Optional[bytes] = None,
+    public_key: bytes | None = None,
     scan_for_injection: bool = False,
 ) -> SkillManifest:
     """Load a skill manifest from a TOML file.
@@ -69,7 +68,12 @@ def load_skill(
     )
 
     # Verify signature if requested
-    if verify_signature and public_key and manifest.signature:
+    if verify_signature and public_key:
+        if not manifest.signature:
+            raise ValueError(
+                f"Skill '{manifest.name}' is unsigned but verify_signature=True. "
+                "Sign the manifest or set verify_signature=False."
+            )
         try:
             from openjarvis.security.signing import verify_b64
             valid = verify_b64(
@@ -79,11 +83,11 @@ def load_skill(
             )
             if not valid:
                 raise ValueError(f"Invalid signature for skill '{manifest.name}'")
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "Signature verification requires 'cryptography'. "
                 "Install with: uv sync --extra security-signing"
-            )
+            ) from err
 
     # Scan for prompt injection if requested
     if scan_for_injection:

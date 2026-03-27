@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.panel import Panel
@@ -47,7 +47,7 @@ def print_run_header(
     benchmark: str,
     model: str,
     backend: str,
-    samples: Optional[int],
+    samples: int | None,
     workers: int,
     warmup: int = 0,
 ) -> None:
@@ -79,7 +79,7 @@ def _fmt(val: float, decimals: int = 4) -> str:
 def _add_metric_row(
     table: Table,
     label: str,
-    stats: Optional[MetricStats],
+    stats: MetricStats | None,
     decimals: int = 4,
 ) -> None:
     """Add a row for a metric if stats exist."""
@@ -161,7 +161,7 @@ def print_metrics_table(console: Console, summary: RunSummary) -> None:
 
 def _stats_table(
     title: str,
-    rows: list[tuple[str, Optional[MetricStats], int]],
+    rows: list[tuple[str, MetricStats | None, int]],
 ) -> Table:
     """Build a stats table with Avg/Median/Min/Max/Std columns."""
     table = Table(
@@ -323,7 +323,7 @@ def print_full_results(
 
 def print_subject_table(
     console: Console,
-    per_subject: Dict[str, Dict[str, float]],
+    per_subject: dict[str, dict[str, float]],
 ) -> None:
     """Print per-subject accuracy breakdown."""
     table = Table(
@@ -351,7 +351,7 @@ def print_subject_table(
 
 def print_suite_summary(
     console: Console,
-    summaries: List[RunSummary],
+    summaries: list[RunSummary],
     suite_name: str = "",
 ) -> None:
     """Print a multi-run suite summary table."""
@@ -387,9 +387,9 @@ def print_suite_summary(
 def print_completion(
     console: Console,
     summary: RunSummary,
-    output_path: Optional[Path] = None,
-    traces_dir: Optional[Path] = None,
-    bench_energy: Optional[Dict[str, float]] = None,
+    output_path: Path | None = None,
+    traces_dir: Path | None = None,
+    bench_energy: dict[str, float] | None = None,
 ) -> None:
     """Print a completion panel showing where data was saved."""
     lines = [

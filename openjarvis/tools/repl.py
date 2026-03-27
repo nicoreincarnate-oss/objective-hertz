@@ -13,7 +13,7 @@ import time
 import uuid
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -72,7 +72,7 @@ def _make_safe_import(allowed: frozenset = _SAFE_IMPORT_MODULES):
     return _safe_import
 
 
-def _make_restricted_builtins() -> Dict[str, Any]:
+def _make_restricted_builtins() -> dict[str, Any]:
     """Build a builtins dict with dangerous functions removed."""
     import builtins
 
@@ -89,7 +89,7 @@ def _make_restricted_builtins() -> Dict[str, Any]:
 @dataclass
 class _ReplSession:
     session_id: str
-    namespace: Dict[str, Any] = field(default_factory=dict)
+    namespace: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     last_used: float = field(default_factory=time.time)
     execution_count: int = 0
@@ -125,7 +125,7 @@ class ReplTool(BaseTool):
         self._timeout = timeout
         self._max_output = max_output
         self._max_sessions = max_sessions
-        self._sessions: Dict[str, _ReplSession] = {}
+        self._sessions: dict[str, _ReplSession] = {}
         self._lock = threading.Lock()
 
     @property
@@ -212,7 +212,7 @@ class ReplTool(BaseTool):
 
     def _resolve_session(
         self,
-        session_id: Optional[str],
+        session_id: str | None,
         reset: bool = False,
     ) -> _ReplSession:
         """Get or create a session, with LRU eviction at max_sessions."""
@@ -259,7 +259,7 @@ class ReplTool(BaseTool):
 
         Returns (output, success).
         """
-        result_holder: Dict[str, Any] = {"output": "", "success": True}
+        result_holder: dict[str, Any] = {"output": "", "success": True}
 
         def _run() -> None:
             stdout_buf = io.StringIO()

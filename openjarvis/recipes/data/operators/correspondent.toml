@@ -6,7 +6,7 @@ description = "Messaging triage agent — classifies incoming messages by urgenc
 [operator.agent]
 max_turns = 15
 temperature = 0.4
-tools = ["memory_store", "memory_search", "think", "llm_call"]
+tools = ["memory_store", "memory_search", "think", "llm"]
 system_prompt_path = "correspondent_prompt.md"
 
 [operator.schedule]

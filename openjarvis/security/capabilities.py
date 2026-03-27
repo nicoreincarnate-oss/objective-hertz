@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +37,8 @@ class CapabilityGrant:
 class AgentPolicy:
     """Policy for a specific agent."""
     agent_id: str
-    grants: List[CapabilityGrant] = field(default_factory=list)
-    deny: List[str] = field(default_factory=list)  # explicit denials
+    grants: list[CapabilityGrant] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)  # explicit denials
 
 
 class CapabilityPolicy:
@@ -56,15 +55,18 @@ class CapabilityPolicy:
     def __init__(
         self,
         *,
-        policy_path: Optional[str] = None,
-        default_deny: bool = True,
+        policy_path: str | None = None,
+        default_deny: bool = False,
     ) -> None:
-        self._policies: Dict[str, AgentPolicy] = {}
+        self._policies: dict[str, AgentPolicy] = {}
         self._default_deny = default_deny
 
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        self._rust_impl = _rust.CapabilityPolicy(default_deny=default_deny)
+        if _rust is None:
+            self._rust_impl = None
+        else:
+            self._rust_impl = _rust.CapabilityPolicy(default_deny=default_deny)
 
         if policy_path:
             self._load_file(Path(policy_path))
@@ -75,7 +77,8 @@ class CapabilityPolicy:
             agent_id, AgentPolicy(agent_id=agent_id),
         )
         policy.grants.append(CapabilityGrant(capability=capability, pattern=pattern))
-        self._rust_impl.grant(agent_id, capability, pattern)
+        if self._rust_impl is not None:
+            self._rust_impl.grant(agent_id, capability, pattern)
 
     def deny(self, agent_id: str, capability: str) -> None:
         """Explicitly deny a capability to an agent."""
@@ -83,13 +86,16 @@ class CapabilityPolicy:
             agent_id, AgentPolicy(agent_id=agent_id),
         )
         policy.deny.append(capability)
-        self._rust_impl.deny(agent_id, capability)
+        if self._rust_impl is not None:
+            self._rust_impl.deny(agent_id, capability)
 
     def check(self, agent_id: str, capability: str, resource: str = "") -> bool:
         """Check whether *agent_id* has *capability* for *resource*.
 
         Returns True if allowed, False if denied.
         """
+        if self._rust_impl is None:
+            return self._check_python(agent_id, capability, resource)
         return self._rust_impl.check(agent_id, capability, resource)
 
     def _check_python(self, agent_id: str, capability: str, resource: str = "") -> bool:
@@ -116,12 +122,12 @@ class CapabilityPolicy:
         # No matching grant found
         return not self._default_deny
 
-    def list_grants(self, agent_id: str) -> List[CapabilityGrant]:
+    def list_grants(self, agent_id: str) -> list[CapabilityGrant]:
         """List all grants for an agent."""
         policy = self._policies.get(agent_id)
         return list(policy.grants) if policy else []
 
-    def list_agents(self) -> List[str]:
+    def list_agents(self) -> list[str]:
         """List all agents with explicit policies."""
         return list(self._policies.keys())
 
@@ -160,7 +166,7 @@ class CapabilityPolicy:
 
 
 # Default capability requirements for built-in tools
-DEFAULT_TOOL_CAPABILITIES: Dict[str, List[str]] = {
+DEFAULT_TOOL_CAPABILITIES: dict[str, list[str]] = {
     "file_read": [Capability.FILE_READ],
     "web_search": [Capability.NETWORK_FETCH],
     "code_interpreter": [Capability.CODE_EXECUTE],

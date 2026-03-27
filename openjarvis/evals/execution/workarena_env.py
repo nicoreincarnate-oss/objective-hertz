@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable, MutableMapping
 from types import TracebackType
-from typing import Any, Callable, Dict, MutableMapping, Optional, Tuple, Type
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class WorkArenaTaskEnv:
     def __init__(self, metadata: MutableMapping[str, Any]) -> None:
         self._metadata = metadata
         self._env: Any = None
-        self._obs: Optional[Dict[str, Any]] = None
+        self._obs: dict[str, Any] | None = None
         self._goal: str = ""
         self._chat_messages: list = []
         self._done: bool = False
@@ -145,9 +146,9 @@ class WorkArenaTaskEnv:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         self._metadata.pop("workarena_env", None)
         self._metadata.pop("workarena_obs", None)
@@ -188,7 +189,7 @@ class WorkArenaTaskEnv:
         return self._done
 
     @property
-    def observation(self) -> Optional[Dict[str, Any]]:
+    def observation(self) -> dict[str, Any] | None:
         return self._obs
 
     def get_observation_text(self) -> str:
@@ -197,7 +198,7 @@ class WorkArenaTaskEnv:
             return ""
         return self._format_observation(self._obs)
 
-    def step(self, action: str) -> Tuple[str, float, bool, Dict[str, Any]]:
+    def step(self, action: str) -> tuple[str, float, bool, dict[str, Any]]:
         """Execute a BrowserGym action and return (obs_text, reward, done, info).
 
         Actions use BrowserGym's high-level action format, e.g.:
@@ -229,14 +230,14 @@ class WorkArenaTaskEnv:
         if self._env is not None and hasattr(self._env, "chat"):
             self._env.chat.add_message(role="assistant", msg=message)
 
-    def run_tests(self) -> Tuple[bool, Dict[str, Any]]:
+    def run_tests(self) -> tuple[bool, dict[str, Any]]:
         """Validate the task using the native WorkArena validate() method.
 
         This calls ``task.validate(page, chat_messages)`` which checks the
         actual state of the ServiceNow instance — the canonical evaluation
         method from the original benchmark.
         """
-        results: Dict[str, Any] = {
+        results: dict[str, Any] = {
             "steps_taken": self._step_count,
         }
 
@@ -288,7 +289,7 @@ class WorkArenaTaskEnv:
     def run_agent_loop(
         self,
         generate_fn: Callable[[str], str],
-        max_steps: Optional[int] = None,
+        max_steps: int | None = None,
     ) -> str:
         """Drive the BrowserGym env in a step loop using *generate_fn* for LLM calls.
 
@@ -313,7 +314,7 @@ class WorkArenaTaskEnv:
 
         self.all_responses = []
         self.turn_wall_clocks = []
-        parse_error: Optional[str] = None
+        parse_error: str | None = None
 
         for step_idx in range(max_steps):
             if self._done:
@@ -351,7 +352,7 @@ class WorkArenaTaskEnv:
         self,
         step_idx: int,
         max_steps: int,
-        parse_error: Optional[str] = None,
+        parse_error: str | None = None,
     ) -> str:
         parts: list[str] = [_BROWSERGYM_SYSTEM_MSG]
         parts.append(f"## Goal\n{self._goal}")
@@ -370,14 +371,14 @@ class WorkArenaTaskEnv:
         return "\n\n".join(parts)
 
     @staticmethod
-    def _parse_action(response: str) -> Optional[str]:
+    def _parse_action(response: str) -> str | None:
         """Extract the last BrowserGym high-level action from *response*."""
         last_action: str | None = None
         for m in _ACTION_PREFIX_RE.finditer(response):
             last_action = _extract_action_call(response, m)
         return last_action.strip() if last_action else None
 
-    def _format_observation(self, obs: Dict[str, Any]) -> str:
+    def _format_observation(self, obs: dict[str, Any]) -> str:
         """Format a BrowserGym observation as text for the agent."""
         parts: list[str] = []
 
@@ -412,7 +413,7 @@ class WorkArenaTaskEnv:
         if open_urls:
             tabs = []
             for i, (u, t) in enumerate(
-                zip(open_urls, open_titles or [""] * len(open_urls))
+                zip(open_urls, open_titles or [""] * len(open_urls), strict=False)
             ):
                 tabs.append(f"  [{i}] {t} — {u}")
             parts.append("## Open Tabs\n" + "\n".join(tabs))

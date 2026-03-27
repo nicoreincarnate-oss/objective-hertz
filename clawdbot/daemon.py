@@ -12,10 +12,11 @@ ClawdBot is the hands of Perseus:
 import asyncio
 import json
 import os
-import signal
 import shutil
+import signal
 import time
 from pathlib import Path
+from typing import Any
 
 from openjarvis.vassals.registry import heartbeat
 from shared import db
@@ -23,12 +24,13 @@ from shared.agent_base import AgentBase
 from shared.comms import record_decision
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
 from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 
 logger = setup_logging("clawdbot")
 
 CORE_BOOTSTRAP_CAPABILITIES = ("browser", "scraper", "web_search")
-CLAWDBOT_AGENT_MESH_SPECS = (
+CLAWDBOT_AGENT_MESH_SPECS: tuple[dict[str, Any], ...] = (
     {
         "name": "clawdbot-agent-orchestrator",
         "agent_type": "orchestrator",
@@ -67,8 +69,8 @@ CLAWDBOT_AGENT_MESH_SPECS = (
     },
 )
 
-_CHANNEL_BACKEND = None
-_CHANNEL_BACKEND_KEY = None
+_CHANNEL_BACKEND: Any = None
+_CHANNEL_BACKEND_KEY: str | None = None
 
 
 def _env_enabled(name: str) -> bool:
@@ -139,7 +141,7 @@ def _agent_mesh_entries() -> list[dict]:
 
     for spec in CLAWDBOT_AGENT_MESH_SPECS:
         current = existing.get(spec["name"])
-        desired_config = dict(spec["config"])
+        desired_config: dict[str, Any] = dict(spec["config"])
         if current is None:
             current = manager.create_agent(
                 name=spec["name"],
@@ -278,10 +280,13 @@ class ClawdBotDaemon(AgentBase):
                         await asyncio.sleep(10)
                         continue
 
-                    await self._process_task_queue()
-                    await self._think()
+                    await asyncio.wait_for(self._process_task_queue(), timeout=120)
+                    await asyncio.wait_for(self._think(), timeout=120)
                     await heartbeat(self.name)
 
+                except TimeoutError:
+                    logger.error("ClawdBot cycle timed out after 120s")
+                    await self.emit_event("clawdbot_error", {"error": "cycle_timeout"})
                 except Exception as e:
                     logger.error(f"ClawdBot cycle error: {e}", exc_info=True)
                     await self.emit_event("clawdbot_error", {"error": str(e)})
@@ -592,15 +597,15 @@ class ClawdBotDaemon(AgentBase):
             if status.get("mode") != "live":
                 await self._recommend("titan", "firecrawl_down",
                     f"Firecrawl is not live: {status.get('summary', 'unknown')[:120]}. Discovery/research scraping degraded.")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Health check failed: %s", e)
 
     # ── Agent collaboration — real conversations, not just recommendations ─
 
     async def _collaborate(self, target_agent: str, topic: str, problem: str):
         """Have a real conversation with another agent and try to fix the problem."""
-        from shared.comms import ask_agent, delegate_task
         from clawdbot.brain import decide_approach
+        from shared.comms import ask_agent
 
         try:
             # Dedup: don't re-collaborate on same topic within 30 minutes
@@ -763,6 +768,10 @@ class ClawdBotDaemon(AgentBase):
                 f"Can't solve '{problem[:80]}' autonomously. Opus suggests asking operator: {decision.get('reasoning', '')[:120]}")
         elif approach and approach != "http_scrape":
             logger.info(f"Brain suggests {approach} for help request from {from_agent}: {decision.get('reasoning', '')[:80]}")
+        else:
+            logger.warning("Unknown help approach: %s", approach)
+            await self._recommend(from_agent, f"help_{from_agent}",
+                f"Can't solve '{problem[:80]}' autonomously. Unrecognized approach '{approach}' — escalating to operator.")
 
     async def _resolve_repeated_capability_needs(self):
         """If the same capability_missing event fires 3+ times in an hour, proactively resolve."""
@@ -823,8 +832,32 @@ class ClawdBotDaemon(AgentBase):
                     })
                 await self.complete_task(task["id"])
                 logger.debug(f"Task {task['id']} ({task_type}) completed")
+
+                # Cross-agent learning (3.3): feed skill outcomes to Titan's rules
+                try:
+                    from shared.comms import store_learning
+                    result_summary = str(result)[:200] if result else "ok"
+                    await store_learning(
+                        category="skill_performance",
+                        insight=f"Task '{task_type}' succeeded: {result_summary}",
+                        confidence=0.7,
+                    )
+                except Exception:
+                    pass  # Non-critical — don't fail the task over learning storage
+
             except Exception as e:
                 await self.fail_task(task["id"], str(e))
+
+                # Cross-agent learning (3.3): record failures too
+                try:
+                    from shared.comms import store_learning
+                    await store_learning(
+                        category="skill_performance",
+                        insight=f"Task '{task_type}' failed: {str(e)[:200]}",
+                        confidence=0.4,
+                    )
+                except Exception:
+                    pass
                 request_id = ""
                 if isinstance(task.get("payload"), str):
                     try:
@@ -934,7 +967,14 @@ async def handle_operator_message(payload: dict):
 
 
 async def handle_site_verify(payload: dict):
-    """Verify a deployed site is live and functional."""
+    """Verify a deployed site is reachable and has real content.
+
+    This is an HTTP reachability + content check, not full functional
+    validation. The result distinguishes:
+    - is_reachable: HTTP 2xx/3xx response received
+    - has_content: response body is >= 500 bytes (not an error page stub)
+    - is_live: both reachable AND has content
+    """
     url = payload.get("url", "")
     client_id = payload.get("client_id")
     request_id = payload.get("request_id", "")
@@ -947,16 +987,24 @@ async def handle_site_verify(payload: dict):
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get(url)
             status_code = resp.status_code
-            is_live = 200 <= status_code < 400
+            is_reachable = 200 <= status_code < 400
             content_length = len(resp.content)
+            # A real deployed site should have meaningful content (>= 500 bytes).
+            # Tiny responses are likely error pages, placeholder stubs, or
+            # hosting provider "site not found" pages.
+            has_content = content_length >= 500
+            is_live = is_reachable and has_content
 
             result = {
                 "url": url,
                 "status_code": status_code,
+                "is_reachable": is_reachable,
+                "has_content": has_content,
                 "is_live": is_live,
                 "content_length": content_length,
                 "client_id": client_id,
                 "request_id": request_id,
+                "verification_level": "reachability_plus_content",
             }
 
             if client_id and is_live:
@@ -1126,26 +1174,32 @@ async def handle_android_automation(payload: dict):
         }
 
     if not serial:
-        raise ValueError("android serial is required for action '%s'" % action)
+        raise ValueError(f"android serial is required for action '{action}'")
 
     if action == "tap":
-        x = int(payload.get("x", 0))
-        y = int(payload.get("y", 0))
+        try:
+            x = int(payload.get("x", 0))
+            y = int(payload.get("y", 0))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid tap coordinates: {e}") from e
         await _run_adb_command(["shell", "input", "tap", str(x), str(y)], serial=serial)
         result = {"status": "ok", "action": action, "serial": serial, "x": x, "y": y}
     elif action == "text":
         text = str(payload.get("text", "") or "").strip()
         if not text:
             raise ValueError("text is required for android text input")
-        escaped = text.replace(" ", "%s")
+        escaped = text.replace(" ", "\\ ")
         await _run_adb_command(["shell", "input", "text", escaped], serial=serial)
         result = {"status": "ok", "action": action, "serial": serial, "text": text}
     elif action == "swipe":
-        x1 = int(payload.get("x1", 0))
-        y1 = int(payload.get("y1", 0))
-        x2 = int(payload.get("x2", 0))
-        y2 = int(payload.get("y2", 0))
-        duration_ms = int(payload.get("duration_ms", 300))
+        try:
+            x1 = int(payload.get("x1", 0))
+            y1 = int(payload.get("y1", 0))
+            x2 = int(payload.get("x2", 0))
+            y2 = int(payload.get("y2", 0))
+            duration_ms = int(payload.get("duration_ms", 300))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid swipe coordinates: {e}") from e
         await _run_adb_command(
             ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
             serial=serial,
@@ -1461,56 +1515,74 @@ async def handle_enrich_leads_batch(payload: dict):
 
 
 async def handle_verify_demo_site(payload: dict):
-    """Verify a demo site is good enough to send to a prospect."""
+    """Verify a site is good enough to send to a prospect or deploy to a client."""
     url = payload.get("url", "")
     business_name = payload.get("business_name", "")
     client_id = payload.get("client_id")
+    site_type = payload.get("site_type", "demo")
 
     if not url:
         return {"passed": False, "reason": "no_url"}
 
-    import httpx
-
-    # Step 1: Check it loads
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return {"passed": False, "reason": f"http_{resp.status_code}", "url": url}
-
-            html = resp.text
-            content_length = len(html)
-
-            # Step 2: Basic content checks
-            checks = {
-                "loads": True,
-                "has_content": content_length > 1000,
-                "has_business_name": business_name.lower() in html.lower() if business_name else True,
-                "not_error_page": "404" not in html[:500] and "error" not in html[:200].lower(),
-            }
-
-            passed = all(checks.values())
-
-            result = {
-                "passed": passed,
+        result = await handle_visual_site_review(
+            {
                 "url": url,
-                "checks": checks,
-                "content_length": content_length,
+                "business_name": business_name,
                 "client_id": client_id,
+                "site_type": site_type,
             }
-
-            if not passed:
-                failed = [k for k, v in checks.items() if not v]
-                result["reason"] = f"failed_checks: {', '.join(failed)}"
-                logger.warning(f"Demo site QA failed for {url}: {failed}")
-                await db.emit_event("demo_qa_failed", result)
-            else:
-                logger.info(f"Demo site QA passed for {url}")
-
-            return result
+        )
+        event_name = "full_site_qa_failed" if site_type == "full" else "demo_qa_failed"
+        if not result.get("passed"):
+            logger.warning(f"{site_type.title()} site QA failed for {url}: {result.get('reason', 'unknown')}")
+            await db.emit_event(event_name, result)
+        else:
+            logger.info(f"{site_type.title()} site QA passed for {url}")
+        return result
 
     except Exception as e:
         return {"passed": False, "reason": f"error: {str(e)[:200]}", "url": url}
+
+
+async def handle_visual_site_review(payload: dict):
+    """Critique a site visually using rendered screenshots plus markup heuristics."""
+    from clawdbot.site_quality import evaluate_site_experience
+
+    url = payload.get("url", "")
+    html = payload.get("html", "")
+    business_name = payload.get("business_name", "")
+    client_id = payload.get("client_id")
+    site_type = payload.get("site_type", "demo")
+    context = payload.get("context", {})
+
+    result = await evaluate_site_experience(
+        html=html,
+        url=url,
+        business_name=business_name,
+        site_type=site_type,
+        context=context,
+    )
+
+    full_result = {
+        **result,
+        "url": url,
+        "client_id": client_id,
+        "business_name": business_name,
+    }
+    await db.emit_event(
+        "site_visual_review_completed",
+        {
+            "client_id": client_id,
+            "business_name": business_name,
+            "site_type": site_type,
+            "passed": full_result.get("passed", False),
+            "reason": full_result.get("reason", ""),
+            "visual_score": full_result.get("visual_review", {}).get("score"),
+            "url": url,
+        },
+    )
+    return full_result
 
 
 # ── Capability Mapping Helpers ─────────────────────────────────────
@@ -1800,16 +1872,24 @@ async def main():
     bot = ClawdBotDaemon()
 
     loop = asyncio.get_event_loop()
+    install_asyncio_exception_handler(loop, "clawdbot")
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.stop()))
 
-    await bot.start()
+    try:
+        await bot.start()
+    except Exception as exc:
+        capture_exception(exc, service_name="clawdbot", category="main")
+        logger.exception("ClawdBot crashed")
+        raise
 
 
 async def main_with_a2a():
     """Entry point for ClawdBot daemon + A2A server."""
     import os
+
     import uvicorn as _uvicorn
+
     from clawdbot.a2a_server import create_clawdbot_a2a
 
     bot = ClawdBotDaemon()

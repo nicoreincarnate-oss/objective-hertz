@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -15,7 +15,7 @@ class ScheduleTaskTool(BaseTool):
     """Schedule a new task for future or recurring execution."""
 
     tool_id = "schedule_task"
-    _scheduler: Optional[Any] = None
+    _scheduler: Any | None = None
 
     @property
     def spec(self) -> ToolSpec:
@@ -113,7 +113,7 @@ class ListScheduledTasksTool(BaseTool):
     """List all scheduled tasks."""
 
     tool_id = "list_scheduled_tasks"
-    _scheduler: Optional[Any] = None
+    _scheduler: Any | None = None
 
     @property
     def spec(self) -> ToolSpec:
@@ -164,7 +164,7 @@ class PauseScheduledTaskTool(BaseTool):
     """Pause a scheduled task."""
 
     tool_id = "pause_scheduled_task"
-    _scheduler: Optional[Any] = None
+    _scheduler: Any | None = None
 
     @property
     def spec(self) -> ToolSpec:
@@ -224,7 +224,7 @@ class ResumeScheduledTaskTool(BaseTool):
     """Resume a paused scheduled task."""
 
     tool_id = "resume_scheduled_task"
-    _scheduler: Optional[Any] = None
+    _scheduler: Any | None = None
 
     @property
     def spec(self) -> ToolSpec:
@@ -284,7 +284,7 @@ class CancelScheduledTaskTool(BaseTool):
     """Cancel a scheduled task."""
 
     tool_id = "cancel_scheduled_task"
-    _scheduler: Optional[Any] = None
+    _scheduler: Any | None = None
 
     @property
     def spec(self) -> ToolSpec:

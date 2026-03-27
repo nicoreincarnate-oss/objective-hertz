@@ -43,6 +43,51 @@
   --glass-border: rgba(88, 224, 255, 0.16);
   --hud-grid: rgba(68, 203, 255, 0.08);
   --hud-line: rgba(107, 230, 255, 0.22);
+
+  /* Phase 0: Design System Extension — Glassmorphism */
+  --glass-blur: 24px;
+  --glass-blur-heavy: 40px;
+  --glass-opacity: 0.76;
+  --glass-highlight: rgba(183, 245, 255, 0.06);
+  --glass-reflection: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 50%);
+
+  /* Phase 0: Health-Reactive Aurora Colors */
+  --aurora-green-1: rgba(98, 241, 181, 0.14);
+  --aurora-green-2: rgba(57, 243, 226, 0.12);
+  --aurora-green-3: rgba(88, 224, 255, 0.10);
+  --aurora-amber-1: rgba(255, 179, 71, 0.16);
+  --aurora-amber-2: rgba(255, 213, 79, 0.12);
+  --aurora-amber-3: rgba(255, 152, 0, 0.08);
+  --aurora-red-1: rgba(255, 90, 122, 0.18);
+  --aurora-red-2: rgba(255, 82, 82, 0.14);
+  --aurora-red-3: rgba(244, 67, 54, 0.10);
+
+  /* Phase 0: Connection Status Colors */
+  --ws-connected: #62f1b5;
+  --ws-polling: #ffb347;
+  --ws-disconnected: #ff5a7a;
+
+  /* Phase 0: Severity Glow */
+  --glow-critical: rgba(255, 90, 122, 0.4);
+  --glow-warning: rgba(255, 179, 71, 0.3);
+  --glow-info: rgba(88, 224, 255, 0.2);
+  --glow-success: rgba(98, 241, 181, 0.25);
+
+  /* Phase 0: Flip Card / 3D */
+  --perspective: 1200px;
+  --flip-duration: 0.6s;
+  --color-bg: #101214;
+  --color-surface: #161A1D;
+  --color-muted-surface: #1D2125;
+  --color-border: #2C333A;
+  --color-text-secondary: #596773;
+  --color-text-primary: #C7D1DB;
+  --color-heading: #DEE4EA;
+  --spacing-6: 1.5rem;
+  --rounded-lg: 0.5rem;
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  --color-text-primary-rgb: 199, 209, 219;
+  --color-bg-2: #C7D1DB;
 }
 
 @theme inline {
@@ -85,6 +130,107 @@
   --color-red: var(--red);
   --color-glass: var(--glass);
   --color-glass-border: var(--glass-border);
+  --animate-first: moveVertical 30s ease infinite;
+  --animate-second: moveInCircle 20s reverse infinite;
+  --animate-third: moveInCircle 40s linear infinite;
+  --animate-fourth: moveHorizontal 40s ease infinite;
+  --animate-fifth: moveInCircle 20s ease infinite;
+  @keyframes moveHorizontal {
+  0% {
+    transform: translateX(-50%) translateY(-10%);
+    }
+  50% {
+    transform: translateX(50%) translateY(10%);
+    }
+  100% {
+    transform: translateX(-50%) translateY(-10%);
+    }
+  }
+  @keyframes moveInCircle {
+  0% {
+    transform: rotate(0deg);
+    }
+  50% {
+    transform: rotate(180deg);
+    }
+  100% {
+    transform: rotate(360deg);
+    }
+  }
+  @keyframes moveVertical {
+  0% {
+    transform: translateY(-50%);
+    }
+  50% {
+    transform: translateY(50%);
+    }
+  100% {
+    transform: translateY(-50%);
+    }
+  }
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  @keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+    }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+    }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+    }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+    }
+  }
+  @keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  --animate-shine: shine var(--duration) infinite linear;
+  @keyframes shine {
+  0% {
+    background-position: 0% 0%;
+    }
+  50% {
+    background-position: 100% 100%;
+    }
+  to {
+    background-position: 0% 0%;
+    }
+  }
+  --animate-marquee: marquee var(--duration) linear infinite;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  --color-color-bg-2: var(----color-bg-2);
+  --color-text-primary-rgb: var(----color-text-primary-rgb);
+  --shadow-xl: var(----shadow-xl);
+  --rounded-lg: var(----rounded-lg);
+  --spacing-6: var(----spacing-6);
+  --color-color-heading: var(----color-heading);
+  --color-color-text-primary: var(----color-text-primary);
+  --color-color-text-secondary: var(----color-text-secondary);
+  --color-color-border: var(----color-border);
+  --color-color-muted-surface: var(----color-muted-surface);
+  --color-color-surface: var(----color-surface);
+  --color-color-bg: var(----color-bg);
+  @keyframes marquee {
+  from {
+    transform: translateX(0);
+    }
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+    }
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
 }
 
 @layer base {
@@ -143,14 +289,15 @@
 
 @keyframes breathe {
   0%, 100% {
-    box-shadow: 0 0 24px rgba(88, 224, 255, 0.2), 0 0 48px rgba(17, 151, 255, 0.1);
+    opacity: 0.85;
   }
   50% {
-    box-shadow: 0 0 36px rgba(88, 224, 255, 0.3), 0 0 72px rgba(17, 151, 255, 0.16);
+    opacity: 1;
   }
 }
 
 .breathing-glow {
+  will-change: transform;
   animation: breathe 4s ease-in-out infinite;
 }
 
@@ -198,6 +345,7 @@
 }
 
 .glass-card {
+  contain: paint;
   background: linear-gradient(180deg, rgba(6, 20, 31, 0.76), rgba(4, 13, 22, 0.62));
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -206,6 +354,20 @@
     inset 0 1px 0 rgba(183, 245, 255, 0.05),
     0 0 0 1px rgba(7, 85, 113, 0.16),
     0 18px 48px rgba(1, 6, 12, 0.42);
+}
+
+/* Prevent GlowCard border from causing horizontal overflow on mobile */
+[data-glow] {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1023px) {
+  [data-glow] {
+    --border: 0 !important;
+    border: none !important;
+    background-size: 100% 100% !important;
+  }
 }
 
 .hud-panel {
@@ -263,4 +425,199 @@
   opacity: 0.34;
   filter: saturate(0.92) hue-rotate(156deg) brightness(0.44) contrast(1.14);
   transform: scale(1.04);
+}
+
+/* ── Phase 0: Glassmorphism Elevated ─────────────────────── */
+
+.glass-card-elevated {
+  contain: paint;
+  background: linear-gradient(180deg, rgba(8, 24, 38, 0.82), rgba(4, 14, 22, 0.72));
+  backdrop-filter: blur(var(--glass-blur-heavy));
+  -webkit-backdrop-filter: blur(var(--glass-blur-heavy));
+  border: 1px solid rgba(88, 224, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 0 80px rgba(88, 224, 255, 0.02),
+    0 0 0 1px rgba(7, 85, 113, 0.2),
+    0 24px 64px rgba(1, 6, 12, 0.52);
+}
+
+.glass-card-elevated::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-reflection);
+  pointer-events: none;
+}
+
+/* ── Phase 0: Health-Reactive Aurora ─────────────────────── */
+
+.aurora-health-green {
+  background:
+    radial-gradient(ellipse 78% 50% at 18% 28%, var(--aurora-green-1) 0%, transparent 52%),
+    radial-gradient(ellipse 58% 42% at 84% 22%, var(--aurora-green-2) 0%, transparent 48%),
+    radial-gradient(ellipse 52% 34% at 48% 84%, var(--aurora-green-3) 0%, transparent 48%);
+  animation: aurora 20s ease-in-out infinite;
+}
+
+.aurora-health-amber {
+  background:
+    radial-gradient(ellipse 78% 50% at 18% 28%, var(--aurora-amber-1) 0%, transparent 52%),
+    radial-gradient(ellipse 58% 42% at 84% 22%, var(--aurora-amber-2) 0%, transparent 48%),
+    radial-gradient(ellipse 52% 34% at 48% 84%, var(--aurora-amber-3) 0%, transparent 48%);
+  animation: aurora 16s ease-in-out infinite;
+}
+
+.aurora-health-red {
+  background:
+    radial-gradient(ellipse 78% 50% at 18% 28%, var(--aurora-red-1) 0%, transparent 52%),
+    radial-gradient(ellipse 58% 42% at 84% 22%, var(--aurora-red-2) 0%, transparent 48%),
+    radial-gradient(ellipse 52% 34% at 48% 84%, var(--aurora-red-3) 0%, transparent 48%);
+  animation: aurora 12s ease-in-out infinite;
+}
+
+/* ── Phase 0: Severity Glow Effects ──────────────────────── */
+
+.glow-critical {
+  box-shadow: 0 0 20px var(--glow-critical), 0 0 40px rgba(255, 90, 122, 0.15);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.glow-warning {
+  box-shadow: 0 0 16px var(--glow-warning), 0 0 32px rgba(255, 179, 71, 0.1);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.glow-info {
+  box-shadow: 0 0 12px var(--glow-info);
+}
+
+.glow-success {
+  box-shadow: 0 0 12px var(--glow-success);
+}
+
+/* ── Phase 0: Flip Card ──────────────────────────────────── */
+
+.flip-card {
+  perspective: var(--perspective);
+}
+
+.flip-card-inner {
+  transition: transform var(--flip-duration) cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card-front,
+.flip-card-back {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-card-back {
+  transform: rotateY(180deg);
+}
+
+/* ── Phase 0: Connection Status Indicator ────────────────── */
+
+.ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ws-dot-connected {
+  background: var(--ws-connected);
+  box-shadow: 0 0 8px var(--ws-connected);
+}
+
+.ws-dot-polling {
+  background: var(--ws-polling);
+  box-shadow: 0 0 8px var(--ws-polling);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.ws-dot-disconnected {
+  background: var(--ws-disconnected);
+  box-shadow: 0 0 8px var(--ws-disconnected);
+}
+
+/* ── Phase 0: Slide-in animation for events ──────────────── */
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* ── Phase 0: Liquid gradient background ─────────────────── */
+
+@keyframes liquid-gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.liquid-gradient-bg {
+  background: linear-gradient(
+    -45deg,
+    rgba(4, 8, 12, 1),
+    rgba(6, 18, 28, 1),
+    rgba(4, 14, 22, 1),
+    rgba(8, 12, 18, 1)
+  );
+  background-size: 400% 400%;
+  animation: liquid-gradient 30s ease infinite;
+}
+
+/* ── Phase 0: Reduced motion ─────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-bg,
+  .aurora-health-green,
+  .aurora-health-amber,
+  .aurora-health-red,
+  .breathing-glow,
+  .pulse-glow,
+  .shimmer,
+  .liquid-gradient-bg {
+    animation: none;
+  }
+
+  .flip-card-inner {
+    transition: none;
+  }
+
+  .slide-in-right {
+    animation: none;
+  }
+}
+
+.dark {
+  --color-bg: #101214;
+  --color-surface: #161A1D;
+  --color-muted-surface: #1D2125;
+  --color-border: #2C333A;
+  --color-text-secondary: #596773;
+  --color-text-primary: #C7D1DB;
+  --color-heading: #DEE4EA;
+  --color-bg-2: #C7D1DB;
+  --color-text-primary-rgb: 199, 209, 219;
 }

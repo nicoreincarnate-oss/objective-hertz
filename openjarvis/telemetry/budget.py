@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -28,7 +28,7 @@ class BudgetConfig:
     monthly_cap: float = 800.0
     alert_threshold: float = 0.8       # 80% → warning
     hard_cap_action: str = "pause"     # "pause" | "downgrade" | "alert_only"
-    categories: Dict[str, float] = field(default_factory=dict)  # per-category caps
+    categories: dict[str, float] = field(default_factory=dict)  # per-category caps
 
 
 class BudgetGuard:
@@ -47,14 +47,14 @@ class BudgetGuard:
     def __init__(
         self,
         config: BudgetConfig,
-        bus: Optional[EventBus] = None,
-        telemetry_db_path: Optional[str] = None,
+        bus: EventBus | None = None,
+        telemetry_db_path: str | None = None,
     ) -> None:
         self._config = config
         self._bus = bus
         self._db_path = telemetry_db_path
         self._last_status: str = "ok"  # "ok" | "warning" | "exceeded"
-        self._cost_records: List[Dict[str, Any]] = []
+        self._cost_records: list[dict[str, Any]] = []
 
     @property
     def config(self) -> BudgetConfig:
@@ -65,7 +65,7 @@ class BudgetGuard:
         amount: float,
         category: str = "inference",
         source: str = "local",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Record a cost event (for vassal-reported spend or manual tracking)."""
         self._cost_records.append({
@@ -77,7 +77,7 @@ class BudgetGuard:
             "metadata": metadata or {},
         })
 
-    def check_budget(self) -> Dict[str, Any]:
+    def check_budget(self) -> dict[str, Any]:
         """Check current month's spending against budget.
 
         Returns dict with: total_spent, remaining, percent_used, exceeded,
@@ -88,7 +88,7 @@ class BudgetGuard:
 
         # Sum from cost records
         total = Decimal("0")
-        category_totals: Dict[str, Decimal] = {}
+        category_totals: dict[str, Decimal] = {}
 
         for rec in self._cost_records:
             if rec["month"] == current_month:
@@ -158,7 +158,7 @@ class BudgetGuard:
             "categories": categories,
         }
 
-    def can_spend(self, amount: float, category: str = "inference") -> Dict[str, Any]:
+    def can_spend(self, amount: float, category: str = "inference") -> dict[str, Any]:
         """Check if a spend is allowed under current budget."""
         status = self.check_budget()
         remaining = Decimal(str(status["remaining"]))
@@ -233,7 +233,7 @@ class BudgetGuard:
 
         return "\n".join(lines)
 
-    def _read_telemetry_costs(self, month_iso: str) -> tuple[Decimal, Dict[str, Decimal]]:
+    def _read_telemetry_costs(self, month_iso: str) -> tuple[Decimal, dict[str, Decimal]]:
         """Read costs from OpenJarvis telemetry SQLite store."""
         conn = sqlite3.connect(self._db_path)
         conn.row_factory = sqlite3.Row

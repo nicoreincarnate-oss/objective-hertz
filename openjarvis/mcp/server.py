@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.types import ToolCall
 from openjarvis.mcp.protocol import (
@@ -18,7 +18,7 @@ from openjarvis.tools._stubs import BaseTool, ToolExecutor
 logger = logging.getLogger(__name__)
 
 # Tool annotation hints per MCP spec 2025-11-25
-_TOOL_ANNOTATIONS: Dict[str, Dict[str, Any]] = {
+_TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {
     "memory_store": {"destructiveHint": True, "readOnlyHint": False},
     "memory_retrieve": {"readOnlyHint": True, "destructiveHint": False},
     "memory_search": {"readOnlyHint": True, "destructiveHint": False},
@@ -51,21 +51,21 @@ class MCPServer:
     SERVER_VERSION = "0.1.0"
     PROTOCOL_VERSION = "2025-11-25"
 
-    def __init__(self, tools: Optional[List[BaseTool]] = None) -> None:
+    def __init__(self, tools: list[BaseTool] | None = None) -> None:
         if tools is None:
             tools = self._auto_discover_tools()
-        self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
+        self._tools: dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._executor = ToolExecutor(tools)
 
     @staticmethod
-    def _auto_discover_tools() -> List[BaseTool]:
+    def _auto_discover_tools() -> list[BaseTool]:
         """Auto-discover all built-in tools by direct import.
 
         Does not rely on ToolRegistry state — imports each tool class
         directly and attempts instantiation with no arguments.
         """
-        tools: List[BaseTool] = []
-        _tool_classes: List[type] = []
+        tools: list[BaseTool] = []
+        _tool_classes: list[type] = []
 
         # Built-in API tools
         try:
@@ -164,7 +164,7 @@ class MCPServer:
 
         return tools
 
-    def get_tools(self) -> List[BaseTool]:
+    def get_tools(self) -> list[BaseTool]:
         """Return all tool instances (for use by SystemBuilder)."""
         return list(self._tools.values())
 
@@ -205,7 +205,7 @@ class MCPServer:
         tool_list = []
         for tool in self._tools.values():
             s = tool.spec
-            entry: Dict[str, Any] = {
+            entry: dict[str, Any] = {
                 "name": s.name,
                 "description": s.description,
                 "inputSchema": s.parameters,

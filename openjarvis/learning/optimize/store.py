@@ -7,7 +7,7 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from openjarvis.learning.optimize.types import (
     BenchmarkScore,
@@ -93,7 +93,7 @@ _MIGRATE_RUNS = [
 class OptimizationStore:
     """SQLite-backed storage for optimization runs and trials."""
 
-    def __init__(self, db_path: Union[str, Path]) -> None:
+    def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -144,7 +144,7 @@ class OptimizationStore:
         )
         self._conn.commit()
 
-    def get_run(self, run_id: str) -> Optional[OptimizationRun]:
+    def get_run(self, run_id: str) -> OptimizationRun | None:
         """Retrieve an optimization run by id, or ``None``."""
         row = self._conn.execute(
             "SELECT * FROM optimization_runs WHERE run_id = ?",
@@ -154,13 +154,13 @@ class OptimizationStore:
             return None
         return self._row_to_run(row)
 
-    def list_runs(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return summary dicts of recent optimization runs."""
         rows = self._conn.execute(
             "SELECT * FROM optimization_runs ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for row in rows:
             result.append(
                 {
@@ -262,7 +262,7 @@ class OptimizationStore:
         )
         self._conn.commit()
 
-    def get_trials(self, run_id: str) -> List[TrialResult]:
+    def get_trials(self, run_id: str) -> list[TrialResult]:
         """Retrieve all trial results for a given run."""
         rows = self._conn.execute(
             "SELECT * FROM trial_results WHERE run_id = ? ORDER BY id",
@@ -345,7 +345,7 @@ class OptimizationStore:
         trials = self.get_trials(run_id)
 
         # Find the best trial
-        best_trial: Optional[TrialResult] = None
+        best_trial: TrialResult | None = None
         if best_trial_id:
             for t in trials:
                 if t.trial_id == best_trial_id:
@@ -353,7 +353,7 @@ class OptimizationStore:
                     break
 
         # Reconstruct benchmarks list
-        benchmarks: List[str] = []
+        benchmarks: list[str] = []
         if len(row) > 11:
             try:
                 benchmarks = json.loads(row[11]) if row[11] else []
@@ -361,7 +361,7 @@ class OptimizationStore:
                 logger.debug("Failed to parse stored JSON: %s", exc)
 
         # Reconstruct pareto frontier from IDs
-        pareto_frontier: List[TrialResult] = []
+        pareto_frontier: list[TrialResult] = []
         if len(row) > 10:
             try:
                 frontier_ids = json.loads(row[10]) if row[10] else []
@@ -403,8 +403,8 @@ class OptimizationStore:
         # row[13] = created_at
 
         # New columns (may be absent in old DBs)
-        sample_scores: List[SampleScore] = []
-        structured_feedback: Optional[TrialFeedback] = None
+        sample_scores: list[SampleScore] = []
+        structured_feedback: TrialFeedback | None = None
 
         if len(row) > 14:
             try:
@@ -454,7 +454,7 @@ class OptimizationStore:
                 logger.debug("Failed to parse stored JSON: %s", exc)
 
         # per_benchmark column
-        per_benchmark: List[BenchmarkScore] = []
+        per_benchmark: list[BenchmarkScore] = []
         if len(row) > 16:
             try:
                 raw_pb = json.loads(row[16]) if row[16] else []

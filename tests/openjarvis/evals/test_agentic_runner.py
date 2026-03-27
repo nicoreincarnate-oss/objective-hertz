@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -21,11 +21,11 @@ class MockRecord:
     problem: str
     expected: str = ""
     category: str = "test"
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MockDataset:
-    def __init__(self, records: List[MockRecord]):
+    def __init__(self, records: list[MockRecord]):
         self._records = records
 
     def iter_records(self):

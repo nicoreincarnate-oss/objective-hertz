@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import platform
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Generator, List, Tuple
 
 from openjarvis.telemetry.energy_monitor import (
     EnergyMonitor,
@@ -54,9 +54,9 @@ class RaplDomain:
             return 0
 
 
-def _discover_domains(base: Path = _RAPL_BASE) -> List[RaplDomain]:
+def _discover_domains(base: Path = _RAPL_BASE) -> list[RaplDomain]:
     """Discover all RAPL domains under the sysfs powercap tree."""
-    domains: List[RaplDomain] = []
+    domains: list[RaplDomain] = []
     if not base.is_dir():
         return domains
 
@@ -92,7 +92,7 @@ class RaplEnergyMonitor(EnergyMonitor):
     ) -> None:
         self._poll_interval_ms = poll_interval_ms
         self._rapl_base = rapl_base
-        self._domains: List[RaplDomain] = []
+        self._domains: list[RaplDomain] = []
         self._initialized = False
 
         if platform.system() == "Linux":
@@ -115,9 +115,9 @@ class RaplEnergyMonitor(EnergyMonitor):
     def energy_method(self) -> str:
         return "rapl"
 
-    def _read_all(self) -> Dict[str, Tuple[int, int]]:
+    def _read_all(self) -> dict[str, tuple[int, int]]:
         """Read (energy_uj, max_energy_uj) for all domains, keyed by name."""
-        readings: Dict[str, Tuple[int, int]] = {}
+        readings: dict[str, tuple[int, int]] = {}
         for domain in self._domains:
             readings[domain.name] = (
                 domain.read_energy_uj(),
@@ -127,11 +127,11 @@ class RaplEnergyMonitor(EnergyMonitor):
 
     @staticmethod
     def _compute_delta(
-        start: Dict[str, Tuple[int, int]],
-        end: Dict[str, Tuple[int, int]],
-    ) -> Dict[str, float]:
+        start: dict[str, tuple[int, int]],
+        end: dict[str, tuple[int, int]],
+    ) -> dict[str, float]:
         """Compute energy delta in microjoules, handling wrap-around."""
-        deltas: Dict[str, float] = {}
+        deltas: dict[str, float] = {}
         for name, (end_uj, max_uj) in end.items():
             start_uj, _ = start.get(name, (0, 0))
             if end_uj >= start_uj:

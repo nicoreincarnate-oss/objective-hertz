@@ -6,7 +6,7 @@ Filters to English single-turn conversations for chat quality evaluation.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -22,14 +22,14 @@ class WildChatDataset(DatasetProvider):
     _default_split = "train"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -43,7 +43,7 @@ class WildChatDataset(DatasetProvider):
             rows = list(dataset)
 
         # Filter to English single-turn conversations
-        filtered: List[MutableMapping[str, object]] = []
+        filtered: list[MutableMapping[str, object]] = []
         for row in rows:
             if not isinstance(row, MutableMapping):
                 row = dict(row)

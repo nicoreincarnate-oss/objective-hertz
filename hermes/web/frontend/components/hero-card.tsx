@@ -1,7 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Activity, Mail, Users, TrendingUp, Clock } from 'lucide-react'
+import { Activity, Mail, Users, TrendingUp, Clock, Wifi, WifiOff } from 'lucide-react'
+import { HyperText } from '@/components/ui/hyper-text'
+import { NumberTicker } from '@/components/ui/number-ticker'
+import { GlowCard } from '@/components/ui/spotlight-card'
 
 interface HeroCardProps {
   mode: 'review' | 'autonomous'
@@ -14,13 +17,17 @@ interface HeroCardProps {
 
 export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesClosed, lastSync }: HeroCardProps) {
   const isReviewMode = mode === 'review'
-  
+  const isLive = lastSync === 'LIVE'
+
   const getHeadline = () => {
     if (pendingApprovals > 0) {
       return `${pendingApprovals} approval${pendingApprovals > 1 ? 's' : ''} waiting`
     }
     return 'Runtime is clear'
   }
+
+  // Health status drives aurora blob colors
+  const healthLevel = pendingApprovals > 5 ? 'critical' : pendingApprovals > 0 ? 'warning' : 'healthy'
 
   return (
     <motion.div
@@ -29,54 +36,84 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       transition={{ duration: 0.6 }}
       className="relative overflow-hidden"
     >
-      {/* Floating orbs background */}
+      {/* Hero banner background image */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
-        <motion.div
-          animate={{
-            x: [0, 30, 0],
-            y: [0, -20, 0],
-          }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-20 -left-20 w-60 h-60 rounded-full bg-gold/10 blur-3xl"
-        />
-        <motion.div
-          animate={{
-            x: [0, -20, 0],
-            y: [0, 30, 0],
-          }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -bottom-20 -right-20 w-80 h-80 rounded-full bg-teal/8 blur-3xl"
-        />
-        <motion.div
-          animate={{
-            x: [0, 15, 0],
-            y: [0, 15, 0],
-          }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-1/2 left-1/3 w-40 h-40 rounded-full bg-gold/5 blur-2xl"
+        <img
+          src="/assets/generated/hero-banner.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-40"
         />
       </div>
 
-      {/* Main card */}
-      <div className="relative glass-card hud-panel rounded-2xl p-6 breathing-glow">
+      {/* Dynamic aurora overlay — shifts by health, layered on top of AuroraBackground */}
+      <div className="absolute inset-0 overflow-hidden rounded-2xl">
+        <motion.div
+          className="absolute inset-0"
+          animate={{
+            opacity: [0.6, 1, 0.6],
+          }}
+          transition={{ duration: healthLevel === 'critical' ? 2 : healthLevel === 'warning' ? 4 : 8, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {/* Primary aurora blob */}
+          <motion.div
+            animate={{
+              x: ['-5%', '15%', '-5%'],
+              y: ['-10%', '10%', '-10%'],
+              scale: [1, 1.2, 1],
+            }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+            className={`absolute -top-20 -left-20 w-80 h-80 rounded-full blur-3xl ${
+              healthLevel === 'critical' ? 'bg-red/15' : healthLevel === 'warning' ? 'bg-amber/12' : 'bg-gold/10'
+            }`}
+          />
+          {/* Secondary aurora blob */}
+          <motion.div
+            animate={{
+              x: ['5%', '-15%', '5%'],
+              y: ['10%', '-10%', '10%'],
+              scale: [1.1, 0.9, 1.1],
+            }}
+            transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
+            className={`absolute -bottom-20 -right-20 w-96 h-96 rounded-full blur-3xl ${
+              healthLevel === 'critical' ? 'bg-red/10' : healthLevel === 'warning' ? 'bg-amber/8' : 'bg-teal/8'
+            }`}
+          />
+          {/* Tertiary accent */}
+          <motion.div
+            animate={{
+              x: [0, 20, 0],
+              y: [0, -15, 0],
+            }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute top-1/2 left-1/3 w-48 h-48 rounded-full bg-gold/5 blur-2xl"
+          />
+        </motion.div>
+      </div>
+
+      {/* Main card — elevated glass */}
+      <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
+      <div className="relative glass-card-elevated hud-panel rounded-2xl p-8 breathing-glow">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="absolute inset-0 bg-gold/30 blur-md rounded-lg" />
               <div className="relative bg-gradient-to-br from-gold to-gold-dim px-3 py-1 rounded-lg">
-                <span className="text-background font-bold text-sm tracking-[0.2em]">PERSEUS</span>
+                <HyperText
+                  text="PERSEUS"
+                  className="text-background font-bold text-sm tracking-[0.2em]"
+                />
               </div>
             </div>
           </div>
-          
+
           {/* Mode pill */}
           <motion.div
             animate={{ opacity: [0.8, 1, 0.8] }}
             transition={{ duration: 2, repeat: Infinity }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
-              isReviewMode 
-                ? 'bg-amber/10 border-amber/30 text-amber' 
+              isReviewMode
+                ? 'bg-amber/10 border-amber/30 text-amber'
                 : 'bg-green/10 border-green/30 text-green'
             }`}
           >
@@ -97,47 +134,61 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
           </p>
         </div>
 
-        {/* Signal rail */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SignalPill 
+        {/* Signal rail — 5 pills */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <SignalPill
             icon={<Activity className="w-3.5 h-3.5" />}
             label="Mode"
             value={isReviewMode ? 'Review' : 'Auto'}
+            numericValue={null}
             color={isReviewMode ? 'amber' : 'green'}
           />
-          <SignalPill 
+          <SignalPill
             icon={<Mail className="w-3.5 h-3.5" />}
             label="Review"
-            value={pendingApprovals.toString()}
+            value={null}
+            numericValue={pendingApprovals}
             color={pendingApprovals > 0 ? 'amber' : 'green'}
           />
-          <SignalPill 
+          <SignalPill
+            icon={<Users className="w-3.5 h-3.5" />}
+            label="Warm"
+            value={null}
+            numericValue={warmLeads}
+            color={warmLeads > 0 ? 'green' : 'muted'}
+          />
+          <SignalPill
             icon={<TrendingUp className="w-3.5 h-3.5" />}
             label="Closed"
-            value={salesClosed.toString()}
+            value={null}
+            numericValue={salesClosed}
             color="green"
           />
-          <SignalPill 
-            icon={<Clock className="w-3.5 h-3.5" />}
+          <SignalPill
+            icon={isLive ? <Wifi className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
             label="Sync"
             value={lastSync}
-            color="muted"
+            numericValue={null}
+            color={isLive ? 'green' : 'muted'}
           />
         </div>
       </div>
+      </GlowCard>
     </motion.div>
   )
 }
 
-function SignalPill({ 
-  icon, 
-  label, 
-  value, 
-  color 
-}: { 
+function SignalPill({
+  icon,
+  label,
+  value,
+  numericValue,
+  color
+}: {
   icon: React.ReactNode
   label: string
-  value: string
+  value: string | null
+  numericValue: number | null
   color: 'amber' | 'green' | 'muted'
 }) {
   const colorClasses = {
@@ -146,12 +197,25 @@ function SignalPill({
     muted: 'bg-muted border-border text-muted-foreground'
   }
 
+  const tickerColorClasses = {
+    amber: 'text-amber',
+    green: 'text-green',
+    muted: 'text-muted-foreground'
+  }
+
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${colorClasses[color]}`}>
       {icon}
       <div className="flex flex-col">
         <span className="text-[10px] uppercase tracking-wider opacity-70">{label}</span>
-        <span className="text-xs font-semibold">{value}</span>
+        {numericValue !== null ? (
+          <NumberTicker
+            value={numericValue}
+            className={`text-xs font-semibold ${tickerColorClasses[color]}`}
+          />
+        ) : (
+          <span className="text-xs font-semibold">{value}</span>
+        )}
       </div>
     </div>
   )

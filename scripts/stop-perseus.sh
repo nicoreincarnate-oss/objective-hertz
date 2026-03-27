@@ -16,7 +16,7 @@ echo "════════════════════════�
 echo "  PERSEUS — Stopping Hermes + Workers"
 echo "═══════════════════════════════════════"
 
-for agent in frontend dashboard clawdbot titan perseus; do
+for agent in frontend dashboard orchestrator clawdbot titan perseus; do
     PID_FILE="$PID_DIR/$agent.pid"
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")

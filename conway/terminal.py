@@ -7,26 +7,24 @@ budget gauges, and live event streams. Provides operator command input.
 Launch via: jarvis conway
 """
 
-import asyncio
 import logging
 from decimal import Decimal
-from typing import Any
 
 logger = logging.getLogger("conway.terminal")
 
 try:
     from textual.app import App, ComposeResult
-    from textual.containers import Container, Horizontal, Vertical
+    from textual.containers import Container, Horizontal, Vertical  # noqa: F401
+    from textual.timer import Timer  # noqa: F401
     from textual.widgets import (
         DataTable,
         Footer,
         Header,
-        Input,
+        Input,  # noqa: F401
         Label,
         Log,
         Static,
     )
-    from textual.timer import Timer
 
     HAS_TEXTUAL = True
 except ImportError:
@@ -189,7 +187,7 @@ if HAS_TEXTUAL:
                 bar = "[" + "#" * filled + "-" * (bar_width - filled) + "]"
 
                 status = "EXCEEDED" if spending["exceeded"] else "OK"
-                color = "red" if pct > 90 else "yellow" if pct > 70 else "green"
+                _color = "red" if pct > 90 else "yellow" if pct > 70 else "green"  # noqa: F841
 
                 display = self.query_one("#budget-display", Static)
                 display.update(

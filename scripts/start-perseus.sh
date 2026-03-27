@@ -44,12 +44,48 @@ wait_for_http() {
     return 1
 }
 
+stop_stale_listener() {
+    local port="$1"
+    local expected_cwd="$2"
+    local label="$3"
+    local pid
+    pid="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1)"
+    if [ -z "$pid" ]; then
+        return 0
+    fi
+
+    local listener_cwd
+    listener_cwd="$(lsof -nP -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    if [ "$listener_cwd" != "$expected_cwd" ]; then
+        echo "  ✗ Port $port is already in use by PID $pid outside $label ($listener_cwd)"
+        return 1
+    fi
+
+    echo "  Found stale $label listener on :$port (PID: $pid), stopping it..."
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+        if ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+    sleep 1
+    if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "  ✗ Failed to free port $port for $label"
+        return 1
+    fi
+}
+
 echo "═══════════════════════════════════════"
 echo "  OPENJARVIS — Starting The Boss"
 echo "═══════════════════════════════════════"
 
+# 0. Validate Python version
+python3 -c "import sys; assert sys.version_info >= (3, 11), f'Python 3.11+ required, got {sys.version}'" || exit 1
+
 # 1. Start Docker services
-echo "[1/8] Starting Docker services..."
+echo "[1/7] Starting Docker services..."
 cd "$ROOT_DIR"
 if ! command -v docker &> /dev/null; then
     echo "  ✗ docker not found in PATH — install Docker Desktop or add it to PATH"
@@ -94,7 +130,7 @@ fi
 echo "  ✓ Docker services running, Postgres ready, schema applied"
 
 # 2. Start Ollama (if not already running)
-echo "[2/8] Checking Ollama..."
+echo "[2/7] Checking Ollama..."
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "  Starting Ollama..."
     ollama serve &
@@ -103,11 +139,11 @@ fi
 echo "  ✓ Ollama running"
 
 # 3. Sync Hermes soul + local skills
-echo "[3/8] Syncing Hermes soul + skills..."
+echo "[3/7] Syncing Hermes soul + skills..."
 bash "$ROOT_DIR/scripts/sync-hermes-agent.sh"
 
 # 4. Start official Hermes gateway
-echo "[4/8] Starting official Hermes gateway..."
+echo "[4/7] Starting official Hermes gateway..."
 if ! hermes gateway start > /dev/null 2>&1; then
     hermes gateway install > /dev/null 2>&1 || true
     hermes gateway start > /dev/null 2>&1
@@ -115,9 +151,9 @@ fi
 echo "  ✓ Hermes gateway running"
 
 # 5. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
-echo "[5/6] Starting OpenJarvis Orchestrator (boss)..."
+echo "[5/7] Starting OpenJarvis Orchestrator (boss)..."
 cd "$ROOT_DIR"
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
+LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 SKIP_INTERNAL_DASHBOARD=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
 echo $! > "$PID_DIR/orchestrator.pid"
 wait_for_pid "$(cat "$PID_DIR/orchestrator.pid")" "OpenJarvis"
 echo "  ✓ OpenJarvis started (PID: $(cat $PID_DIR/orchestrator.pid))"
@@ -126,20 +162,26 @@ echo "  Waiting for vassals to come up..."
 sleep 5
 wait_for_http "http://localhost:9000/.well-known/agent.json" "OpenJarvis A2A" 30
 echo "  ✓ OpenJarvis A2A ready on :9000"
+echo "  Metrics    OpenJarvis: http://localhost:9100/metrics"
+echo "  Metrics    Titan:      http://localhost:9101/metrics"
+echo "  Metrics    Hermes:     http://localhost:9102/metrics"
+echo "  Metrics    ClawdBot:   http://localhost:9103/metrics"
 
 # 6. Start dashboard backend
-echo "[6/6] Starting dashboard backend..."
+echo "[6/7] Starting dashboard backend..."
 LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
 echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
-wait_for_http "http://localhost:8500/api/health" "Dashboard backend"
+wait_for_http "http://localhost:8500/api/liveness" "Dashboard backend"
 echo "  ✓ Dashboard backend started on :8500 (PID: $(cat $PID_DIR/dashboard.pid))"
+echo "  Metrics    Dashboard:  http://localhost:8500/metrics"
 
-# 9. Start War Room frontend (Next.js)
+# 7. Start War Room frontend (Next.js)
 FRONTEND_DIR="$ROOT_DIR/hermes/web/frontend"
-echo "[9/9] Starting War Room frontend..."
+echo "[7/7] Starting War Room frontend..."
 if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     cd "$FRONTEND_DIR"
+    stop_stale_listener 3000 "$FRONTEND_DIR" "frontend" || exit 1
     # Build if not already built
     if [ ! -d "$FRONTEND_DIR/.next" ]; then
         echo "  Building frontend (first run)..."
@@ -170,6 +212,8 @@ if [ -f "$PID_DIR/frontend.pid" ]; then
 echo "  Frontend   PID: $(cat $PID_DIR/frontend.pid)"
 echo "  Dashboard: http://localhost:3000"
 fi
+echo "  Prometheus: http://localhost:9090"
+echo "  Grafana:    http://localhost:3001"
 echo ""
 echo "  Logs: $LOG_DIR/"
 echo "  Stop: ./scripts/stop-perseus.sh"

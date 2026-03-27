@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.learning.optimize.types import SearchDimension, SearchSpace
 
 
-def build_search_space(config: Dict[str, Any]) -> SearchSpace:
+def build_search_space(config: dict[str, Any]) -> SearchSpace:
     """Build a SearchSpace from a TOML-style config dict.
 
     Expected format::
@@ -37,12 +37,12 @@ def build_search_space(config: Dict[str, Any]) -> SearchSpace:
         }
     """
     opt = config.get("optimize", {})
-    search_entries: List[Dict[str, Any]] = opt.get("search", [])
-    fixed: Dict[str, Any] = dict(opt.get("fixed", {}))
+    search_entries: list[dict[str, Any]] = opt.get("search", [])
+    fixed: dict[str, Any] = dict(opt.get("fixed", {}))
     constraints_sec = opt.get("constraints", {})
-    constraints: List[str] = list(constraints_sec.get("rules", []))
+    constraints: list[str] = list(constraints_sec.get("rules", []))
 
-    dimensions: List[SearchDimension] = []
+    dimensions: list[SearchDimension] = []
     for entry in search_entries:
         # Infer primitive from the first segment of the dotted name
         name = entry.get("name", "")

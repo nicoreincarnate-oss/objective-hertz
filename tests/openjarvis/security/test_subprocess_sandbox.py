@@ -105,7 +105,8 @@ class TestRunSandboxed:
         assert len(result.stdout) <= 50
 
     def test_non_zero_exit_code(self) -> None:
-        result = run_sandboxed("exit 42", timeout=10.0)
+        # Use /bin/sh -c to test exit codes since shell=False is used
+        result = run_sandboxed("/bin/sh -c 'exit 42'", timeout=10.0)
         assert result.returncode == 42
         assert not result.timed_out
 

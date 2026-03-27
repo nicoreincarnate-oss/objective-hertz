@@ -258,7 +258,11 @@ def _filter_surviving(proposals: list[dict], verdicts: list[dict]) -> list[dict]
 
 async def _apply_changes(proposals: list[dict], cycle_id: int) -> int:
     """Apply surviving proposals via the backprop engine."""
-    from openjarvis.vassals.backprop import apply_config_change, apply_rule_change, apply_soul_doc_edit
+    from openjarvis.vassals.backprop import (
+        apply_config_change,
+        apply_rule_change,
+        apply_soul_doc_edit,
+    )
 
     applied = 0
     for proposal in proposals:

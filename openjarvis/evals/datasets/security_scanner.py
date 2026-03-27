@@ -12,7 +12,8 @@ Difficulty tiers:
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -34,7 +35,7 @@ Produce a structured security report with these sections:
 # EASY tasks (10): single obvious vulnerability
 # ---------------------------------------------------------------------------
 
-_EASY_TASKS: List[Dict[str, Any]] = [
+_EASY_TASKS: list[dict[str, Any]] = [
     {
         "project_files": {
             "app.py": (
@@ -203,7 +204,7 @@ _EASY_TASKS: List[Dict[str, Any]] = [
 # MEDIUM tasks (10): multiple vulnerabilities
 # ---------------------------------------------------------------------------
 
-_MEDIUM_TASKS: List[Dict[str, Any]] = [
+_MEDIUM_TASKS: list[dict[str, Any]] = [
     {
         "project_files": {
             "app.py": (
@@ -429,7 +430,7 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
 # HARD tasks (10): subtle vulnerabilities with false positive traps
 # ---------------------------------------------------------------------------
 
-_HARD_TASKS: List[Dict[str, Any]] = [
+_HARD_TASKS: list[dict[str, Any]] = [
     {
         "project_files": {
             "auth.py": (
@@ -664,7 +665,7 @@ _HARD_TASKS: List[Dict[str, Any]] = [
 ]
 
 
-def _build_all_tasks() -> List[Dict[str, Any]]:
+def _build_all_tasks() -> list[dict[str, Any]]:
     tasks = []
     for task in _EASY_TASKS:
         tasks.append({**task, "difficulty": "easy"})
@@ -685,14 +686,14 @@ class SecurityScannerDataset(DatasetProvider):
     dataset_name = "Security Scanner"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         tasks = list(_ALL_TASKS)
         if seed is not None:

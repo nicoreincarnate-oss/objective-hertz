@@ -1,3 +1,5 @@
+> **Historical**: This architecture document reflects an earlier Perseus-centric design. The system now uses OpenJarvis as the orchestrator framework.
+
 # PERSEUS Architecture
 
 ## System Overview

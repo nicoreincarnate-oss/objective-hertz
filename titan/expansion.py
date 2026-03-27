@@ -16,6 +16,11 @@ import json
 import logging
 from decimal import Decimal
 
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:
+    Jsonb = None  # type: ignore[assignment,misc]
+
 from shared.comms import request_task_result
 from shared.db import emit_event, execute, fetch_one, fetch_val, get_config, set_config
 from shared.llm_client import llm
@@ -485,8 +490,6 @@ async def _evaluate_active_shadow_discovery() -> None:
 
 
 def _jsonb(value: dict):
-    from psycopg.types.json import Jsonb
-
     return Jsonb(value)
 
 

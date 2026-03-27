@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from openjarvis.core.config import JarvisConfig
 from openjarvis.core.registry import EngineRegistry
@@ -12,7 +12,7 @@ from openjarvis.engine._base import InferenceEngine
 logger = logging.getLogger(__name__)
 
 # Map registry keys to config host attribute (None = no host arg)
-_HOST_MAP: Dict[str, str | None] = {
+_HOST_MAP: dict[str, str | None] = {
     "ollama": "ollama_host",
     "vllm": "vllm_host",
     "llamacpp": "llamacpp_host",
@@ -39,12 +39,12 @@ def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     return cls()
 
 
-def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
+def discover_engines(config: JarvisConfig) -> list[tuple[str, InferenceEngine]]:
     """Probe registered engines and return ``[(key, instance)]`` for healthy ones.
 
     Results are sorted with the config default engine first.
     """
-    healthy: List[Tuple[str, InferenceEngine]] = []
+    healthy: list[tuple[str, InferenceEngine]] = []
     for key in EngineRegistry.keys():
         try:
             engine = _make_engine(key, config)
@@ -56,7 +56,7 @@ def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
 
     default_key = config.engine.default
 
-    def sort_key(item: Tuple[str, Any]) -> Tuple[int, str]:
+    def sort_key(item: tuple[str, Any]) -> tuple[int, str]:
         return (0 if item[0] == default_key else 1, item[0])
 
     healthy.sort(key=sort_key)
@@ -64,10 +64,10 @@ def discover_engines(config: JarvisConfig) -> List[Tuple[str, InferenceEngine]]:
 
 
 def discover_models(
-    engines: List[Tuple[str, InferenceEngine]],
-) -> Dict[str, List[str]]:
+    engines: list[tuple[str, InferenceEngine]],
+) -> dict[str, list[str]]:
     """Call ``list_models()`` on each engine and return a dict."""
-    result: Dict[str, List[str]] = {}
+    result: dict[str, list[str]] = {}
     for key, engine in engines:
         try:
             result[key] = engine.list_models()
@@ -79,7 +79,7 @@ def discover_models(
 
 def get_engine(
     config: JarvisConfig, engine_key: str | None = None
-) -> Tuple[str, InferenceEngine] | None:
+) -> tuple[str, InferenceEngine] | None:
     """Get a specific engine by key, or the default with fallback.
 
     Returns ``(key, engine_instance)`` or ``None`` if no engine is available.

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from openjarvis.evals.core.backend import InferenceBackend
 
@@ -39,7 +39,7 @@ class TerminalBenchNativeBackend(InferenceBackend):
         temperature: float = 0.2,
         agent_name: str = "naive",
         output_dir: str = "results/terminalbench/",
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
         dataset_name: str = "terminal-bench-core",
         dataset_version: str = "0.1.1",
         system_prompt: str = "",
@@ -60,14 +60,14 @@ class TerminalBenchNativeBackend(InferenceBackend):
         self._system_prompt = system_prompt
         self._max_tokens = max_tokens
         self._n_concurrent = n_concurrent
-        self._results: Optional[BenchmarkResults] = None
+        self._results: BenchmarkResults | None = None
 
     def run_harness(self, run_id: str) -> BenchmarkResults:
         """Run the full terminal-bench harness and return results."""
         output_path = self._output_dir / run_id
         output_path.mkdir(parents=True, exist_ok=True)
 
-        harness_kwargs: Dict[str, Any] = {
+        harness_kwargs: dict[str, Any] = {
             "output_path": output_path,
             "run_id": run_id,
             "dataset_name": self._dataset_name,
@@ -102,7 +102,7 @@ class TerminalBenchNativeBackend(InferenceBackend):
     def generate_full(
         self, prompt: str, *, model: str, system: str = "",
         temperature: float = 0.0, max_tokens: int = 2048,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {"content": "", "usage": {}, "model": model, "latency_seconds": 0.0}
 
     def close(self) -> None:

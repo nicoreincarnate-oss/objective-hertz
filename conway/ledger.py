@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from shared.db import execute, fetch_all, fetch_one, fetch_val
+from shared.db import fetch_all, fetch_one, fetch_val
 
 logger = logging.getLogger("conway.ledger")
 
@@ -41,7 +41,7 @@ class EconomicLedger:
                    (agent, tx_type, amount, currency, counterparty, description, tx_hash)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (agent, tx_type, float(amount), currency, counterparty, description, tx_hash),
+                (agent, tx_type, str(Decimal(str(amount))), currency, counterparty, description, tx_hash),
             )
             entry_id = row["id"] if row else None
             logger.info(

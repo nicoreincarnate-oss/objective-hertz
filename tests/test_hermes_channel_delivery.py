@@ -98,8 +98,7 @@ async def test_dispatch_alerts_does_not_ack_failed_delivery(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_message_send_uses_channel_layer(monkeypatch, patch_db):
-    from hermes import a2a_server
-    from hermes import alerts
+    from hermes import a2a_server, alerts
 
     send_operator_message = AsyncMock(
         return_value={

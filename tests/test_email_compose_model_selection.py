@@ -32,6 +32,7 @@ def load_email_compose_module():
 
     fake_memory = types.ModuleType("titan.memory")
     fake_memory.get_relevant_learnings = AsyncMock(return_value="")
+    fake_memory.compute_prompt_version = lambda soul_copy, rules, ab_variation="": "test_hash_0000"
 
     sys.modules.pop("titan.pipeline.email_compose", None)
     sys.modules["shared.db"] = fake_db

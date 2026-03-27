@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)" stroke="#4dd4f0" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Book spine -->
+    <path d="M8 6 L8 26 Q8 27 9 27 L23 27 Q24 27 24 26 L24 6 Q24 5 23 5 L9 5 Q8 5 8 6 Z" stroke-width="1.8"/>
+    <!-- Spine line -->
+    <line x1="11" y1="5" x2="11" y2="27" stroke-width="1.2"/>
+    <!-- Page lines -->
+    <line x1="14" y1="10" x2="21" y2="10" stroke-width="1.2"/>
+    <line x1="14" y1="14" x2="21" y2="14" stroke-width="1.2"/>
+    <line x1="14" y1="18" x2="21" y2="18" stroke-width="1.2"/>
+    <line x1="14" y1="22" x2="19" y2="22" stroke-width="1.2"/>
+  </g>
+</svg>

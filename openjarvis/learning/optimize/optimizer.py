@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 try:
     import tomli_w
@@ -29,7 +30,7 @@ from openjarvis.learning.optimize.types import (
 LOGGER = logging.getLogger(__name__)
 
 # Mapping from objective metric names to RunSummary stat attribute + ".mean"
-_SUMMARY_STAT_MAP: Dict[str, str] = {
+_SUMMARY_STAT_MAP: dict[str, str] = {
     "avg_power_watts": "avg_power_watts",
     "throughput_tok_per_sec": "throughput_stats",
     "mfu_pct": "mfu_stats",
@@ -68,9 +69,9 @@ def _get_objective_value(trial: TrialResult, obj: ObjectiveSpec) -> float:
 
 
 def compute_pareto_frontier(
-    trials: List[TrialResult],
-    objectives: List[ObjectiveSpec],
-) -> List[TrialResult]:
+    trials: list[TrialResult],
+    objectives: list[ObjectiveSpec],
+) -> list[TrialResult]:
     """Compute the Pareto frontier: trials not dominated by any other.
 
     A trial A dominates trial B if A is >= B on all objectives and > B
@@ -79,7 +80,7 @@ def compute_pareto_frontier(
     if not trials or not objectives:
         return list(trials)
 
-    def _values(trial: TrialResult) -> List[float]:
+    def _values(trial: TrialResult) -> list[float]:
         vals = []
         for obj in objectives:
             v = _get_objective_value(trial, obj)
@@ -90,11 +91,11 @@ def compute_pareto_frontier(
         return vals
 
     trial_vals = [_values(t) for t in trials]
-    frontier: List[TrialResult] = []
+    frontier: list[TrialResult] = []
 
     for i, trial in enumerate(trials):
         dominated = False
-        for j, other in enumerate(trials):
+        for j, _other in enumerate(trials):
             if i == j:
                 continue
             # Check if other dominates trial
@@ -123,9 +124,10 @@ class OptimizationEngine:
         search_space: SearchSpace,
         llm_optimizer: LLMOptimizer,
         trial_runner: TrialRunner,
-        store: Optional[OptimizationStore] = None,
+        store: OptimizationStore | None = None,
         max_trials: int = 20,
         early_stop_patience: int = 5,
+        objectives: list[ObjectiveSpec] | None = None,
     ) -> None:
         self.search_space = search_space
         self.llm_optimizer = llm_optimizer
@@ -133,6 +135,7 @@ class OptimizationEngine:
         self.store = store
         self.max_trials = max_trials
         self.early_stop_patience = early_stop_patience
+        self.objectives = objectives
 
     # ------------------------------------------------------------------
     # Public API
@@ -140,7 +143,7 @@ class OptimizationEngine:
 
     def run(
         self,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> OptimizationRun:
         """Execute the full optimization loop.
 
@@ -168,23 +171,26 @@ class OptimizationEngine:
         from openjarvis.learning.optimize.trial_runner import MultiBenchTrialRunner
 
         benchmark_name = getattr(self.trial_runner, "benchmark", "")
-        benchmark_names: List[str] = []
+        benchmark_names: list[str] = []
         if isinstance(self.trial_runner, MultiBenchTrialRunner):
             benchmark_names = [
                 s.benchmark for s in self.trial_runner.benchmark_specs
             ]
             benchmark_name = "+".join(benchmark_names)
 
-        optimization_run = OptimizationRun(
-            run_id=run_id,
-            search_space=self.search_space,
-            status="running",
-            optimizer_model=self.llm_optimizer.optimizer_model,
-            benchmark=benchmark_name,
-            benchmarks=benchmark_names,
-        )
+        run_kwargs: dict[str, Any] = {
+            "run_id": run_id,
+            "search_space": self.search_space,
+            "status": "running",
+            "optimizer_model": self.llm_optimizer.optimizer_model,
+            "benchmark": benchmark_name,
+            "benchmarks": benchmark_names,
+        }
+        if self.objectives is not None:
+            run_kwargs["objectives"] = list(self.objectives)
+        optimization_run = OptimizationRun(**run_kwargs)
 
-        history: List[TrialResult] = []
+        history: list[TrialResult] = []
         best_accuracy = -1.0
         trials_without_improvement = 0
 
@@ -352,10 +358,10 @@ class OptimizationEngine:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _trial_to_recipe_dict(trial: TrialResult) -> Dict[str, Any]:
+    def _trial_to_recipe_dict(trial: TrialResult) -> dict[str, Any]:
         """Convert a TrialResult into a Recipe-style TOML dict."""
         params = trial.config.params
-        recipe: Dict[str, Any] = {
+        recipe: dict[str, Any] = {
             "recipe": {
                 "name": f"optimized-{trial.trial_id}",
                 "description": (
@@ -366,7 +372,7 @@ class OptimizationEngine:
         }
 
         # Intelligence section
-        intel: Dict[str, Any] = {}
+        intel: dict[str, Any] = {}
         if "intelligence.model" in params:
             intel["model"] = params["intelligence.model"]
         if "intelligence.temperature" in params:
@@ -383,14 +389,14 @@ class OptimizationEngine:
             recipe["intelligence"] = intel
 
         # Engine section
-        engine: Dict[str, Any] = {}
+        engine: dict[str, Any] = {}
         if "engine.backend" in params:
             engine["key"] = params["engine.backend"]
         if engine:
             recipe["engine"] = engine
 
         # Agent section
-        agent: Dict[str, Any] = {}
+        agent: dict[str, Any] = {}
         if "agent.type" in params:
             agent["type"] = params["agent.type"]
         if "agent.max_turns" in params:
@@ -403,7 +409,7 @@ class OptimizationEngine:
             recipe["agent"] = agent
 
         # Learning section
-        learning: Dict[str, Any] = {}
+        learning: dict[str, Any] = {}
         if "learning.routing_policy" in params:
             learning["routing"] = params["learning.routing_policy"]
         if "learning.agent_policy" in params:
@@ -415,10 +421,10 @@ class OptimizationEngine:
 
     @staticmethod
     def _write_toml_fallback(
-        data: Dict[str, Any], path: Path
+        data: dict[str, Any], path: Path
     ) -> None:
         """Write a simple nested dict as TOML without tomli_w."""
-        lines: List[str] = []
+        lines: list[str] = []
         for section, values in data.items():
             if not isinstance(values, dict):
                 continue

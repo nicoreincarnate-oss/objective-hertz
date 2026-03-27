@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -17,14 +17,14 @@ class PersonalBenchmarkDataset(DatasetProvider):
 
     def __init__(self, benchmark: PersonalBenchmark) -> None:
         self._benchmark = benchmark
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         """Convert :class:`PersonalBenchmarkSample` instances to :class:`EvalRecord`."""
         samples = self._benchmark.samples

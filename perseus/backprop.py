@@ -57,7 +57,7 @@ def _is_immutable(file_path: str, start_line: int = 0, end_line: int = 0) -> boo
     # Normalize path
     rel = file_path
     if str(config.root_dir) in file_path:
-        rel = file_path.replace(str(config.root_dir) + "/", "")
+        rel = str(Path(file_path).relative_to(config.root_dir))
 
     # Full file immutable?
     if rel in IMMUTABLE_FILES:
@@ -101,14 +101,16 @@ async def apply_soul_doc_edit(
         return False
 
     # Check immutable sections by line number
-    lines = content.split("\n")
     old_start = None
-    for i, line in enumerate(lines, 1):
-        if old_text.split("\n")[0] in line:
-            old_start = i
+    old_lines = old_text.split("\n")
+    content_lines = content.split("\n")
+    num_old_lines = len(old_lines)
+    for i in range(len(content_lines) - num_old_lines + 1):
+        if content_lines[i:i + num_old_lines] == old_lines:
+            old_start = i + 1  # 1-indexed
             break
     if old_start:
-        old_end = old_start + old_text.count("\n")
+        old_end = old_start + num_old_lines - 1
         if _is_immutable(file_path, old_start, old_end):
             logger.warning(f"Backprop blocked: lines {old_start}-{old_end} of {file_path} are immutable")
             return False
@@ -152,8 +154,9 @@ async def apply_config_change(
             if new_num < PRICE_MIN or new_num > PRICE_MAX:
                 logger.warning(f"Backprop blocked: price ${new_num} outside [{PRICE_MIN}, {PRICE_MAX}]")
                 return False
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            logger.warning("Price validation failed: %s", e)
+            return False
 
     await set_config(key, new_value)
 
@@ -236,14 +239,76 @@ async def rollback_cycle(cycle_id: int) -> int:
                 )
                 reverted += 1
 
-    if reverted:
+    # ── Cross-store rollback: MAGMA causal edges created during this cycle ──
+    magma_reverted = 0
+    try:
+        from shared.magma import _get_driver
+        driver = _get_driver()
+        if driver:
+            # Find and delete MAGMA nodes + edges ingested during this cycle
+            # Nodes are tagged with metadata containing cycle_id or created
+            # within the cycle's time window
+            cycle_log = await fetch_all(
+                "SELECT created_at FROM sleep_cycle_log WHERE id = %s", (cycle_id,)
+            )
+            if cycle_log:
+                cycle_ts = str(cycle_log[0].get("created_at", ""))
+                if cycle_ts:
+                    with driver.session() as session:
+                        # Delete causal edges inferred during this cycle
+                        result = session.run(
+                            """MATCH ()-[r:CAUSED]->()
+                               WHERE r.inferred_at >= $ts
+                               DELETE r
+                               RETURN count(r) as deleted""",
+                            ts=cycle_ts,
+                        ).single()
+                        magma_reverted = result["deleted"] if result else 0
+    except Exception as e:
+        logger.debug(f"MAGMA rollback failed (non-critical): {e}")
+
+    # ── Cross-store rollback: Mem0 memories stored during reflection ──
+    mem0_reverted = 0
+    try:
+        # Delete titan_learnings created during this cycle (by the reflection
+        # that ran just before it) — they may contain insights that led to
+        # the bad proposals we're reverting
+        reflection_rows = await fetch_all(
+            """SELECT id FROM titan_learnings
+               WHERE category = 'daily_reflection'
+               AND created_at >= (SELECT created_at FROM sleep_cycle_log WHERE id = %s)
+               AND created_at <= (SELECT created_at FROM sleep_cycle_log WHERE id = %s) + INTERVAL '1 hour'""",
+            (cycle_id, cycle_id),
+        )
+        if reflection_rows:
+            for row in reflection_rows:
+                await execute("DELETE FROM titan_learnings WHERE id = %s", (row["id"],))
+                mem0_reverted += 1
+    except Exception as e:
+        logger.debug(f"Learnings rollback failed (non-critical): {e}")
+
+    total_reverted = reverted + magma_reverted + mem0_reverted
+    if total_reverted:
         await execute(
             "UPDATE sleep_cycle_log SET rolled_back = TRUE WHERE id = %s",
             (cycle_id,),
         )
-        logger.info(f"Rolled back {reverted} changes from sleep cycle #{cycle_id}")
+        logger.info(
+            f"Rolled back sleep cycle #{cycle_id}: "
+            f"{reverted} backprop changes, {magma_reverted} MAGMA edges, "
+            f"{mem0_reverted} learnings"
+        )
 
-    return reverted
+        # Emit event so Hermes alerts the operator
+        from shared.db import emit_event
+        await emit_event("sleep_cycle_rolled_back", {
+            "cycle_id": cycle_id,
+            "backprop_reverted": reverted,
+            "magma_edges_reverted": magma_reverted,
+            "learnings_reverted": mem0_reverted,
+        })
+
+    return total_reverted
 
 
 # ── Git integration ───────────────────────────────────────────────

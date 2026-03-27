@@ -71,6 +71,32 @@ def test_build_demo_and_propose_stops_when_demo_build_fails():
     emit_event.assert_awaited()
 
 
+def test_build_demo_and_propose_blocks_when_demo_qa_is_unavailable():
+    close_deal = load_close_deal_module()
+
+    fake_comms = types.ModuleType("shared.comms")
+    fake_comms.request_task_result = AsyncMock(return_value=None)
+    sys.modules["shared.comms"] = fake_comms
+
+    lead = {
+        "id": 42,
+        "business_name": "Acme Plumbing",
+        "contact_name": "Nico",
+        "email": "hello@example.com",
+    }
+
+    with patch.object(close_deal, "get_config", AsyncMock(side_effect=[0, 10])):
+        with patch.object(close_deal, "_build_demo_site", AsyncMock(return_value="https://demo.example")):
+            with patch.object(close_deal, "_generate_proposal", AsyncMock()) as generate:
+                with patch.object(close_deal, "_send_proposal", AsyncMock()) as send:
+                    with patch.object(close_deal, "emit_event", AsyncMock()) as emit_event:
+                        run(close_deal._build_demo_and_propose(lead))
+
+    generate.assert_not_awaited()
+    send.assert_not_awaited()
+    emit_event.assert_awaited()
+
+
 def test_mark_sale_closed_uses_atomic_sales_increment():
     code = (ROOT / "titan" / "pipeline" / "close_deal.py").read_text()
 

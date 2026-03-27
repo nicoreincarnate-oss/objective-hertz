@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Cloud provider pricing (USD per 1M tokens)
 # params_b: model size in billions, for no-KV-cache FLOPs
 # ---------------------------------------------------------------------------
 
-CLOUD_PRICING: Dict[str, Dict[str, float]] = {
+CLOUD_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.3": {
         "input_per_1m": 2.00,
         "output_per_1m": 10.00,
@@ -69,12 +69,12 @@ class SavingsSummary:
     total_completion_tokens: int = 0
     total_tokens: int = 0
     local_cost: float = 0.0  # always 0 for local inference
-    per_provider: List[ProviderSavings] = field(default_factory=list)
-    monthly_projection: Dict[str, float] = field(default_factory=dict)
+    per_provider: list[ProviderSavings] = field(default_factory=list)
+    monthly_projection: dict[str, float] = field(default_factory=dict)
     session_start_ts: float = 0.0
     session_duration_hours: float = 0.0
-    avg_cost_per_query: Dict[str, float] = field(default_factory=dict)
-    cloud_agent_equivalent: Dict[str, int] = field(default_factory=dict)
+    avg_cost_per_query: dict[str, float] = field(default_factory=dict)
+    cloud_agent_equivalent: dict[str, int] = field(default_factory=dict)
 
 
 def compute_savings(
@@ -85,13 +85,13 @@ def compute_savings(
 ) -> SavingsSummary:
     """Compute savings vs cloud providers given token counts."""
     total_tokens = prompt_tokens + completion_tokens
-    providers: List[ProviderSavings] = []
+    providers: list[ProviderSavings] = []
 
     now = time.time()
     session_duration_hours = (now - session_start) / 3600 if session_start > 0 else 0.0
 
-    monthly_projection: Dict[str, float] = {}
-    avg_cost_per_query: Dict[str, float] = {}
+    monthly_projection: dict[str, float] = {}
+    avg_cost_per_query: dict[str, float] = {}
 
     for key, pricing in CLOUD_PRICING.items():
         input_cost = (prompt_tokens / 1_000_000) * pricing["input_per_1m"]
@@ -154,7 +154,7 @@ def compute_savings(
     )
 
 
-def savings_to_dict(summary: SavingsSummary) -> Dict[str, Any]:
+def savings_to_dict(summary: SavingsSummary) -> dict[str, Any]:
     """Convert SavingsSummary to a JSON-serializable dict."""
     return asdict(summary)
 

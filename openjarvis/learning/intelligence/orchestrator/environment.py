@@ -9,7 +9,6 @@ both training and evaluation.
 from __future__ import annotations
 
 import time
-from typing import List, Tuple
 
 from openjarvis.core.types import ToolCall
 from openjarvis.learning.intelligence.orchestrator.types import (
@@ -33,7 +32,7 @@ class OrchestratorEnvironment:
 
     def __init__(
         self,
-        tools: List[BaseTool],
+        tools: list[BaseTool],
         max_turns: int = 10,
     ) -> None:
         self._tools = tools
@@ -55,12 +54,26 @@ class OrchestratorEnvironment:
         self,
         state: EpisodeState,
         action: OrchestratorAction,
-    ) -> Tuple[EpisodeState, OrchestratorObservation]:
+    ) -> tuple[EpisodeState, OrchestratorObservation]:
         """Execute one step: dispatch the tool and observe the result.
 
         Raises:
             ValueError: If the tool is not available or max turns exceeded.
         """
+        # Handle final-answer actions without tool dispatch
+        if action.is_final_answer or action.tool_name == "__final_answer__":
+            state.final_answer = action.tool_input
+            observation = OrchestratorObservation(
+                content=action.tool_input,
+                latency_seconds=0.0,
+                cost_usd=0.0,
+                energy_joules=0.0,
+                power_watts=0.0,
+                tokens=0,
+            )
+            state.add_turn(action, observation)
+            return state, observation
+
         available = self.get_available_tools()
 
         if action.tool_name not in available:
@@ -74,13 +87,20 @@ class OrchestratorEnvironment:
                 f"Max turns ({self._max_turns}) exceeded"
             )
 
-        # Execute tool via ToolExecutor
+        # Execute tool via ToolExecutor.
+        # Pass tool_input as-is if it looks like JSON, otherwise wrap in
+        # the tool's expected input schema (typically {"input": ...}).
+        raw_input = action.tool_input
+        if raw_input.startswith("{"):
+            arguments = raw_input
+        else:
+            import json
+            arguments = json.dumps({"input": raw_input})
+
         tool_call = ToolCall(
             id=f"orch_{state.num_turns()}",
             name=action.tool_name,
-            arguments=action.tool_input
-            if action.tool_input.startswith("{")
-            else f'{{"expression": {repr(action.tool_input)}}}',
+            arguments=arguments,
         )
 
         t0 = time.time()
@@ -107,7 +127,7 @@ class OrchestratorEnvironment:
             return True
         return False
 
-    def get_available_tools(self) -> List[str]:
+    def get_available_tools(self) -> list[str]:
         """Return names of all available tools."""
         return [t.spec.name for t in self._tools]
 

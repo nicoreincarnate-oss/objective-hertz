@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Generator, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -23,7 +24,7 @@ class BatchMetrics:
     mean_throughput_tok_per_sec: float = 0.0
     prefill_energy_joules: float = 0.0
     decode_energy_joules: float = 0.0
-    per_request_energy: List[float] = field(default_factory=list)
+    per_request_energy: list[float] = field(default_factory=list)
 
 
 class EnergyBatch:
@@ -35,12 +36,12 @@ class EnergyBatch:
 
     def __init__(
         self,
-        energy_monitor: Optional[Any] = None,
-        batch_id: Optional[str] = None,
+        energy_monitor: Any | None = None,
+        batch_id: str | None = None,
     ) -> None:
         self._monitor = energy_monitor
         self.batch_id = batch_id or str(uuid.uuid4())
-        self.metrics: Optional[BatchMetrics] = None
+        self.metrics: BatchMetrics | None = None
 
     @contextmanager
     def sample(self) -> Generator[_BatchContext, None, None]:
@@ -99,7 +100,7 @@ class _BatchContext:
         self._total_tokens: int = 0
         self._total_requests: int = 0
         self._total_energy: float = 0.0
-        self._per_request_energy: List[float] = []
+        self._per_request_energy: list[float] = []
 
     def record_request(
         self,

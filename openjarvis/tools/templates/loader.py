@@ -6,7 +6,7 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.types import ToolResult
 from openjarvis.tools._stubs import BaseTool, ToolSpec
@@ -24,7 +24,7 @@ class ToolTemplate(BaseTool):
 
     tool_id: str
 
-    def __init__(self, template_data: Dict[str, Any]) -> None:
+    def __init__(self, template_data: dict[str, Any]) -> None:
         self._data = template_data
         self.tool_id = template_data.get("name", "template")
         self._name = template_data.get("name", "template")
@@ -65,7 +65,7 @@ class ToolTemplate(BaseTool):
                 success=False,
             )
 
-    def _execute_python(self, params: Dict[str, Any]) -> ToolResult:
+    def _execute_python(self, params: dict[str, Any]) -> ToolResult:
         """Execute a Python expression."""
         expr = self._action.get("expression", "")
         if not expr:
@@ -91,7 +91,7 @@ class ToolTemplate(BaseTool):
             success=True,
         )
 
-    def _execute_shell(self, params: Dict[str, Any]) -> ToolResult:
+    def _execute_shell(self, params: dict[str, Any]) -> ToolResult:
         """Execute a shell command (requires code:execute capability)."""
         cmd = self._action.get("command", "")
         if not cmd:
@@ -114,7 +114,7 @@ class ToolTemplate(BaseTool):
             success=result.returncode == 0,
         )
 
-    def _execute_transform(self, params: Dict[str, Any]) -> ToolResult:
+    def _execute_transform(self, params: dict[str, Any]) -> ToolResult:
         """Execute a data transformation."""
         transform = self._action.get("transform", "identity")
         input_val = params.get("input", "")
@@ -176,8 +176,8 @@ def load_template(path: str | Path) -> ToolTemplate:
 
 
 def discover_templates(
-    directory: Optional[str | Path] = None,
-) -> List[ToolTemplate]:
+    directory: str | Path | None = None,
+) -> list[ToolTemplate]:
     """Discover all TOML templates in a directory."""
     if directory is None:
         directory = Path(__file__).parent / "builtin"

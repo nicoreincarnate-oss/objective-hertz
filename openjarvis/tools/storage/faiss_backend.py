@@ -7,7 +7,7 @@ vectors.  Requires ``faiss-cpu`` (or ``faiss-gpu``) and ``numpy``.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 try:
     import faiss
@@ -46,11 +46,11 @@ class FAISSMemory(MemoryBackend):
             embedder = SentenceTransformerEmbedder()
         self._embedder = embedder
         self._index = faiss.IndexFlatIP(self._embedder.dim())
-        self._documents: Dict[
-            str, Tuple[str, str, Dict[str, Any]]
+        self._documents: dict[
+            str, tuple[str, str, dict[str, Any]]
         ] = {}
-        self._id_map: List[str] = []
-        self._deleted: Set[str] = set()
+        self._id_map: list[str] = []
+        self._deleted: set[str] = set()
 
     # ------------------------------------------------------------------
     # MemoryBackend interface
@@ -61,7 +61,7 @@ class FAISSMemory(MemoryBackend):
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Embed and store *content*, returning a unique doc id."""
         doc_id = uuid.uuid4().hex
@@ -91,7 +91,7 @@ class FAISSMemory(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Embed *query* and return the top-k most similar docs."""
         if not query.strip() or self._index.ntotal == 0:
             bus = get_event_bus()
@@ -115,9 +115,9 @@ class FAISSMemory(MemoryBackend):
         )
         scores, indices = self._index.search(vec, k)
 
-        results: List[RetrievalResult] = []
+        results: list[RetrievalResult] = []
         for score, idx in zip(
-            scores[0].tolist(), indices[0].tolist()
+            scores[0].tolist(), indices[0].tolist(), strict=False
         ):
             if idx < 0:
                 continue

@@ -13,7 +13,7 @@ Score formula:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -22,7 +22,7 @@ from openjarvis.evals.scorers._checklist import ChecklistScorer, normalize_str
 LOGGER = logging.getLogger(__name__)
 
 # Common aliases for vulnerability types
-_VULN_TYPE_ALIASES: Dict[str, List[str]] = {
+_VULN_TYPE_ALIASES: dict[str, list[str]] = {
     "sql_injection": ["sql injection", "sqli", "sql inject"],
     "hardcoded_secret": ["hardcoded secret", "hardcoded credential", "hardcoded password", "hardcoded api key", "hard coded", "embedded secret", "embedded credential"],
     "command_injection": ["command injection", "os command injection", "shell injection", "subprocess injection"],
@@ -66,8 +66,8 @@ def _file_mentioned(model_text_norm: str, filename: str) -> bool:
 
 def _count_false_positives(
     model_text: str,
-    vulnerabilities: List[Dict[str, Any]],
-    safe_patterns: List[str],
+    vulnerabilities: list[dict[str, Any]],
+    safe_patterns: list[str],
 ) -> int:
     """Count findings that don't match any manifest entry.
 
@@ -107,7 +107,7 @@ class SecurityScannerScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -122,7 +122,7 @@ class SecurityScannerScorer(Scorer):
         # --- Tier 1: Pattern match against vulnerability manifest ---
         vulns_found = 0
         severity_correct = 0
-        vuln_details: List[Dict[str, Any]] = []
+        vuln_details: list[dict[str, Any]] = []
 
         for vuln in vulnerabilities:
             file_match = _file_mentioned(model_norm, vuln["file"])
@@ -159,7 +159,7 @@ class SecurityScannerScorer(Scorer):
 
         # --- Tier 2: Checklist via LLM judge (if backend available) ---
         checklist_score = 0.0
-        checklist_details: List[Dict[str, Any]] = []
+        checklist_details: list[dict[str, Any]] = []
 
         if self._judge_backend and self._judge_model:
             checklist_items = [

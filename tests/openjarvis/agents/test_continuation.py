@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.agents._stubs import AgentResult, BaseAgent
 
@@ -10,7 +10,7 @@ from openjarvis.agents._stubs import AgentResult, BaseAgent
 class MockEngine:
     """Mock engine that simulates finish_reason='length'."""
 
-    def __init__(self, responses: List[Dict[str, Any]]):
+    def __init__(self, responses: list[dict[str, Any]]):
         self._responses = list(responses)
         self._call_count = 0
 

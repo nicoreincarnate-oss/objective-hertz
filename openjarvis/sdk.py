@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import openjarvis
 from openjarvis.core.config import JarvisConfig, load_config
@@ -58,7 +58,7 @@ class MemoryHandle:
         *,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Index a file or directory into memory."""
         from openjarvis.tools.storage.chunking import ChunkConfig
         from openjarvis.tools.storage.ingest import ingest_path
@@ -67,7 +67,7 @@ class MemoryHandle:
         cfg = ChunkConfig(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         chunks = ingest_path(Path(path), config=cfg)
 
-        doc_ids: List[str] = []
+        doc_ids: list[str] = []
         for chunk in chunks:
             doc_id = backend.store(
                 chunk.content, source=chunk.source,
@@ -81,7 +81,7 @@ class MemoryHandle:
             "path": path,
         }
 
-    def search(self, query: str, *, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, *, top_k: int = 5) -> list[dict[str, Any]]:
         """Search memory for relevant chunks."""
         backend = self._get_backend()
         results = backend.retrieve(query, top_k=top_k)
@@ -95,7 +95,7 @@ class MemoryHandle:
             for r in results
         ]
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return memory backend statistics."""
         backend = self._get_backend()
         if hasattr(backend, "count"):
@@ -150,10 +150,10 @@ class Jarvis:
     def __init__(
         self,
         *,
-        config: Optional[JarvisConfig] = None,
-        config_path: Optional[str] = None,
-        engine_key: Optional[str] = None,
-        model: Optional[str] = None,
+        config: JarvisConfig | None = None,
+        config_path: str | None = None,
+        engine_key: str | None = None,
+        model: str | None = None,
     ) -> None:
         if config is not None:
             self._config = config
@@ -166,9 +166,9 @@ class Jarvis:
         self._model_override = model
         self._engine: Any = None
         self._energy_monitor: Any = None
-        self._resolved_engine_key: Optional[str] = None
+        self._resolved_engine_key: str | None = None
         self._bus = EventBus()
-        self._telem_store: Optional[TelemetryStore] = None
+        self._telem_store: TelemetryStore | None = None
         self._audit_logger: Any = None
         self._capability_policy: Any = None
         self.memory = MemoryHandle(self._config)
@@ -239,11 +239,11 @@ class Jarvis:
         self,
         query: str,
         *,
-        model: Optional[str] = None,
-        agent: Optional[str] = None,
-        tools: Optional[List[str]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        agent: str | None = None,
+        tools: list[str] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         context: bool = True,
     ) -> str:
         """Send a query and return the response text."""
@@ -262,13 +262,13 @@ class Jarvis:
         self,
         query: str,
         *,
-        model: Optional[str] = None,
-        agent: Optional[str] = None,
-        tools: Optional[List[str]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        agent: str | None = None,
+        tools: list[str] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         context: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send a query and return the full result dict.
 
         Returns a dict with keys: content, usage, tool_results (if agent mode).
@@ -325,9 +325,9 @@ class Jarvis:
         self,
         query: str,
         *,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         context: bool = True,
     ) -> AsyncIterator[str]:
         """Stream tokens as they are generated. Yields token strings."""
@@ -363,11 +363,11 @@ class Jarvis:
         self,
         query: str,
         *,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         context: bool = True,
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream token dicts with metadata.
 
         Yields dicts with ``token`` and ``index`` keys for each token.
@@ -394,7 +394,7 @@ class Jarvis:
         if context and self._config.agent.context_from_memory:
             messages = self._inject_context(query, messages)
 
-        parts: List[str] = []
+        parts: list[str] = []
         i = 0
         async for token in self._engine.stream(
             messages,
@@ -413,7 +413,7 @@ class Jarvis:
             "engine": self._resolved_engine_key,
         }
 
-    def _resolve_model(self, query: str) -> Optional[str]:
+    def _resolve_model(self, query: str) -> str | None:
         """Resolve model using config fallback chain."""
         if self._config.intelligence.default_model:
             return self._config.intelligence.default_model
@@ -432,11 +432,11 @@ class Jarvis:
         query: str,
         model_name: str,
         *,
-        tools: List[str],
+        tools: list[str],
         temperature: float,
         max_tokens: int,
         context: bool,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run an agent and return the result dict."""
         import openjarvis.agents  # noqa: F401
         from openjarvis.agents._stubs import AgentContext
@@ -451,7 +451,7 @@ class Jarvis:
         agent_cls = AgentRegistry.get(agent_name)
 
         # Build tools
-        tool_objects: List[Any] = []
+        tool_objects: list[Any] = []
         if tools:
             import openjarvis.tools  # noqa: F401
             from openjarvis.cli.ask import _build_tools
@@ -460,7 +460,7 @@ class Jarvis:
                 tools, self._config, self._engine, model_name,
             )
 
-        agent_kwargs: Dict[str, Any] = {
+        agent_kwargs: dict[str, Any] = {
             "bus": self._bus,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -517,8 +517,8 @@ class Jarvis:
         }
 
     def _inject_context(
-        self, query: str, messages: List[Message],
-    ) -> List[Message]:
+        self, query: str, messages: list[Message],
+    ) -> list[Message]:
         """Inject memory context into messages."""
         try:
             from openjarvis.cli.ask import _get_memory_backend
@@ -536,12 +536,12 @@ class Jarvis:
             logger.warning("Failed to inject memory context: %s", exc)
         return messages
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """Return a list of available model identifiers."""
         self._ensure_engine()
         return self._engine.list_models()
 
-    def list_engines(self) -> List[str]:
+    def list_engines(self) -> list[str]:
         """Return a list of registered engine keys."""
         from openjarvis.core.registry import EngineRegistry
 

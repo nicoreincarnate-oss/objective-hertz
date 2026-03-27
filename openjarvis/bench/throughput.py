@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, List
+from typing import Any
 
 from openjarvis.bench._stats import compute_stats
 from openjarvis.bench._stubs import BaseBenchmark, BenchmarkResult
@@ -45,9 +45,9 @@ class ThroughputBenchmark(BaseBenchmark):
             except Exception as exc:
                 logger.debug("Warmup request failed: %s", exc)
 
-        per_sample_tps: List[float] = []
-        per_sample_tokens: List[float] = []
-        per_sample_latency: List[float] = []
+        per_sample_tps: list[float] = []
+        per_sample_tokens: list[float] = []
+        per_sample_latency: list[float] = []
         errors = 0
 
         for _ in range(num_samples):

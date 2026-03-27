@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -45,9 +45,9 @@ def _extract_code(answer: str) -> str:
     return answer.strip()
 
 
-def _run_tests(code: str, test_cases: str) -> Tuple[int, int, str]:
+def _run_tests(code: str, test_cases: str) -> tuple[int, int, str]:
     """Execute code + tests in a restricted namespace. Returns (passed, total, error)."""
-    namespace: Dict[str, Any] = {}
+    namespace: dict[str, Any] = {}
 
     try:
         exec(code, namespace)  # noqa: S102
@@ -107,7 +107,7 @@ class CodingTaskScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -127,7 +127,7 @@ class CodingTaskScorer(Scorer):
         pass_rate = passed / total
         is_correct = pass_rate == 1.0
 
-        meta: Dict[str, Any] = {
+        meta: dict[str, Any] = {
             "match_type": "test_execution",
             "tests_passed": passed,
             "tests_total": total,

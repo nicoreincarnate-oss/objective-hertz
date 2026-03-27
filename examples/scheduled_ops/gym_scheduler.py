@@ -15,7 +15,7 @@ register itself as a recurring task.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -57,7 +57,7 @@ def main(
         return
 
     # -- Run the gym schedule check --------------------------------------------
-    today = datetime.now(timezone.utc).strftime("%A, %Y-%m-%d")
+    today = datetime.now(UTC).strftime("%A, %Y-%m-%d")
     prompt = (
         f"Today is {today}. Search for the current schedule and class "
         f"availability at '{gym}'. Include:\n"

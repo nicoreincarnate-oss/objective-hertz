@@ -7,9 +7,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from shared import db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger("perseus.hermes.a2a")
 
@@ -179,8 +184,8 @@ async def _briefing_generate(**_) -> dict:
     try:
         from tools.budget_guard import BudgetGuard
         budget = await BudgetGuard().check_budget()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Budget check failed: %s", e)
 
     decisions = await db.fetch_all(
         "SELECT agent, decision_type, reasoning FROM agent_decisions ORDER BY created_at DESC LIMIT 5"
@@ -232,10 +237,21 @@ async def _operator_pending_approvals(**_) -> dict:
         return {"pending": [], "count": 0}
 
 
-async def _operator_send_message(text: str = "", target: str = "perseus", priority: str = "normal", **_) -> dict:
-    """Send an operator-style message to a target daemon."""
+async def _operator_send_message(text: str = "", target: str = "perseus", priority: str = "normal", _caller: str = "", **_) -> dict:
+    """Send an operator-style message to a target daemon.
+
+    FAIL-CLOSED: caller identity is REQUIRED. If _caller is missing or
+    not in the allowlist, the request is rejected. This prevents any
+    process with the A2A transport secret from silently impersonating
+    operator commands by omitting the caller field.
+    """
+    allowed_callers = {"war_room", "operator", "openjarvis", "hermes"}
+    if not _caller or _caller not in allowed_callers:
+        logger.warning("operator_send_message rejected: caller '%s' is not operator-privileged (must be one of %s)", _caller or "<missing>", allowed_callers)
+        return {"sent": False, "error": f"caller identity required and must be one of {sorted(allowed_callers)}"}
+
     task_type = f"{target}_operator_message"
-    await db.insert_task(task_type, {"message": text, "priority": priority, "source": "openjarvis"})
+    await db.insert_task(task_type, {"message": text, "priority": priority, "source": _caller})
     return {"sent": True, "target": target}
 
 
@@ -280,7 +296,7 @@ async def _health_check(**_) -> dict:
     return {"status": "running", "agent": "hermes"}
 
 
-async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
     """Handle a question from another agent about operator context."""
     from shared.db import fetch_all
 
@@ -302,12 +318,53 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer based on what the operator has communicated. If no relevant context, say so."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "hermes"}
 
 
-CAPABILITY_HANDLERS = {
+async def _review_finding(finding: dict | None = None, code_snippet: str = "", **_) -> dict:
+    """Review a self-audit finding against actual code.
+
+    Hermes reviews for: alerting reliability, event dispatch correctness,
+    Telegram/notification bugs, operator communication safety, and logging gaps.
+    """
+    if not finding or not code_snippet:
+        return {"vote": "defer", "reason": "no finding or code provided", "from": "hermes"}
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are Hermes, the operator communication agent. A self-audit found an issue. "
+        f"Review the ACTUAL CODE and the proposed fix.\n\n"
+        f"FILE: {finding.get('file', '?')}\n"
+        f"ISSUE: {finding.get('issue', '?')}\n"
+        f"SEVERITY: {finding.get('severity', '?')}\n"
+        f"FAILURE MODE: {finding.get('failure_mode', '?')}\n"
+        f"PROPOSED FIX: {finding.get('proposed_fix', 'none')}\n"
+        f"REASONING: {finding.get('reasoning', '?')}\n\n"
+        f"ACTUAL CODE:\n```python\n{code_snippet[:4000]}\n```\n\n"
+        f"Review from your perspective:\n"
+        f"1. Does this code affect alerting, event dispatch, Telegram, or operator comms?\n"
+        f"2. Is the reported issue real? Can you see the bug in the code above?\n"
+        f"3. Could the proposed fix cause silent alert failures or missed notifications?\n"
+        f"4. Are there logging gaps that would hide problems?\n\n"
+        f"Vote: approve (issue is real AND fix is safe), reject (false positive OR fix is dangerous), "
+        f"or defer (not in your domain). Include your reasoning."
+    )
+
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    lower = answer.lower()
+    if "reject" in lower[:100] or "false positive" in lower[:200]:
+        vote = "reject"
+    elif "approve" in lower[:100] or "issue is real" in lower[:200]:
+        vote = "approve"
+    else:
+        vote = "defer"
+
+    return {"vote": vote, "reason": answer[:500], "from": "hermes"}
+
+CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "ask": _ask,
+    "review_finding": _review_finding,
     "event_forward": _event_forward,
     "message_send": _message_send,
     "message_broadcast": _message_broadcast,
@@ -341,8 +398,8 @@ async def handle_a2a(input_text: str) -> str:
                 result = await handler(**params)
                 return json.dumps(result, indent=2, default=str)
             return json.dumps({"error": f"Unknown capability: {cap}"})
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug("JSON parse failed in A2A handler: %s", e)
 
     # Natural language routing
     lower = text.lower()
@@ -373,6 +430,6 @@ async def handle_a2a(input_text: str) -> str:
     return json.dumps(result, indent=2, default=str)
 
 
-def create_hermes_a2a(hermes_daemon=None) -> "FastAPI":
+def create_hermes_a2a(hermes_daemon=None) -> FastAPI:  # noqa: F821
     health_fn = hermes_daemon.health_check if hermes_daemon else None
     return create_a2a_app(agent_card=HERMES_CARD, handler=handle_a2a, health_check=health_fn)

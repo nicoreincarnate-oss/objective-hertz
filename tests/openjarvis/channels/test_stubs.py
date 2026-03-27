@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
 
 from openjarvis.channels._stubs import (
@@ -66,7 +64,7 @@ class TestBaseChannel:
     def test_channel_handler_type(self) -> None:
         """ChannelHandler should accept ChannelMessage and return Optional[str]."""
 
-        def my_handler(msg: ChannelMessage) -> Optional[str]:
+        def my_handler(msg: ChannelMessage) -> str | None:
             return f"Received: {msg.content}"
 
         # Verify the handler can be called with a ChannelMessage
@@ -75,7 +73,7 @@ class TestBaseChannel:
         assert result == "Received: hello"
 
     def test_channel_handler_none_return(self) -> None:
-        def my_handler(msg: ChannelMessage) -> Optional[str]:
+        def my_handler(msg: ChannelMessage) -> str | None:
             return None
 
         msg = ChannelMessage(channel="test", sender="user", content="hello")

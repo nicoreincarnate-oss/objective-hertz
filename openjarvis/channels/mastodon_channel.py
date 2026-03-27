@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -41,7 +41,7 @@ class MastodonChannel(BaseChannel):
         api_base_url: str = "",
         *,
         access_token: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._api_base_url = api_base_url or os.environ.get(
             "MASTODON_API_BASE_URL", ""
@@ -50,7 +50,7 @@ class MastodonChannel(BaseChannel):
             "MASTODON_ACCESS_TOKEN", ""
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -63,11 +63,11 @@ class MastodonChannel(BaseChannel):
             return
         try:
             import mastodon  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "Mastodon.py not installed. Install with: "
                 "uv sync --extra channel-mastodon"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -82,7 +82,7 @@ class MastodonChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Post a status or send a direct message on Mastodon.
 
@@ -135,7 +135,7 @@ class MastodonChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["mastodon"]
 

@@ -43,6 +43,8 @@ class Step:
     passed: bool = False
     attempts: int = 0
     errors: list[str] = field(default_factory=list)
+    use_self_correction: bool = False  # SCoRe: retry with error-injected context
+    use_memory_injection: bool = False  # MemRL: inject relevant memories into prompt
 
 
 @dataclass
@@ -180,6 +182,16 @@ async def _execute_step(
 
         full_prompt = f"{step.prompt}{prev_context}{error_context}"
 
+        # MemRL context injection: prepend relevant memories (if enabled)
+        if step.use_memory_injection and attempt == 1:
+            try:
+                from shared.test_time_learning import memrl_context_inject
+                memory_context = await memrl_context_inject(step.prompt)
+                if memory_context:
+                    full_prompt = memory_context + full_prompt
+            except Exception:
+                pass
+
         # Execute
         result = await llm.generate(
             full_prompt,
@@ -206,6 +218,30 @@ async def _execute_step(
                     error = check_result.get("error", "check failed")
                     step.errors.append(error)
                     logger.debug(f"Step '{step.name}' check failed (attempt {attempt}): {error[:100]}")
+
+                    # SCoRe self-correction: use structured retry before normal retry
+                    if step.use_self_correction and attempt == 1:
+                        try:
+                            from shared.test_time_learning import (
+                                TEST_TIME_LEARNING_ENABLED,
+                                score_self_correct,
+                            )
+                            if TEST_TIME_LEARNING_ENABLED:
+                                score_result = await score_self_correct(
+                                    full_prompt, result, step.check,
+                                    model=step.model, max_retries=1,
+                                )
+                                if score_result.get("improved"):
+                                    step.result = score_result["result"]
+                                    step.passed = True
+                                    return {
+                                        "name": step.name, "passed": True,
+                                        "result": score_result["result"][:2000],
+                                        "attempts": attempt,
+                                        "self_corrected": True,
+                                    }
+                        except Exception as e:
+                            logger.debug(f"SCoRe self-correction failed: {e}")
             except Exception as e:
                 step.errors.append(str(e))
                 logger.debug(f"Step '{step.name}' check threw exception (attempt {attempt}): {e}")

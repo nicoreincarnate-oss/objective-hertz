@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -36,13 +36,13 @@ class GoogleChatChannel(BaseChannel):
         self,
         webhook_url: str = "",
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._webhook_url = webhook_url or os.environ.get(
             "GOOGLE_CHAT_WEBHOOK_URL", "",
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -67,7 +67,7 @@ class GoogleChatChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to Google Chat via the configured webhook URL."""
         if not self._webhook_url:
@@ -77,7 +77,7 @@ class GoogleChatChannel(BaseChannel):
         try:
             import httpx
 
-            payload: Dict[str, Any] = {"text": content}
+            payload: dict[str, Any] = {"text": content}
 
             resp = httpx.post(
                 self._webhook_url, json=payload, timeout=10.0,
@@ -97,7 +97,7 @@ class GoogleChatChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["google_chat"]
 

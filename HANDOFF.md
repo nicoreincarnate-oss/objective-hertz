@@ -1,3 +1,5 @@
+> **Historical**: This handoff reflects the March 2026 audit/fixer cycle state. See the completion sweep for current status.
+
 # PERSEUS v18 — Context Handoff (March 21, 2026)
 
 ## What This Build Is

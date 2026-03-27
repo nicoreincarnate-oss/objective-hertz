@@ -22,6 +22,7 @@ import uuid
 from typing import Any
 
 from shared import db
+from shared.observability import enrich_payload_with_context
 
 logger = logging.getLogger("perseus.comms")
 
@@ -47,6 +48,7 @@ async def request_task(
     full_payload = payload or {}
     if request_id:
         full_payload["request_id"] = request_id
+    full_payload = enrich_payload_with_context(full_payload, request_id=request_id)
 
     # Try A2A dispatch first (dynamic routing → static fallback)
     if _USE_A2A:
@@ -64,8 +66,15 @@ async def request_task(
                 from shared.oj_bridge import call_agent_async
                 result = await call_agent_async(agent_name, task_type, full_payload)
                 if "error" not in result:
-                    logger.debug("A2A dispatch: %s → %s (ok)", task_type, agent_name)
-                    return result.get("task_id", f"a2a_{uuid.uuid4().hex[:8]}")
+                    task_id = result.get("task_id")
+                    if not task_id:
+                        # Store the full result so callers can inspect status.
+                        # Generate an ID for tracking but tag it with the actual
+                        # status so callers don't confuse "dispatched" with "succeeded".
+                        status = result.get("status", "unknown")
+                        task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
+                    logger.debug("A2A dispatch: %s → %s (status=%s)", task_type, agent_name, result.get("status", "ok"))
+                    return task_id
                 logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
             except Exception as exc:
                 logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
@@ -86,6 +95,7 @@ async def request_task_result(
     Via DB: inserts task, polls events table for task_result event.
     """
     full_payload = payload or {}
+    full_payload = enrich_payload_with_context(full_payload)
 
     # Try A2A direct call (synchronous request-response)
     if _USE_A2A:
@@ -105,6 +115,7 @@ async def request_task_result(
     # Fallback: DB insert + poll
     request_id = uuid.uuid4().hex
     full_payload["request_id"] = request_id
+    full_payload = enrich_payload_with_context(full_payload, request_id=request_id)
     task_id = await db.insert_task(task_type, full_payload, priority, dedupe=False)
     if task_id is None:
         return None
@@ -158,6 +169,7 @@ async def broadcast(event_type: str, payload: dict[str, Any] | None = None, send
     Hermes will also pick this up for Telegram alerts.
     """
     full_payload = {"sender": sender, **(payload or {})}
+    full_payload = enrich_payload_with_context(full_payload)
     await db.emit_event(event_type, full_payload)
 
 
@@ -174,6 +186,7 @@ async def store_learning(
     confidence: float = 0.5,
     source_agent: str = "",
     source_lead_id: int | None = None,
+    source_event: str = "",
 ):
     """
     Store a structured learning accessible by all daemons.
@@ -181,9 +194,9 @@ async def store_learning(
     Categories: discovery, email, sales, pricing, industry, delivery, system
     """
     await db.execute(
-        """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event)
-           VALUES (%s, %s, %s, %s, %s)""",
-        (category, insight, confidence, source_lead_id, source_agent),
+        """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event, writer_agent)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (category, insight, confidence, source_lead_id, source_event, source_agent or "unknown"),
     )
 
 
@@ -372,6 +385,27 @@ async def ask_agent(
         return None
 
 
+async def call_agent_capability(
+    to_agent: str,
+    capability: str,
+    params: dict,
+    timeout: int = 30,
+) -> dict | None:
+    """Call a specific capability on an agent via A2A."""
+    try:
+        from shared.oj_bridge import call_agent_async
+        result = await call_agent_async(
+            to_agent,
+            capability,
+            params,
+            timeout=timeout,
+        )
+        return result
+    except Exception as e:
+        logger.warning(f"call_agent_capability({to_agent}.{capability}) failed: {e}")
+        return None
+
+
 async def delegate_task(
     from_agent: str,
     to_agent: str,
@@ -379,15 +413,51 @@ async def delegate_task(
     payload: dict | None = None,
     priority: int = 3,
 ) -> int | str | None:
-    """Delegate a task to a specific agent with priority override."""
+    """Delegate a task to a specific agent with priority override.
+
+    Unlike request_task(), this function routes directly to ``to_agent``
+    instead of consulting TASK_ROUTING.  The caller explicitly chose the
+    target agent and that choice is enforced here.
+
+    Falls back to the DB task_queue (with ``delegated_to`` tag) only when
+    A2A is unavailable so the task still lands in the right agent's queue.
+    """
     full_payload = payload or {}
     full_payload["delegated_by"] = from_agent
-    task_id = await request_task(
-        task_type=task_type,
-        payload=full_payload,
-        priority=priority,
+    full_payload = enrich_payload_with_context(full_payload)
+
+    # Primary: A2A direct call to the named agent (bypass TASK_ROUTING)
+    if _USE_A2A:
+        try:
+            from shared.oj_bridge import call_agent_async
+            result = await call_agent_async(to_agent, task_type, full_payload)
+            if "error" not in result:
+                task_id = result.get("task_id")
+                if not task_id:
+                    status = result.get("status", "unknown")
+                    task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
+                logger.info(
+                    "Delegated %s from %s → %s via A2A (priority=%s, id=%s)",
+                    task_type, from_agent, to_agent, priority, task_id,
+                )
+                return task_id
+            logger.warning(
+                "A2A delegation %s → %s returned error: %s",
+                task_type, to_agent, result.get("error"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "A2A delegation %s → %s failed, falling back to DB: %s",
+                task_type, to_agent, exc,
+            )
+
+    # Fallback: DB task_queue tagged so the target agent can filter by it
+    full_payload["delegated_to"] = to_agent
+    task_id = await db.insert_task(task_type, full_payload, priority, dedupe=False)
+    logger.info(
+        "Delegated %s from %s → %s via DB fallback (priority=%s, id=%s)",
+        task_type, from_agent, to_agent, priority, task_id,
     )
-    logger.info(f"Delegated {task_type} from {from_agent} → {to_agent} (priority={priority}, id={task_id})")
     return task_id
 
 

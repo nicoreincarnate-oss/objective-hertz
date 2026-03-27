@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -89,7 +88,7 @@ def list_agents() -> None:
 @click.option("--name", "-n", required=True, help="Agent name")
 @click.option("--template", "-t", default=None, help="Template ID to use")
 @click.option("--type", "agent_type", default="monitor_operative", help="Agent type")
-def create_agent(name: str, template: Optional[str], agent_type: str) -> None:
+def create_agent(name: str, template: str | None, agent_type: str) -> None:
     """Create a new persistent agent."""
     console = Console(stderr=True)
     try:
@@ -203,9 +202,9 @@ def delete(agent_id: str) -> None:
 @click.option("--whatsapp", default=None, help="WhatsApp phone number")
 def bind(
     agent_id: str,
-    slack: Optional[str],
-    telegram: Optional[str],
-    whatsapp: Optional[str],
+    slack: str | None,
+    telegram: str | None,
+    whatsapp: str | None,
 ) -> None:
     """Bind a channel to an agent."""
     console = Console(stderr=True)
@@ -318,7 +317,7 @@ def _get_system():
         return SystemBuilder().build()
     except RuntimeError as exc:
         click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
 
 def _get_scheduler_and_executor(system=None):
@@ -432,7 +431,7 @@ def run_agent(agent_id):
         executor.execute_tick(agent_id)
     except Exception as exc:
         click.echo(f"Tick failed: {exc}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
     updated = manager.get_agent(agent_id)
     runs = updated.get("total_runs", 0)
     click.echo(f"Tick complete. Status: {updated['status']}, runs: {runs}")

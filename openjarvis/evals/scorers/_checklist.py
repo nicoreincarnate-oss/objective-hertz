@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import string
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,9 +85,9 @@ class ChecklistScorer:
     def score_checklist(
         self,
         model_answer: str,
-        checklist: List[str],
+        checklist: list[str],
         context: str = "",
-    ) -> Tuple[float, List[Dict[str, Any]]]:
+    ) -> tuple[float, list[dict[str, Any]]]:
         """Evaluate model_answer against checklist items.
 
         Returns (score, details) where:
@@ -135,10 +135,10 @@ class ChecklistScorer:
         return score, details
 
     def _parse_response(
-        self, raw: str, checklist: List[str],
-    ) -> List[Dict[str, Any]]:
+        self, raw: str, checklist: list[str],
+    ) -> list[dict[str, Any]]:
         """Parse the judge response into per-item results."""
-        details: List[Dict[str, Any]] = []
+        details: list[dict[str, Any]] = []
 
         for i, item in enumerate(checklist):
             pattern = rf"(?:^|\n)\s*{i + 1}\.\s*(yes|no)\b\s*(?:—|-)?\s*(.*)"

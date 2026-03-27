@@ -15,10 +15,11 @@ import re
 import statistics
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from openjarvis.evals.core.event_recorder import AgentEvent, EventRecorder, EventType
 from openjarvis.evals.core.trace import QueryTrace, TurnTrace
@@ -34,7 +35,7 @@ LOGGER = logging.getLogger(__name__)
 def _compute_energy_delta(
     readings: list[Any],
     gpu_field: str = "gpu_energy_j",
-) -> Optional[float]:
+) -> float | None:
     """Compute energy delta from first to last reading for a field."""
     values = [
         getattr(s, gpu_field, None)
@@ -50,7 +51,7 @@ def _compute_energy_delta(
 def _compute_power_avg(
     readings: list[Any],
     power_field: str = "gpu_power_w",
-) -> Optional[float]:
+) -> float | None:
     """Compute average power across readings for a field."""
     values = [
         getattr(s, power_field, None)
@@ -70,7 +71,7 @@ _FENCED_DIFF_RE = re.compile(
 _UNIFIED_DIFF_MARKERS = ("diff --git", "--- a/", "+++ b/", "@@ ")
 
 
-def _extract_patch(text: str) -> Optional[str]:
+def _extract_patch(text: str) -> str | None:
     """Extract a unified-diff patch from agent response text."""
     fenced = _FENCED_DIFF_RE.findall(text)
     if fenced:
@@ -105,12 +106,12 @@ class AgenticRunner:
         agent: Any,
         dataset: Any,
         telemetry_session: Any = None,
-        config: Optional[dict[str, Any]] = None,
-        event_recorder: Optional[EventRecorder] = None,
-        run_dir: Optional[Path] = None,
+        config: dict[str, Any] | None = None,
+        event_recorder: EventRecorder | None = None,
+        run_dir: Path | None = None,
         concurrency: int = 1,
-        agent_factory: Optional[Callable[[], Any]] = None,
-        query_timeout: Optional[float] = None,
+        agent_factory: Callable[[], Any] | None = None,
+        query_timeout: float | None = None,
     ) -> None:
         self._agent = agent
         self._dataset = dataset
@@ -126,7 +127,7 @@ class AgenticRunner:
         self._query_timeout = query_timeout
         self._results_lock = threading.Lock()
 
-    async def run(self, max_queries: Optional[int] = None) -> list[QueryTrace]:
+    async def run(self, max_queries: int | None = None) -> list[QueryTrace]:
         """Run the agent over the dataset, collecting traces and telemetry.
 
         Args:
@@ -165,7 +166,7 @@ class AgenticRunner:
                     )
                 else:
                     trace = await fut
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 elapsed = time.time() - start_time
                 LOGGER.warning(
                     "Query %s timed out after %.0fs (limit=%ss)",
@@ -216,7 +217,7 @@ class AgenticRunner:
             total, self._concurrency,
         )
 
-        result_slots: list[Optional[QueryTrace]] = [None] * total
+        result_slots: list[QueryTrace | None] = [None] * total
         semaphore = asyncio.Semaphore(self._concurrency)
         loop = asyncio.get_event_loop()
 
@@ -243,7 +244,7 @@ class AgenticRunner:
                         )
                     else:
                         trace = await fut
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     elapsed = time.time() - start_time
                     LOGGER.warning(
                         "Query %s timed out after %.0fs (limit=%ss)",
@@ -306,8 +307,8 @@ class AgenticRunner:
         index: int,
         record: Any,
         model: str,
-        agent: Optional[Any] = None,
-        event_recorder: Optional[EventRecorder] = None,
+        agent: Any | None = None,
+        event_recorder: EventRecorder | None = None,
     ) -> QueryTrace:
         """Run a single query through the agent with telemetry capture."""
         agent = agent or self._agent
@@ -544,7 +545,7 @@ class AgenticRunner:
         readings: list[Any],
         start_s: float,
         end_s: float,
-    ) -> dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """Compute energy for a time span from telemetry readings.
 
         Events use ``time.time()`` (epoch seconds); telemetry samples use
@@ -575,7 +576,7 @@ class AgenticRunner:
         """Build TurnTrace objects from recorded events."""
         turns: list[TurnTrace] = []
         current_turn_index = 0
-        current_turn_start: Optional[float] = None
+        current_turn_start: float | None = None
         current_tools: list[str] = []
         current_tool_latencies: dict[str, float] = {}
         tool_start_times: dict[str, float] = {}

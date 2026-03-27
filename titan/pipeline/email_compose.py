@@ -12,7 +12,7 @@ from shared.db import fetch_all, fetch_one
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from shared.skill_loader import execute_skill, find_skill
-from titan.memory import get_relevant_learnings
+from titan.memory import compute_prompt_version, get_relevant_learnings
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.email_compose")
@@ -58,7 +58,8 @@ async def compose_emails(batch_size: int = 20):
 
     # Get relevant learnings from structured DB + vector memory
     learned_tips = await get_relevant_learnings(
-        "cold email composition, subject lines, copywriting, what gets replies"
+        "cold email composition, subject lines, copywriting, what gets replies",
+        query_type="email_compose",
     )
 
     # Get proven rules (deterministic, data-backed constraints)
@@ -67,18 +68,25 @@ async def compose_emails(batch_size: int = 20):
 
     soul_copy = _load_soul_copy()
 
+    # Compute prompt version hash for causal attribution (5.1)
+    # This traces which prompt config (soul doc + rules + variation) produced each email
+    rules_for_hash = await fetch_all(
+        """SELECT id, rule_text FROM titan_rules WHERE active = TRUE ORDER BY id"""
+    ) if rules_block else []
+    prompt_hash = compute_prompt_version(soul_copy, rules_for_hash)
+
     for lead in leads:
         try:
             if active_skill:
-                await _compose_with_skill(lead, active_skill, soul_copy, learned_tips, rules_block)
+                await _compose_with_skill(lead, active_skill, soul_copy, learned_tips, rules_block, prompt_hash)
             else:
-                await _compose_one(lead, soul_copy, learned_tips, rules_block)
+                await _compose_one(lead, soul_copy, learned_tips, rules_block, prompt_hash)
         except Exception as e:
             logger.error(f"Email compose failed for lead {lead['id']}: {e}")
             await emit_pipeline_error("email_compose", e, lead_id=lead["id"])
 
 
-async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learned_tips: str, rules_block: str = ""):
+async def _compose_with_skill(lead: dict, skill_name: str, soul_copy: str, learned_tips: str, rules_block: str = "", prompt_hash: str = ""):
     """Compose email using an installed skill."""
     lead_id = lead["id"]
     lang = lead.get("language", "en")
@@ -127,16 +135,21 @@ Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}"
         )
         return
 
-    await fetch_one(
-        """INSERT INTO email_sequences (client_id, step, subject, body, status)
-           VALUES (%s, 1, %s, %s, 'pending') RETURNING id""",
-        (lead_id, subject, body),
+    row = await fetch_one(
+        """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
+           VALUES (%s, 1, %s, %s, 'pending', %s)
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
+        (lead_id, subject, body, prompt_hash),
     )
+    if not row:
+        logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
+        return
     await transition_lead(lead_id, "email_drafted")
-    logger.info(f"Composed email via skill '{skill_name}' for lead {lead_id}")
+    logger.info(f"Composed email via skill '{skill_name}' for lead {lead_id} (prompt_v={prompt_hash[:8]})")
 
 
-async def _compose_one(lead: dict, soul_copy: str, learned_tips: str, rules_block: str = ""):
+async def _compose_one(lead: dict, soul_copy: str, learned_tips: str, rules_block: str = "", prompt_hash: str = ""):
     """Compose a custom email for one lead."""
     lead_id = lead["id"]
     lang = lead.get("language", "en")
@@ -200,15 +213,20 @@ Return JSON:
         )
         return  # Don't store invalid content
 
-    # Store the email draft
-    await fetch_one(
-        """INSERT INTO email_sequences (client_id, step, subject, body, status)
-           VALUES (%s, 1, %s, %s, 'pending') RETURNING id""",
-        (lead_id, subject, body),
+    # Store the email draft — ON CONFLICT prevents duplicate step 1
+    row = await fetch_one(
+        """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
+           VALUES (%s, 1, %s, %s, 'pending', %s)
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
+        (lead_id, subject, body, prompt_hash),
     )
+    if not row:
+        logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
+        return
 
     await transition_lead(lead_id, "email_drafted")
-    logger.info(f"Composed email for lead {lead_id}: {lead['business_name']}")
+    logger.info(f"Composed email for lead {lead_id}: {lead['business_name']} (prompt_v={prompt_hash[:8]})")
 
 
 def _compose_model_for_lead(lead: dict) -> str:

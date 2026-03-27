@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import json
 import random
-from typing import Any, Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -33,7 +34,7 @@ _DEFAULT_PROMPT = """You are a software engineer working on the repository **{re
 - Return ONLY the patch — no explanation, no markdown fences."""
 
 
-def _parse_test_list(value: object) -> List[str]:
+def _parse_test_list(value: object) -> list[str]:
     """Parse a test list that may be JSON string, plain list, or single string."""
     if value is None:
         return []
@@ -70,14 +71,14 @@ class SWEBenchDataset(DatasetProvider):
             )
         self._variant = variant
         self._hf_path = _HF_PATHS[variant]
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -112,7 +113,7 @@ class SWEBenchDataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         instance_id = str(raw.get("instance_id") or "")
         repo = str(raw.get("repo") or "")
         problem_statement = str(raw.get("problem_statement") or "").strip()

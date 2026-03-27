@@ -11,7 +11,6 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Default blocked patterns
 # ---------------------------------------------------------------------------
 
-DEFAULT_BLOCKED_PATTERNS: List[str] = [
+DEFAULT_BLOCKED_PATTERNS: list[str] = [
     ".ssh",
     ".gnupg",
     ".env",
@@ -61,8 +60,8 @@ class AllowedRoot:
 class MountAllowlist:
     """Allowlist for container mounts."""
 
-    roots: List[AllowedRoot] = field(default_factory=list)
-    blocked_patterns: List[str] = field(
+    roots: list[AllowedRoot] = field(default_factory=list)
+    blocked_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_BLOCKED_PATTERNS),
     )
 
@@ -103,26 +102,42 @@ def load_mount_allowlist(path: str) -> MountAllowlist:
     return MountAllowlist(roots=roots, blocked_patterns=blocked)
 
 
-def _is_blocked(mount_path: str, patterns: List[str]) -> bool:
-    """Check whether any component of *mount_path* matches a block pattern."""
+def _is_blocked(mount_path: str, patterns: list[str]) -> bool:
+    """Check whether any component of *mount_path* matches a block pattern.
+
+    Handles both single-segment patterns (e.g. ``.ssh``) and multi-segment
+    patterns (e.g. ``.config/gcloud``, ``.git/config``) by testing contiguous
+    sub-paths as well as the full resolved path string.
+    """
     resolved = Path(mount_path).resolve()
     parts = resolved.parts
     name = resolved.name
+    full = str(resolved)
 
     for pattern in patterns:
         # Match against final component (filename)
         if fnmatch.fnmatch(name, pattern):
             return True
-        # Match against any path component
+        # Match against any single path component
         for part in parts:
             if fnmatch.fnmatch(part, pattern):
+                return True
+        # Multi-segment patterns (contain /): match contiguous sub-paths
+        if "/" in pattern:
+            seg_count = pattern.count("/") + 1
+            for i in range(len(parts) - seg_count + 1):
+                sub = "/".join(parts[i : i + seg_count])
+                if fnmatch.fnmatch(sub, pattern):
+                    return True
+            # Also match against the full path string
+            if fnmatch.fnmatch(full, f"*/{pattern}") or fnmatch.fnmatch(full, f"*/{pattern}/*"):
                 return True
     return False
 
 
 def _is_under_allowed_root(
     mount_path: str,
-    roots: List[AllowedRoot],
+    roots: list[AllowedRoot],
 ) -> bool:
     """Check whether *mount_path* is under any allowed root."""
     if not roots:
@@ -167,14 +182,14 @@ def validate_mount(
 
 
 def validate_mounts(
-    mounts: List[str],
+    mounts: list[str],
     allowlist: MountAllowlist,
-) -> List[str]:
+) -> list[str]:
     """Validate a list of mount paths. Returns only valid mounts.
 
     Raises :class:`ValueError` for any blocked mount.
     """
-    valid: List[str] = []
+    valid: list[str] = []
     for mount in mounts:
         if _is_blocked(mount, allowlist.blocked_patterns):
             raise ValueError(

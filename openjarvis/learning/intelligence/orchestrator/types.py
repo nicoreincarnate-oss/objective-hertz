@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Answer grading utilities
 # ---------------------------------------------------------------------------
 
 
-def normalize_number(s: str) -> Optional[float]:
+def normalize_number(s: str) -> float | None:
     """Try to parse a string as a number.
 
     Returns None if not a valid number.
@@ -170,7 +170,7 @@ class Episode:
     initial_prompt: str
     """Initial question/task."""
 
-    steps: List[EpisodeStep] = field(default_factory=list)
+    steps: list[EpisodeStep] = field(default_factory=list)
     """Sequence of (action, observation) pairs."""
 
     final_answer: str = ""
@@ -189,7 +189,7 @@ class Episode:
     total_tokens: int = 0
     max_power_watts: float = 0.0
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_step(
         self, action: OrchestratorAction, observation: OrchestratorObservation
@@ -227,7 +227,7 @@ class Episode:
         accuracy_score = 1.0 if self.correct else 0.0
         return accuracy_score / self.total_energy_joules
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert episode to dictionary for serialization."""
         return {
             "task_id": self.task_id,
@@ -264,12 +264,12 @@ class EpisodeState:
     initial_prompt: str
     """Initial task/question."""
 
-    history: List[Tuple[OrchestratorAction, OrchestratorObservation]] = field(
+    history: list[tuple[OrchestratorAction, OrchestratorObservation]] = field(
         default_factory=list
     )
     """History of (action, observation) pairs."""
 
-    final_answer: Optional[str] = None
+    final_answer: str | None = None
     """Final answer (set when is_final_answer action is taken)."""
 
     def add_turn(

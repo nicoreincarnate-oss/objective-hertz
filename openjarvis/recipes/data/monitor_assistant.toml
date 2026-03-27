@@ -10,7 +10,7 @@ model = "qwen3:32b"
 key = "vllm"
 
 [agent]
-type = "monitor"
+type = "monitor_operative"
 max_turns = 25
 temperature = 0.3
 tools = [

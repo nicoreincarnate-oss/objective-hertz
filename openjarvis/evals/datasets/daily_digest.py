@@ -12,7 +12,8 @@ Difficulty tiers:
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -44,7 +45,7 @@ Produce a concise, prioritized daily digest that:
 # EASY tasks (10): simple workday
 # ---------------------------------------------------------------------------
 
-_EASY_TASKS: List[Dict[str, Any]] = [
+_EASY_TASKS: list[dict[str, Any]] = [
     {
         "role": "Backend Engineer",
         "company": "Acme Corp",
@@ -161,7 +162,7 @@ _EASY_TASKS: List[Dict[str, Any]] = [
 # MEDIUM tasks (10): busy day with cross-team dependencies
 # ---------------------------------------------------------------------------
 
-_MEDIUM_TASKS: List[Dict[str, Any]] = [
+_MEDIUM_TASKS: list[dict[str, Any]] = [
     {
         "role": "Staff Engineer",
         "company": "Stripe",
@@ -278,7 +279,7 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
 # HARD tasks (10): crisis scenarios with urgent incidents
 # ---------------------------------------------------------------------------
 
-_HARD_TASKS: List[Dict[str, Any]] = [
+_HARD_TASKS: list[dict[str, Any]] = [
     {
         "role": "Senior SRE",
         "company": "PayStream",
@@ -398,9 +399,9 @@ class DailyDigestDataset(DatasetProvider):
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
         split: str = "test",
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> None:
         all_tasks = _EASY_TASKS + _MEDIUM_TASKS + _HARD_TASKS
         difficulties = (
@@ -409,7 +410,7 @@ class DailyDigestDataset(DatasetProvider):
             + ["hard"] * len(_HARD_TASKS)
         )
 
-        paired = list(zip(all_tasks, difficulties))
+        paired = list(zip(all_tasks, difficulties, strict=False))
         if seed is not None:
             rng = random.Random(seed)
             rng.shuffle(paired)
@@ -417,7 +418,7 @@ class DailyDigestDataset(DatasetProvider):
         if max_samples is not None:
             paired = paired[:max_samples]
 
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
         for idx, (task, diff) in enumerate(paired):
             prompt = _PROMPT_TEMPLATE.format(
                 role=task["role"],

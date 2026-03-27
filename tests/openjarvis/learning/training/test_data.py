@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, List
+from typing import Any
 
 from openjarvis.core.types import StepType, Trace, TraceStep
 from openjarvis.learning.training.data import TrainingDataMiner
@@ -22,7 +22,7 @@ def _make_trace(
     result: str = "Hi there!",
     feedback: float | None = 0.9,
     outcome: str | None = "success",
-    tools: List[str] | None = None,
+    tools: list[str] | None = None,
 ) -> Trace:
     """Build a Trace with optional TOOL_CALL steps."""
     now = time.time()

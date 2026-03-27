@@ -7,7 +7,7 @@ needing to know about recipes directly.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openjarvis.evals.core.types import EvalSuiteConfig
@@ -17,9 +17,9 @@ if TYPE_CHECKING:
 
 def recipe_to_eval_suite(
     recipe: Recipe,
-    benchmarks: Optional[List[str]] = None,
-    max_samples: Optional[int] = None,
-    judge_model: Optional[str] = None,
+    benchmarks: list[str] | None = None,
+    max_samples: int | None = None,
+    judge_model: str | None = None,
 ) -> EvalSuiteConfig:
     """Build an ``EvalSuiteConfig`` from a recipe.
 

@@ -88,6 +88,74 @@ class FakeDB:
         pass
 
 
+# ── Module isolation guard ───────────────────────────────────────
+# Many test files do `sys.modules["titan.training"] = fake` at module level.
+# This poisons later test files that import the real module. This hook
+# captures critical modules before each test file runs and restores them after.
+
+_PROTECTED_MODULES = [
+    "titan.training", "titan.state_machine", "titan.memory",
+    "titan.compliance", "titan.pipeline.follow_up", "titan.pipeline.email_send",
+    "titan.pipeline.close_deal", "titan.pipeline.build_site",
+    "shared.db", "shared.config", "shared.llm_client", "shared.comms",
+    "shared.pipeline_alerts",
+    "hermes.web.app", "hermes.web.presenter", "hermes.alerts",
+    "hermes.a2a_server", "hermes.telegram_bot",
+    "multipart", "multipart.multipart", "multipart.exceptions",
+]
+
+_module_snapshot: dict[str, object] = {}
+
+
+def pytest_collectstart(collector):
+    """Save protected modules before collecting each test file."""
+    global _module_snapshot
+    import sys as _sys
+    _module_snapshot = {k: _sys.modules.get(k) for k in _PROTECTED_MODULES}
+
+
+def pytest_collectreport(report):
+    """Restore protected modules after collecting each test file."""
+    import sys as _sys
+    for mod_name, orig in _module_snapshot.items():
+        if orig is not None:
+            _sys.modules[mod_name] = orig
+        else:
+            _sys.modules.pop(mod_name, None)
+
+
+# ── Per-module execution isolation ───────────────────────────────
+# The collection guard above protects import time. This guard protects
+# test execution: save modules before each test module runs, restore after.
+# Without this, test files that inject sys.modules at module level or inside
+# test functions poison later test files in the same pytest run.
+
+_execution_snapshots: dict[str, dict[str, object]] = {}
+
+
+def pytest_runtest_setup(item):
+    """Save protected modules before first test in each module."""
+    import sys as _sys
+    mod_name = item.module.__name__
+    if mod_name not in _execution_snapshots:
+        _execution_snapshots[mod_name] = {k: _sys.modules.get(k) for k in _PROTECTED_MODULES}
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Restore protected modules when leaving a test module."""
+    import sys as _sys
+    mod_name = item.module.__name__
+    # Restore when next item is from a different module (or there's no next item)
+    if nextitem is None or nextitem.module.__name__ != mod_name:
+        saved = _execution_snapshots.pop(mod_name, None)
+        if saved:
+            for k, orig in saved.items():
+                if orig is not None:
+                    _sys.modules[k] = orig
+                else:
+                    _sys.modules.pop(k, None)
+
+
 @pytest.fixture
 def fake_db():
     """Provide a fresh in-memory DB for each test."""

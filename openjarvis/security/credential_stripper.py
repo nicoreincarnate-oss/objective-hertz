@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
 
-_CREDENTIAL_PATTERNS: List[Tuple[str, re.Pattern[str]]] = [
+_CREDENTIAL_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("api_key", re.compile(r"sk-[a-zA-Z0-9_-]{20,}")),
     ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("github_token", re.compile(r"ghp_[a-zA-Z0-9]{36}")),

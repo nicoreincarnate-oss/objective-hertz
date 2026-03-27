@@ -1,3 +1,5 @@
+> **Historical**: Research recommendations from March 2026. Integration decisions may have changed since this was written.
+
 # Perseus Research Findings (March 2026)
 
 ## Cold Email Platform: Instantly.ai (Recommended)

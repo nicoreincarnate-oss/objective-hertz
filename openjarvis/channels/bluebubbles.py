@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -39,12 +39,12 @@ class BlueBubblesChannel(BaseChannel):
         url: str = "",
         *,
         password: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._url = url or os.environ.get("BLUEBUBBLES_URL", "")
         self._password = password or os.environ.get("BLUEBUBBLES_PASSWORD", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -69,7 +69,7 @@ class BlueBubblesChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send an iMessage via the BlueBubbles API."""
         if not self._url or not self._password:
@@ -80,7 +80,7 @@ class BlueBubblesChannel(BaseChannel):
             import httpx
 
             url = f"{self._url}/api/v1/message/text"
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "chatGuid": channel,
                 "message": content,
                 "method": "private-api",
@@ -107,7 +107,7 @@ class BlueBubblesChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["bluebubbles"]
 

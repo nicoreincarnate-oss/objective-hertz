@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
 import pytest
 
 from openjarvis.channels._stubs import BaseChannel, ChannelHandler, ChannelStatus
@@ -37,7 +35,7 @@ class TestChannelRegistry:
             def status(self) -> ChannelStatus:
                 return ChannelStatus.DISCONNECTED
 
-            def list_channels(self) -> List[str]:
+            def list_channels(self) -> list[str]:
                 return []
 
             def on_message(self, handler: ChannelHandler) -> None:
@@ -72,7 +70,7 @@ class TestChannelRegistry:
             def status(self) -> ChannelStatus:
                 return ChannelStatus.DISCONNECTED
 
-            def list_channels(self) -> List[str]:
+            def list_channels(self) -> list[str]:
                 return []
 
             def on_message(self, handler: ChannelHandler) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.a2a.protocol import A2ARequest, A2ATask, AgentCard
 
@@ -17,7 +17,7 @@ class A2AClient:
     def __init__(self, base_url: str, *, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._card: Optional[AgentCard] = None
+        self._card: AgentCard | None = None
 
     def discover(self) -> AgentCard:
         """Fetch the agent card from /.well-known/agent.json."""
@@ -38,22 +38,42 @@ class A2AClient:
         )
         return self._card
 
-    def send_task(self, input_text: str, **kwargs: Any) -> A2ATask:
-        """Send a task to the remote agent and return the result."""
+    def send_task(
+        self,
+        input_text: str,
+        *,
+        request_id: str = "",
+        headers: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> A2ATask:
+        """Send a task to the remote agent and return the result.
+
+        Args:
+            timeout: Per-call timeout in seconds. Overrides the client's
+                     default timeout for this single request.
+        """
         import httpx
-        request = A2ARequest(
-            method="tasks/send",
-            params={
+        request_kwargs: dict[str, Any] = {
+            "method": "tasks/send",
+            "params": {
                 "message": {
                     "role": "user",
                     "parts": [{"text": input_text}],
                 },
+                "metadata": metadata or {},
             },
-        )
+        }
+        if request_id:
+            request_kwargs["request_id"] = request_id
+        request = A2ARequest(**request_kwargs)
+        effective_timeout = timeout if timeout is not None else self._timeout
         resp = httpx.post(
             f"{self._base_url}/a2a/tasks",
             json=request.to_dict(),
-            timeout=self._timeout,
+            headers=headers or {},
+            timeout=effective_timeout,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -66,17 +86,18 @@ class A2AClient:
             history=result.get("history", []),
         )
 
-    def get_task(self, task_id: str) -> A2ATask:
+    def get_task(self, task_id: str, *, timeout: float | None = None) -> A2ATask:
         """Get the status of a previously submitted task."""
         import httpx
         request = A2ARequest(
             method="tasks/get",
             params={"id": task_id},
         )
+        effective_timeout = timeout if timeout is not None else self._timeout
         resp = httpx.post(
             f"{self._base_url}/a2a/tasks",
             json=request.to_dict(),
-            timeout=self._timeout,
+            timeout=effective_timeout,
         )
         resp.raise_for_status()
         data = resp.json()

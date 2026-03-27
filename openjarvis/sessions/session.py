@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from openjarvis.core.config import DEFAULT_CONFIG_DIR
 
@@ -22,7 +22,7 @@ class SessionIdentity:
     user_id: str
     display_name: str = ""
     # channel_type -> channel_user_id
-    channel_ids: Dict[str, str] = field(
+    channel_ids: dict[str, str] = field(
         default_factory=dict,
     )
 
@@ -34,18 +34,18 @@ class SessionMessage:
     content: str
     channel: str = ""
     timestamp: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class Session:
     """A conversation session with cross-channel message history."""
     session_id: str = ""
-    identity: Optional[SessionIdentity] = None
-    messages: List[SessionMessage] = field(default_factory=list)
+    identity: SessionIdentity | None = None
+    messages: list[SessionMessage] = field(default_factory=list)
     created_at: float = 0.0
     last_activity: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str, *, channel: str = "") -> None:
         self.messages.append(SessionMessage(
@@ -59,7 +59,7 @@ class SessionStore:
 
     def __init__(
         self,
-        db_path: Union[str, Path] = DEFAULT_CONFIG_DIR / "sessions.db",
+        db_path: str | Path = DEFAULT_CONFIG_DIR / "sessions.db",
         *,
         max_age_hours: float = 24.0,
         consolidation_threshold: int = 100,
@@ -129,13 +129,14 @@ class SessionStore:
                 )
 
             channel_ids = json.loads(row[3]) if row[3] else {}
+            now = time.time()
             if channel and channel_user_id:
                 channel_ids[channel] = channel_user_id
                 self._conn.execute(
                     "UPDATE sessions SET channel_ids = ?,"
                     " last_activity = ?"
                     " WHERE session_id = ?",
-                    (json.dumps(channel_ids), time.time(), session_id),
+                    (json.dumps(channel_ids), now, session_id),
                 )
                 self._conn.commit()
 
@@ -150,7 +151,8 @@ class SessionStore:
                 ),
                 messages=messages,
                 created_at=row[4] or 0.0,
-                last_activity=row[5] or 0.0,
+                # Use fresh timestamp if we just updated, otherwise DB value
+                last_activity=now if (channel and channel_user_id) else (row[5] or 0.0),
                 metadata=json.loads(row[6]) if row[6] else {},
             )
 
@@ -182,7 +184,7 @@ class SessionStore:
 
     def save_message(
         self, session_id: str, role: str, content: str,
-        *, channel: str = "", metadata: Optional[Dict[str, Any]] = None,
+        *, channel: str = "", metadata: dict[str, Any] | None = None,
     ) -> None:
         """Persist a message to a session."""
         self._conn.execute(
@@ -222,12 +224,22 @@ class SessionStore:
             summary_parts.append(f"[{msg.role}] {msg.content[:100]}")
         summary = "Session history summary:\n" + "\n".join(summary_parts)
 
-        # Delete old messages
-        oldest_ts = old_messages[-1].timestamp if old_messages else 0
-        self._conn.execute(
-            "DELETE FROM session_messages WHERE session_id = ? AND timestamp <= ?",
-            (session_id, oldest_ts),
-        )
+        # Delete old messages by rowid to avoid timestamp collision.
+        # Using timestamp <= would delete messages sharing the boundary
+        # timestamp that should be kept.
+        old_ids = [
+            r[0] for r in self._conn.execute(
+                "SELECT id FROM session_messages WHERE session_id = ?"
+                " ORDER BY timestamp ASC, id ASC LIMIT ?",
+                (session_id, split),
+            ).fetchall()
+        ]
+        if old_ids:
+            placeholders = ",".join("?" * len(old_ids))
+            self._conn.execute(
+                f"DELETE FROM session_messages WHERE id IN ({placeholders})",
+                old_ids,
+            )
         # Insert summary as system message
         self._conn.execute(
             "INSERT INTO session_messages"
@@ -238,7 +250,7 @@ class SessionStore:
         )
         self._conn.commit()
 
-    def decay(self, max_age_hours: Optional[float] = None) -> int:
+    def decay(self, max_age_hours: float | None = None) -> int:
         """Remove sessions older than max_age_hours. Returns count removed."""
         age = max_age_hours or self._max_age_hours
         cutoff = time.time() - (age * 3600)
@@ -274,7 +286,7 @@ class SessionStore:
 
     def list_sessions(
         self, *, active_only: bool = True, limit: int = 50,
-    ) -> List[Session]:
+    ) -> list[Session]:
         """List sessions, optionally filtering to active only."""
         sql = (
             "SELECT session_id, user_id, display_name,"
@@ -304,7 +316,7 @@ class SessionStore:
             ))
         return sessions
 
-    def _load_messages(self, session_id: str) -> List[SessionMessage]:
+    def _load_messages(self, session_id: str) -> list[SessionMessage]:
         rows = self._conn.execute(
             "SELECT role, content, channel, timestamp, metadata "
             "FROM session_messages WHERE session_id = ? ORDER BY timestamp",

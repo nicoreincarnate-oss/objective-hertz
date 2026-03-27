@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import Message
@@ -43,14 +43,14 @@ class GuardrailsEngine(InferenceEngine):
         self,
         engine: InferenceEngine,
         *,
-        scanners: Optional[List[BaseScanner]] = None,
+        scanners: list[BaseScanner] | None = None,
         mode: RedactionMode = RedactionMode.WARN,
         scan_input: bool = True,
         scan_output: bool = True,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._engine = engine
-        self._scanners: List[BaseScanner] = scanners if scanners is not None else [
+        self._scanners: list[BaseScanner] = scanners if scanners is not None else [
             SecretScanner(),
             PIIScanner(),
         ]
@@ -168,7 +168,7 @@ class GuardrailsEngine(InferenceEngine):
         temperature: float = 0.7,
         max_tokens: int = 1024,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Scan input, call wrapped engine, scan output."""
         # Scan input messages
         if self._scan_input:
@@ -248,7 +248,7 @@ class GuardrailsEngine(InferenceEngine):
                         },
                     )
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """Delegate to wrapped engine."""
         return self._engine.list_models()
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -20,7 +20,7 @@ class SuperGPQAScorer(LLMJudgeScorer):
 
     scorer_id = "supergpqa"
 
-    def _valid_letters_from_options(self, metadata: Dict[str, Any]) -> str:
+    def _valid_letters_from_options(self, metadata: dict[str, Any]) -> str:
         options = metadata.get("options")
         if isinstance(options, list) and options:
             n = len(options)
@@ -32,7 +32,7 @@ class SuperGPQAScorer(LLMJudgeScorer):
         problem: str,
         model_answer: str,
         valid_letters: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Use the judge LLM to extract the answer letter from the response."""
         last_letter = valid_letters[-1] if valid_letters else "D"
 
@@ -73,7 +73,7 @@ class SuperGPQAScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         ref = record.reference.strip().upper()
         if not ref:
             return None, {"reason": "missing_reference_letter"}

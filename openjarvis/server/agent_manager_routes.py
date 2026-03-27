@@ -2,28 +2,28 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.agents.manager import AgentManager
 
 try:
     from fastapi import APIRouter, HTTPException, Request
     from pydantic import BaseModel
-except ImportError:
-    raise ImportError("fastapi and pydantic are required for server routes")
+except ImportError as err:
+    raise ImportError("fastapi and pydantic are required for server routes") from err
 
 
 class CreateAgentRequest(BaseModel):
     name: str
     agent_type: str = "monitor_operative"
-    config: Optional[Dict[str, Any]] = None
-    template_id: Optional[str] = None
+    config: dict[str, Any] | None = None
+    template_id: str | None = None
 
 
 class UpdateAgentRequest(BaseModel):
-    name: Optional[str] = None
-    agent_type: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    agent_type: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class CreateTaskRequest(BaseModel):
@@ -31,15 +31,15 @@ class CreateTaskRequest(BaseModel):
 
 
 class UpdateTaskRequest(BaseModel):
-    description: Optional[str] = None
-    status: Optional[str] = None
-    progress: Optional[Dict[str, Any]] = None
-    findings: Optional[List[Any]] = None
+    description: str | None = None
+    status: str | None = None
+    progress: dict[str, Any] | None = None
+    findings: list[Any] | None = None
 
 
 class BindChannelRequest(BaseModel):
     channel_type: str
-    config: Optional[Dict[str, Any]] = None
+    config: dict[str, Any] | None = None
     routing_mode: str = "dedicated"
 
 
@@ -50,7 +50,7 @@ class SendMessageRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     score: float
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 _BROWSER_SUB_TOOLS = {
@@ -127,7 +127,7 @@ def _ensure_registries_populated() -> None:
                     pass
 
 
-def build_tools_list() -> List[Dict[str, Any]]:
+def build_tools_list() -> list[dict[str, Any]]:
     """Build unified tools list from ToolRegistry + ChannelRegistry."""
     import os
 
@@ -136,7 +136,7 @@ def build_tools_list() -> List[Dict[str, Any]]:
 
     _ensure_registries_populated()
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
 
     try:
         for name, tool_cls in ToolRegistry.items():
@@ -204,7 +204,7 @@ def build_tools_list() -> List[Dict[str, Any]]:
 
 def create_agent_manager_router(
     manager: AgentManager,
-) -> Tuple[APIRouter, APIRouter, APIRouter, APIRouter]:
+) -> tuple[APIRouter, APIRouter, APIRouter, APIRouter]:
     """Create FastAPI routers with agent management endpoints.
 
     Returns a 4-tuple: (agents_router, templates_router, global_router, tools_router).
@@ -248,7 +248,7 @@ def create_agent_manager_router(
     async def update_agent(agent_id: str, req: UpdateAgentRequest):
         if not manager.get_agent(agent_id):
             raise HTTPException(status_code=404, detail="Agent not found")
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if req.name is not None:
             kwargs["name"] = req.name
         if req.agent_type is not None:
@@ -336,7 +336,7 @@ def create_agent_manager_router(
     # ── Tasks ────────────────────────────────────────────────
 
     @agents_router.get("/{agent_id}/tasks")
-    async def list_tasks(agent_id: str, status: Optional[str] = None):
+    async def list_tasks(agent_id: str, status: str | None = None):
         return {"tasks": manager.list_tasks(agent_id, status=status)}
 
     @agents_router.post("/{agent_id}/tasks")
@@ -354,7 +354,7 @@ def create_agent_manager_router(
 
     @agents_router.patch("/{agent_id}/tasks/{task_id}")
     async def update_task(agent_id: str, task_id: str, req: UpdateTaskRequest):
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if req.description is not None:
             kwargs["description"] = req.description
         if req.status is not None:
@@ -463,7 +463,7 @@ def create_agent_manager_router(
                 ]
             }
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @agents_router.get("/{agent_id}/traces/{trace_id}")
     def get_trace(agent_id: str, trace_id: str):
@@ -496,7 +496,7 @@ def create_agent_manager_router(
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # ── Templates ────────────────────────────────────────────
 

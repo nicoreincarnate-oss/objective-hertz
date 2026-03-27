@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import statistics
-from typing import Dict, List
 
 
-def _percentile(data: List[float], p: float) -> float:
+def _percentile(data: list[float], p: float) -> float:
     """Compute the p-th percentile via linear interpolation."""
     sorted_data = sorted(data)
     k = (len(sorted_data) - 1) * p
@@ -17,7 +16,7 @@ def _percentile(data: List[float], p: float) -> float:
     return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
 
 
-def compute_stats(name: str, values: List[float]) -> Dict[str, float]:
+def compute_stats(name: str, values: list[float]) -> dict[str, float]:
     """Compute mean/p50/p95/min/max/std for a list of per-sample values.
 
     Returns dict with keys like ``mean_{name}``, ``p50_{name}``, etc.

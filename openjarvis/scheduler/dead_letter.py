@@ -11,7 +11,7 @@ import json
 import logging
 import sqlite3
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -63,7 +63,7 @@ class DeadLetterQueue:
     def __init__(
         self,
         db_path: str,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         self._db_path = db_path
@@ -73,12 +73,12 @@ class DeadLetterQueue:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_CREATE_TABLES)
         # In-memory retry counter: (task_type, payload_hash) -> (count, errors)
-        self._failure_counts: Dict[str, tuple[int, list[str]]] = {}
+        self._failure_counts: dict[str, tuple[int, list[str]]] = {}
 
     def record_failure(
         self,
         task_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         error: str,
         source_agent: str = "",
     ) -> bool:
@@ -101,7 +101,7 @@ class DeadLetterQueue:
 
         return False
 
-    def clear_failures(self, task_type: str, payload: Dict[str, Any]) -> None:
+    def clear_failures(self, task_type: str, payload: dict[str, Any]) -> None:
         """Clear failure count for a task (call on success)."""
         key = f"{task_type}:{hash(json.dumps(payload, sort_keys=True, default=str))}"
         self._failure_counts.pop(key, None)
@@ -109,7 +109,7 @@ class DeadLetterQueue:
     def _quarantine(
         self,
         task_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         errors: list[str],
         source_agent: str,
     ) -> int:
@@ -148,7 +148,7 @@ class DeadLetterQueue:
 
         return dlq_id
 
-    def list_quarantined(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_quarantined(self, limit: int = 50) -> list[dict[str, Any]]:
         """List quarantined tasks."""
         rows = self._conn.execute(
             "SELECT * FROM dead_letter_queue WHERE status = 'quarantined' "
@@ -168,7 +168,7 @@ class DeadLetterQueue:
             for r in rows
         ]
 
-    def retry(self, dlq_id: int) -> Optional[Dict[str, Any]]:
+    def retry(self, dlq_id: int) -> dict[str, Any] | None:
         """Mark a quarantined task for retry.  Returns the task info."""
         row = self._conn.execute(
             "SELECT * FROM dead_letter_queue WHERE id = ? AND status = 'quarantined'",

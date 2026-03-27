@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -19,7 +19,7 @@ class RetrievalTool(BaseTool):
 
     def __init__(
         self,
-        backend: Optional[MemoryBackend] = None,
+        backend: MemoryBackend | None = None,
         *,
         top_k: int = 5,
     ) -> None:

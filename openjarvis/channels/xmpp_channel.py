@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -48,14 +48,14 @@ class XMPPChannel(BaseChannel):
         password: str = "",
         server: str = "",
         port: int = 5222,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._jid = jid or os.environ.get("XMPP_JID", "")
         self._password = password or os.environ.get("XMPP_PASSWORD", "")
         self._server = server or os.environ.get("XMPP_SERVER", "")
         self._port = int(os.environ.get("XMPP_PORT", str(port)))
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -68,11 +68,11 @@ class XMPPChannel(BaseChannel):
             return
         try:
             import slixmpp  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "slixmpp not installed. Install with: "
                 "uv sync --extra channel-xmpp"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -87,7 +87,7 @@ class XMPPChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send an XMPP message.
 
@@ -128,7 +128,7 @@ class XMPPChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["xmpp"]
 

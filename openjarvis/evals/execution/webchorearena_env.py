@@ -18,9 +18,10 @@ import logging
 import os
 import re
 import urllib.parse
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Callable, Dict, List, MutableMapping, Optional, Tuple, Type
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class WebChoreArenaTaskEnv:
         self._done = False
         self._agent_answer = ""
         self._step_count = 0
-        self._task_config: Dict[str, Any] = metadata.get("task_config", {})
+        self._task_config: dict[str, Any] = metadata.get("task_config", {})
 
     def __enter__(self) -> WebChoreArenaTaskEnv:
         from playwright.sync_api import sync_playwright
@@ -122,9 +123,9 @@ class WebChoreArenaTaskEnv:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         if self._cdp_session is not None:
             try:
@@ -158,7 +159,7 @@ class WebChoreArenaTaskEnv:
     def run_agent_loop(
         self,
         generate_fn: Callable[[str], str],
-        max_steps: Optional[int] = None,
+        max_steps: int | None = None,
     ) -> str:
         """Drive the browser env in a step loop using *generate_fn* for LLM calls.
 
@@ -170,7 +171,7 @@ class WebChoreArenaTaskEnv:
         if max_steps is None:
             max_steps = _MAX_STEPS_DEFAULT
 
-        responses: List[str] = []
+        responses: list[str] = []
         intent = self._task_config.get(
             "intent", self._task_config.get("intent_template", ""),
         )
@@ -218,7 +219,7 @@ class WebChoreArenaTaskEnv:
 
         eval_types = eval_config.get("eval_types", [])
         score = 1.0
-        details: Dict[str, Any] = {}
+        details: dict[str, Any] = {}
 
         for eval_type in eval_types:
             if eval_type == "string_match":
@@ -254,7 +255,7 @@ class WebChoreArenaTaskEnv:
 
     # -- StringEvaluator (exact_match, must_include, fuzzy_match) ------
 
-    def _eval_string_match(self, eval_config: Dict[str, Any]) -> float:
+    def _eval_string_match(self, eval_config: dict[str, Any]) -> float:
         """Evaluate string matching — mirrors original StringEvaluator.__call__."""
         ref_answers = eval_config.get("reference_answers", {})
         pred = _clean_answer(self._agent_answer)
@@ -300,7 +301,7 @@ class WebChoreArenaTaskEnv:
 
     # -- URLEvaluator --------------------------------------------------
 
-    def _eval_url_match(self, eval_config: Dict[str, Any]) -> float:
+    def _eval_url_match(self, eval_config: dict[str, Any]) -> float:
         """Evaluate URL matching — mirrors original URLEvaluator.__call__.
 
         Checks the browser's current page URL against reference URLs.
@@ -321,13 +322,13 @@ class WebChoreArenaTaskEnv:
             if isinstance(alt, dict) and "reference_url" in alt:
                 or_ref_urls_list.append(alt["reference_url"])
 
-        or_scores: List[float] = []
+        or_scores: list[float] = []
         for or_ref_urls_str in or_ref_urls_list:
             ref_urls = [u.strip() for u in or_ref_urls_str.split(" |OR| ")]
             ref_urls = [self._resolve_url(u).rstrip("/").lower() for u in ref_urls if u]
 
             ref_base_paths = []
-            ref_queries: Dict[str, set] = {}
+            ref_queries: dict[str, set] = {}
             for url in ref_urls:
                 bp, q = _parse_url(url)
                 ref_base_paths.append(bp)
@@ -353,7 +354,7 @@ class WebChoreArenaTaskEnv:
 
     # -- HTMLContentEvaluator (program_html) ---------------------------
 
-    def _eval_program_html(self, eval_config: Dict[str, Any]) -> float:
+    def _eval_program_html(self, eval_config: dict[str, Any]) -> float:
         """Evaluate program_html — mirrors original HTMLContentEvaluator.
 
         Navigates to target URLs, runs JS locators to select DOM elements,
@@ -372,7 +373,7 @@ class WebChoreArenaTaskEnv:
             if "or" in target:
                 or_target_list = [target] + list(target["or"])
 
-            or_scores: List[float] = []
+            or_scores: list[float] = []
             for or_target in or_target_list:
                 s = self._eval_single_program_html(or_target)
                 or_scores.append(s)
@@ -381,7 +382,7 @@ class WebChoreArenaTaskEnv:
 
         return score
 
-    def _eval_single_program_html(self, target: Dict[str, Any]) -> float:
+    def _eval_single_program_html(self, target: dict[str, Any]) -> float:
         """Evaluate a single program_html target."""
         target_url = str(target.get("url", "last"))
         locator = str(target.get("locator", ""))
@@ -447,7 +448,7 @@ class WebChoreArenaTaskEnv:
             contents = required["must_include"]
             if not isinstance(contents, list):
                 contents = [contents]
-            scores: List[float] = []
+            scores: list[float] = []
             for content in contents:
                 content_or = str(content).split(" |OR| ")
                 s = float(any(
@@ -524,7 +525,7 @@ class WebChoreArenaTaskEnv:
             return 1.0
         return 0.0
 
-    def _call_judge(self, prompt: str) -> Optional[str]:
+    def _call_judge(self, prompt: str) -> str | None:
         """Call an LLM judge for fuzzy/ua matching."""
         try:
             from openjarvis.evals.core.backend import InferenceBackend
@@ -615,7 +616,7 @@ class WebChoreArenaTaskEnv:
     def _build_step_prompt(
         self, intent: str, step_idx: int, max_steps: int,
     ) -> str:
-        parts: List[str] = [_SYSTEM_MSG]
+        parts: list[str] = [_SYSTEM_MSG]
         parts.append(f"## Task\n{intent}")
 
         parts.append(f"## Current URL\n{self._page.url}")
@@ -653,7 +654,7 @@ class WebChoreArenaTaskEnv:
             url = url.replace(placeholder, actual)
         return url
 
-    def _resolve_storage_state(self) -> Optional[str]:
+    def _resolve_storage_state(self) -> str | None:
         """Resolve the storage state file path."""
         state = self._metadata.get("storage_state", "")
         if not state:
@@ -713,7 +714,7 @@ def _must_include(ref: str, pred: str, tokenize: bool = False) -> float:
     return float(clean_ref in clean_pred)
 
 
-def _parse_url(url: str) -> Tuple[str, Dict[str, List[str]]]:
+def _parse_url(url: str) -> tuple[str, dict[str, list[str]]]:
     """Parse a URL into base path and query params."""
     parsed = urllib.parse.urlparse(url)
     base_path = parsed.netloc + parsed.path
@@ -721,7 +722,7 @@ def _parse_url(url: str) -> Tuple[str, Dict[str, List[str]]]:
     return base_path, query
 
 
-def _extract_bracket_arg(text: str) -> Optional[str]:
+def _extract_bracket_arg(text: str) -> str | None:
     """Extract first [arg] from text."""
     m = re.search(r"\[(\d+)\]", text)
     return m.group(1) if m else None
@@ -736,7 +737,7 @@ def _flatten_axtree(node: Any, depth: int = 0) -> str:
     if not isinstance(node, dict):
         return str(node)
 
-    lines: List[str] = []
+    lines: list[str] = []
     indent = "  " * depth
 
     role = node.get("role", "")

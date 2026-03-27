@@ -13,6 +13,7 @@ Every step is recorded in agent_decisions for auditability.
 
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -28,6 +29,44 @@ from shared.db import emit_event, get_config, set_config
 from shared.skill_loader import execute_skill, find_skill
 
 logger = logging.getLogger("perseus.clawdbot.resolver")
+
+_RETRY_DELAYS = (5, 15, 45)  # seconds — 3 attempts with exponential-ish backoff
+
+
+async def _run_with_retry(
+    cmd: list[str],
+    label: str,
+    timeout: int = 120,
+) -> tuple[int, str]:
+    """Run a subprocess with retry + backoff. Returns (returncode, stderr_text)."""
+    last_rc = -1
+    last_err = ""
+    for attempt, delay in enumerate((*_RETRY_DELAYS,), start=1):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            last_rc = proc.returncode if proc.returncode is not None else -1
+            last_err = stderr.decode()[:200] if stderr else ""
+            if last_rc == 0:
+                return 0, ""
+            logger.warning(f"{label} attempt {attempt}/{len(_RETRY_DELAYS)} failed (rc={last_rc}): {last_err}")
+        except TimeoutError:
+            last_rc = -1
+            last_err = "timed out"
+            logger.warning(f"{label} attempt {attempt}/{len(_RETRY_DELAYS)} timed out")
+        except Exception as e:
+            last_rc = -1
+            last_err = str(e)
+            logger.warning(f"{label} attempt {attempt}/{len(_RETRY_DELAYS)} error: {e}")
+
+        if attempt < len(_RETRY_DELAYS):
+            await asyncio.sleep(delay)
+
+    return last_rc, last_err
 
 
 async def resolve_capability(need: str, context: dict | None = None) -> dict:
@@ -113,6 +152,9 @@ async def resolve_capability(need: str, context: dict | None = None) -> dict:
     )
 
 
+_ALLOW_RUNTIME_INSTALL = os.environ.get("ALLOW_RUNTIME_INSTALL", "").strip().lower() in ("1", "true", "yes")
+
+
 async def _search_and_install_from_registry(skill_name: str) -> bool:
     """
     Search external skill registries for a skill, clone the repo if needed,
@@ -121,7 +163,17 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
     Registries are git repos containing skill directories with SKILL.md files.
     We shallow-clone the whole repo into SKILL_INSTALL_DIR on first use,
     then subsequent lookups are instant (just check if the directory exists).
+
+    Requires ALLOW_RUNTIME_INSTALL=true (default: false) as a safety gate.
     """
+    if not _ALLOW_RUNTIME_INSTALL:
+        logger.warning(
+            "Runtime git clone blocked for skill '%s': "
+            "set ALLOW_RUNTIME_INSTALL=true to enable registry clones.",
+            skill_name,
+        )
+        return False
+
     SKILL_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
 
     for registry in SKILL_REGISTRIES:
@@ -129,26 +181,18 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
         repo_name = registry["name"]
         clone_dir = SKILL_INSTALL_DIR / repo_name
 
-        # Clone the registry repo if we haven't already
+        # Clone the registry repo if we haven't already (with retry + backoff)
         if not clone_dir.exists():
-            try:
-                logger.info(f"Cloning skill registry '{repo_name}' from {repo_url}")
-                proc = await asyncio.create_subprocess_exec(
-                    "git", "clone", "--depth", "1", repo_url, str(clone_dir),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-                if proc.returncode != 0:
-                    logger.warning(f"Failed to clone {repo_url}: {stderr.decode()[:200]}")
-                    continue
-                logger.info(f"Cloned registry '{repo_name}' to {clone_dir}")
-            except TimeoutError:
-                logger.warning(f"Clone of {repo_url} timed out")
+            logger.info(f"Cloning skill registry '{repo_name}' from {repo_url}")
+            rc, err = await _run_with_retry(
+                ["git", "clone", "--depth", "1", repo_url, str(clone_dir)],
+                label=f"git clone {repo_name}",
+                timeout=120,
+            )
+            if rc != 0:
+                logger.warning(f"Failed to clone {repo_url} after retries: {err}")
                 continue
-            except Exception as e:
-                logger.warning(f"Clone of {repo_url} failed: {e}")
-                continue
+            logger.info(f"Cloned registry '{repo_name}' to {clone_dir}")
         else:
             # Pull latest changes periodically (non-blocking, best-effort)
             try:
@@ -181,26 +225,29 @@ async def _search_and_install_from_registry(skill_name: str) -> bool:
 
 
 async def _pip_install(package: str) -> bool:
-    """Install a Python package. Returns True on success."""
-    try:
-        logger.info(f"Attempting pip install: {package}")
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "pip", "install", "--quiet", package,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    """Install a Python package with retry + backoff. Returns True on success.
+
+    Requires ALLOW_RUNTIME_INSTALL=true (default: false) as a safety gate.
+    """
+    if not _ALLOW_RUNTIME_INSTALL:
+        logger.warning(
+            "Runtime pip install blocked for package '%s': "
+            "set ALLOW_RUNTIME_INSTALL=true to enable runtime installs.",
+            package,
         )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode == 0:
-            logger.info(f"Successfully installed {package}")
-            return True
-        logger.warning(f"pip install {package} failed: {stderr.decode()[:200]}")
         return False
-    except TimeoutError:
-        logger.warning(f"pip install {package} timed out")
-        return False
-    except Exception as e:
-        logger.warning(f"pip install {package} error: {e}")
-        return False
+
+    logger.info(f"Attempting pip install: {package}")
+    rc, err = await _run_with_retry(
+        [sys.executable, "-m", "pip", "install", "--quiet", package],
+        label=f"pip install {package}",
+        timeout=120,
+    )
+    if rc == 0:
+        logger.info(f"Successfully installed {package}")
+        return True
+    logger.warning(f"pip install {package} failed after retries: {err}")
+    return False
 
 
 async def _run_post_install(command: list[str]) -> bool:
@@ -276,7 +323,11 @@ async def _create_skill_directly(need: str, strategies: dict, context: dict) -> 
     Instead of a single LLM call, this decomposes skill creation into steps,
     executes each with validation, and retries on failure.
     """
-    from shared.execution_loop import Step, TaskPlan, execute_plan
+    try:
+        from shared.execution_loop import Step, TaskPlan, execute_plan
+    except ImportError:
+        logger.warning("shared.execution_loop not available — cannot auto-create skills")
+        return None
 
     description = strategies.get("description", need)
     skill_dir = SKILL_INSTALL_DIR / f"auto-{need}"

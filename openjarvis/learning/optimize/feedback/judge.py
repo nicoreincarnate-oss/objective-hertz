@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Tuple
 
 from openjarvis.core.types import Trace
 from openjarvis.evals.core.backend import InferenceBackend
@@ -29,7 +28,7 @@ _SCORE_RE = re.compile(
 
 def _format_trace(trace: Trace) -> str:
     """Render a Trace into a textual prompt for the judge."""
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"## Query\n{trace.query}")
     if trace.steps:
         lines.append("\n## Steps")
@@ -84,7 +83,7 @@ class TraceJudge:
         self._backend = backend
         self._model = model
 
-    def score_trace(self, trace: Trace) -> Tuple[float, str]:
+    def score_trace(self, trace: Trace) -> tuple[float, str]:
         """Score a single trace.
 
         Returns:
@@ -103,13 +102,13 @@ class TraceJudge:
         return score, response
 
     def batch_evaluate(
-        self, traces: List[Trace],
-    ) -> List[Tuple[float, str]]:
+        self, traces: list[Trace],
+    ) -> list[tuple[float, str]]:
         """Evaluate multiple traces sequentially.
 
         Returns a list of ``(score, feedback)`` tuples, one per trace.
         """
-        results: List[Tuple[float, str]] = []
+        results: list[tuple[float, str]] = []
         for trace in traces:
             results.append(self.score_trace(trace))
         return results

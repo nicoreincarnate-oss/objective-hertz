@@ -9,7 +9,7 @@ context and makes recursive sub-LM calls via ``llm_query()``/``llm_batch()``.
 from __future__ import annotations
 
 import re
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
 from openjarvis.agents.rlm_repl import RLMRepl
@@ -90,16 +90,16 @@ class RLMAgent(ToolUsingAgent):
         engine: InferenceEngine,
         model: str,
         *,
-        tools: Optional[List[BaseTool]] = None,
-        bus: Optional[EventBus] = None,
+        tools: list[BaseTool] | None = None,
+        bus: EventBus | None = None,
         max_turns: int = 10,
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        sub_model: Optional[str] = None,
+        sub_model: str | None = None,
         sub_temperature: float = 0.3,
         sub_max_tokens: int = 1024,
         max_output_chars: int = 10000,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         interactive: bool = False,
         confirm_callback=None,
     ) -> None:
@@ -125,7 +125,7 @@ class RLMAgent(ToolUsingAgent):
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         self._emit_turn_start(input)
@@ -304,7 +304,7 @@ class RLMAgent(ToolUsingAgent):
 
         return result.get("content", "")
 
-    def _make_batch_query(self, prompts: List[str]) -> List[str]:
+    def _make_batch_query(self, prompts: list[str]) -> list[str]:
         """Execute multiple sub-LM queries sequentially.
 
         Called from REPL code via ``llm_batch(prompts)``.
@@ -316,7 +316,7 @@ class RLMAgent(ToolUsingAgent):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_code(text: str) -> Optional[str]:
+    def _extract_code(text: str) -> str | None:
         """Extract the first ```python code block from *text*.
 
         Also matches bare ``` blocks (without language tag).
@@ -333,7 +333,7 @@ class RLMAgent(ToolUsingAgent):
         return None
 
     @staticmethod
-    def _resolve_context(context: Optional[AgentContext]) -> Optional[str]:
+    def _resolve_context(context: AgentContext | None) -> str | None:
         """Resolve context text from AgentContext metadata or memory_results."""
         if context is None:
             return None

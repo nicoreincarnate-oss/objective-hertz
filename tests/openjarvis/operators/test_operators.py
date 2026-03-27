@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,10 +18,10 @@ from openjarvis.operators.types import OperatorManifest
 class FakeEngine:
     """Minimal engine stub for tests."""
 
-    def __init__(self, responses: Optional[List[Dict[str, Any]]] = None) -> None:
+    def __init__(self, responses: list[dict[str, Any]] | None = None) -> None:
         self._responses = list(responses or [{"content": "Done."}])
         self._call_idx = 0
-        self.calls: List[Any] = []
+        self.calls: list[Any] = []
 
     def generate(self, messages, **kwargs):
         self.calls.append({"messages": messages, **kwargs})
@@ -42,15 +42,15 @@ class FakeSessionStore:
     """Minimal session store stub."""
 
     def __init__(self) -> None:
-        self._sessions: Dict[str, Any] = {}
-        self._messages: Dict[str, List[Dict]] = {}
+        self._sessions: dict[str, Any] = {}
+        self._messages: dict[str, list[dict]] = {}
 
     def get_or_create(self, session_id: str):
         if session_id not in self._sessions:
             self._sessions[session_id] = MagicMock(messages=[])
         return self._sessions[session_id]
 
-    def save_message(self, session_id: str, message: Dict) -> None:
+    def save_message(self, session_id: str, message: dict) -> None:
         self._messages.setdefault(session_id, []).append(message)
 
 
@@ -58,7 +58,7 @@ class FakeMemoryBackend:
     """Minimal memory backend stub."""
 
     def __init__(self) -> None:
-        self._store: Dict[str, str] = {}
+        self._store: dict[str, str] = {}
 
     def store(self, key: str, value: str, **kwargs) -> None:
         self._store[key] = value
@@ -74,31 +74,31 @@ class FakeSchedulerStore:
     """Minimal scheduler store stub."""
 
     def __init__(self) -> None:
-        self._tasks: Dict[str, Dict] = {}
-        self._runs: List[Dict] = []
+        self._tasks: dict[str, dict] = {}
+        self._runs: list[dict] = []
 
-    def save_task(self, task_dict: Dict) -> None:
+    def save_task(self, task_dict: dict) -> None:
         self._tasks[task_dict["id"]] = task_dict
 
-    def get_task(self, task_id: str) -> Optional[Dict]:
+    def get_task(self, task_id: str) -> dict | None:
         return self._tasks.get(task_id)
 
-    def update_task(self, task_dict: Dict) -> None:
+    def update_task(self, task_dict: dict) -> None:
         self._tasks[task_dict["id"]] = task_dict
 
-    def list_tasks(self, *, status=None) -> List[Dict]:
+    def list_tasks(self, *, status=None) -> list[dict]:
         tasks = list(self._tasks.values())
         if status:
             tasks = [t for t in tasks if t.get("status") == status]
         return tasks
 
-    def get_due_tasks(self, now: str) -> List[Dict]:
+    def get_due_tasks(self, now: str) -> list[dict]:
         return []
 
     def log_run(self, **kwargs) -> None:
         self._runs.append(kwargs)
 
-    def get_runs(self, task_id: str, limit: int = 10) -> List[Dict]:
+    def get_runs(self, task_id: str, limit: int = 10) -> list[dict]:
         return [r for r in self._runs if r.get("task_id") == task_id][:limit]
 
 

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any
 
 # Optional imports -----------------------------------------------------------
 try:
@@ -87,7 +88,7 @@ class OrchestratorSFTConfig:
     gradient_checkpointing: bool = True
 
     # Available tools for structured prompt
-    available_tools: List[str] = field(
+    available_tools: list[str] = field(
         default_factory=lambda: [
             "calculator",
             "think",
@@ -113,7 +114,7 @@ class OrchestratorSFTDataset:
     ) -> None:
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
-        self.traces: List[Dict[str, Any]] = []
+        self.traces: list[dict[str, Any]] = []
         self._load_traces(trace_path)
 
     def _load_traces(self, trace_path: str) -> None:
@@ -129,7 +130,7 @@ class OrchestratorSFTDataset:
     def __len__(self) -> int:
         return len(self.traces)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         trace = self.traces[idx]
         text = self._format_conversation(trace.get("conversations", []))
 
@@ -148,7 +149,7 @@ class OrchestratorSFTDataset:
         }
 
     def _format_conversation(
-        self, conversations: List[Dict[str, str]]
+        self, conversations: list[dict[str, str]]
     ) -> str:
         """Format conversation turns into training text."""
         if hasattr(self.tokenizer, "apply_chat_template"):
@@ -201,8 +202,8 @@ class OrchestratorSFTDataset:
 
     def iter_batches(
         self, batch_size: int
-    ) -> Iterator[List[Dict[str, Any]]]:
-        batch: list[Dict[str, Any]] = []
+    ) -> Iterator[list[dict[str, Any]]]:
+        batch: list[dict[str, Any]] = []
         for i in range(len(self)):
             batch.append(self[i])
             if len(batch) == batch_size:
@@ -267,11 +268,132 @@ class OrchestratorSFTTrainer:
         )
 
     def _generate_traces(self) -> None:
-        """Generate SFT traces (placeholder — requires running engine)."""
+        """Generate SFT traces using a teacher model via the orchestrator environment.
+
+        Runs the teacher model on sample queries, records successful trajectories
+        as JSONL, and writes them to ``config.trace_cache_path``.  If no teacher
+        model is configured, creates an empty file so loading can proceed (the
+        trainer will have zero data and skip training gracefully).
+        """
         trace_path = Path(self.config.trace_cache_path)
         trace_path.parent.mkdir(parents=True, exist_ok=True)
-        if not trace_path.exists():
+
+        if not self.config.teacher_model:
+            logger.warning(
+                "_generate_traces: no teacher_model configured; "
+                "writing empty trace file at %s",
+                trace_path,
+            )
             trace_path.touch()
+            return
+
+        # Build tools for the environment
+        from openjarvis.tools._stubs import ToolExecutor as _TE  # noqa: F811
+
+        tools = _TE.default_tools(self.config.available_tools)
+
+        from openjarvis.learning.intelligence.orchestrator.environment import (
+            OrchestratorEnvironment,
+        )
+        from openjarvis.learning.intelligence.orchestrator.policy_model import (
+            OrchestratorPolicyModel,
+        )
+
+        env = OrchestratorEnvironment(tools=tools, max_turns=10)
+
+        # Load teacher policy
+        teacher = OrchestratorPolicyModel.from_pretrained(
+            self.config.teacher_model,
+            device="auto",
+            temperature=self.config.generation_temperature,
+        )
+
+        # Collect sample queries from existing trace cache or use defaults
+        queries = self._collect_sample_queries()
+
+        traces_written = 0
+        with open(trace_path, "w") as fh:
+            for query in queries:
+                for _attempt in range(self.config.traces_per_query):
+                    try:
+                        trajectory = self._run_episode(env, teacher, query)
+                        if trajectory:
+                            fh.write(json.dumps(trajectory) + "\n")
+                            traces_written += 1
+                    except Exception as exc:
+                        logger.debug(
+                            "Trace generation failed for query=%r: %s",
+                            query[:60],
+                            exc,
+                        )
+
+        logger.info(
+            "Generated %d SFT traces -> %s", traces_written, trace_path,
+        )
+
+    def _collect_sample_queries(self) -> list[str]:
+        """Collect sample queries for trace generation.
+
+        Returns a small default set.  Override or extend for domain-specific
+        queries.
+        """
+        return [
+            "What is 25 * 17 + 300?",
+            "Search the web for the current population of Tokyo.",
+            "Write a Python function that checks if a string is a palindrome.",
+            "Think step by step: if a train travels 60 mph for 2.5 hours, how far does it go?",
+        ]
+
+    @staticmethod
+    def _run_episode(
+        env: Any,
+        teacher: Any,
+        query: str,
+    ) -> dict[str, Any] | None:
+        """Run one episode and return a trace dict if successful."""
+        state = env.reset(query)
+        conversations: list[dict[str, str]] = [
+            {"role": "user", "content": query},
+        ]
+        available = env.get_available_tools()
+
+        for _turn in range(10):
+            action = teacher.predict_action(state, available)
+
+            if action.is_final_answer:
+                conversations.append({
+                    "role": "assistant",
+                    "content": (
+                        f"THOUGHT: {action.thought}\n"
+                        f"FINAL_ANSWER: {action.tool_input}"
+                    ),
+                })
+                return {"conversations": conversations}
+
+            # Record the action
+            conversations.append({
+                "role": "assistant",
+                "content": (
+                    f"THOUGHT: {action.thought}\n"
+                    f"TOOL: {action.tool_name}\n"
+                    f"INPUT: {action.tool_input}"
+                ),
+            })
+
+            # Execute and record observation
+            state, obs = env.step(state, action)
+            conversations.append({
+                "role": "tool",
+                "name": action.tool_name,
+                "content": obs.content,
+            })
+
+            if env.is_done(state):
+                if state.final_answer:
+                    return {"conversations": conversations}
+                return None  # hit max turns without answer
+
+        return None  # exceeded inner limit
 
     def _init_optimizer(self) -> None:
         if not HAS_TORCH or self.policy.model is None:
@@ -322,7 +444,7 @@ class OrchestratorSFTTrainer:
             if (epoch + 1) % self.config.save_every_n_epochs == 0:
                 self._save_checkpoint(epoch)
 
-    def _train_epoch(self, epoch: int) -> Dict[str, float]:
+    def _train_epoch(self, epoch: int) -> dict[str, float]:
         if self.policy.model is None or self.dataloader is None:
             return {"epoch": epoch, "loss": 0.0}
 
@@ -339,7 +461,7 @@ class OrchestratorSFTTrainer:
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
         return {"epoch": epoch, "loss": avg_loss}
 
-    def _train_step(self, batch: Dict[str, Any]) -> float:
+    def _train_step(self, batch: dict[str, Any]) -> float:
         input_ids = batch["input_ids"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         labels = batch["labels"].to(self.device)
@@ -395,7 +517,7 @@ def _ensure_registered() -> None:
 
         def update(
             self, trace_store: Any, **kwargs: object
-        ) -> Dict[str, Any]:
+        ) -> dict[str, Any]:
             config = OrchestratorSFTConfig(**{
                 k: v for k, v in kwargs.items()
                 if k in OrchestratorSFTConfig.__dataclass_fields__

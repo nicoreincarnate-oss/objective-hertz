@@ -6,16 +6,41 @@ Fallback: Ollama (local) — for simple classification, extraction, when API is 
 Budget-aware: every Claude call estimates token cost and records it.
 When budget hits alert threshold, auto-downgrades to Ollama.
 When budget is exceeded, only Ollama is available.
+
+TurboQuant integration (March 2026):
+  Ollama calls use Google's TurboQuant KV cache compression via llama.cpp Metal.
+  turbo4 = 3.8x memory reduction, near-zero accuracy loss on Apple Silicon.
+  turbo3 = 4.9x memory reduction, ~1% PPL increase.
+  This means larger context windows and bigger local models within 32GB RAM.
+  Requires Ollama >= 0.6.2. Controlled by OLLAMA_KV_CACHE_TYPE env var.
 """
 
+import base64
 import logging
 from datetime import date
 
 import httpx
 
 from shared.config import config
+from shared.db import get_config
 
 logger = logging.getLogger("perseus.llm")
+
+
+async def _resolve_model(tier: str) -> str:
+    """Resolve model ID, checking dashboard override first, then .env config."""
+    _MODEL_MAP = {
+        "genius": ("model_genius", config.claude.genius_model),
+        "fast": ("model_fast", config.claude.fast_model),
+        "smart": ("model_primary", config.claude.primary_model),
+        "primary": ("model_primary", config.claude.primary_model),
+        "local": ("model_local", config.ollama.model),
+        "local-small": ("model_local_small", config.ollama.secondary),
+        "embed": ("model_embed", config.ollama.embed_model),
+    }
+    db_key, fallback = _MODEL_MAP.get(tier, ("model_primary", config.claude.primary_model))
+    override = await get_config(db_key, None)
+    return str(override) if override else fallback
 
 # Approximate cost per 1K tokens (input + output blended) as of March 2026
 # Conservative estimates — better to overcount than undercount
@@ -31,6 +56,7 @@ class LLMClient:
 
     def __init__(self):
         self._http: httpx.AsyncClient | None = None
+        self._last_usage = None
 
     def _get_http(self) -> httpx.AsyncClient:
         """Lazy-init the HTTP client so import alone never triggers network/SSL."""
@@ -69,19 +95,18 @@ class LLMClient:
         # "fast" and "smart" both use Claude (Haiku and Sonnet respectively)
         # Only "local" and "local-small" go directly to Ollama
         if model in ("local", "local-small"):
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
 
         # If no API key, fall back to Ollama for everything
         if not config.claude.api_key:
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
 
         # Budget check — downgrade Claude to Ollama when needed
         model = await self._budget_gate(model)
 
-
         if model in ("local", "local-small"):
             # Budget gate downgraded us
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
 
         try:
             result = await self._claude_generate(prompt, system, model, max_tokens, temperature)
@@ -96,7 +121,60 @@ class LLMClient:
             return result
         except Exception as e:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature)
+            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+
+    async def generate_with_images(
+        self,
+        prompt: str,
+        *,
+        images: list[bytes],
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+        client_id: int | None = None,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Generate text from a prompt plus one or more images.
+
+        Uses Claude vision-capable models when available. If Claude is unavailable,
+        this raises instead of silently falling back because local Ollama is not
+        configured for image understanding in this runtime.
+        """
+        if model == "auto":
+            model = "smart"
+        if model in ("local", "local-small"):
+            raise RuntimeError("Local multimodal evaluation is not available")
+        if not config.claude.api_key:
+            raise RuntimeError("Claude vision unavailable: ANTHROPIC_API_KEY not configured")
+
+        model = await self._budget_gate(model)
+        if model in ("local", "local-small"):
+            raise RuntimeError("Claude vision downgraded to local model; multimodal evaluation unavailable")
+
+        try:
+            result = await self._claude_generate_with_images(
+                prompt,
+                images,
+                system,
+                model,
+                max_tokens,
+                temperature,
+            )
+            # Images add input cost too; overcount a little rather than undercount.
+            image_token_overhead = len(images) * 2000
+            await self._record_claude_spend(
+                prompt,
+                result,
+                system,
+                model,
+                client_id=client_id,
+                pipeline_stage=pipeline_stage,
+                extra_input_tokens=image_token_overhead,
+            )
+            return result
+        except Exception:
+            raise
 
     async def _budget_gate(self, requested_model: str) -> str:
         """Check budget and downgrade Claude to Ollama if needed."""
@@ -123,7 +201,7 @@ class LLMClient:
 
         except Exception as e:
             # If we can't check budget, allow the call (fail open, not closed)
-            logger.debug(f"Budget check failed (allowing call): {e}")
+            logger.warning(f"Budget check failed (allowing call): {e}")
 
         return requested_model
 
@@ -136,13 +214,14 @@ class LLMClient:
         *,
         client_id: int | None = None,
         pipeline_stage: str = "",
+        extra_input_tokens: float = 0.0,
     ):
         """Estimate and record the cost of a Claude API call, optionally tagged to a lead."""
         try:
             from shared.db import execute
 
             # Rough token estimate: ~4 chars per token
-            input_tokens = (len(prompt) + len(system)) / 4
+            input_tokens = ((len(prompt) + len(system)) / 4) + extra_input_tokens
             output_tokens = len(result) / 4
             total_tokens = input_tokens + output_tokens
 
@@ -170,12 +249,7 @@ class LLMClient:
         if not config.claude.api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")
 
-        if model == "genius":
-            model_id = config.claude.genius_model
-        elif model == "fast":
-            model_id = config.claude.fast_model
-        else:
-            model_id = config.claude.primary_model
+        model_id = await _resolve_model(model)
         messages = [{"role": "user", "content": prompt}]
 
         body = {
@@ -204,31 +278,118 @@ class LLMClient:
         if usage:
             self._last_usage = usage  # Cache for more accurate spend recording
 
+        if not data.get("content") or not data["content"]:
+            raise RuntimeError("Empty response from Claude API")
         return data["content"][0]["text"]
 
-    async def _ollama_generate(
-        self, prompt: str, system: str, model: str, max_tokens: int, temperature: float
+    async def _claude_generate_with_images(
+        self,
+        prompt: str,
+        images: list[bytes],
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
     ) -> str:
-        """Call local Ollama API."""
-        model_name = config.ollama.model if model == "local" else config.ollama.secondary
+        """Call Claude with image inputs."""
+        if not config.claude.api_key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+
+        model_id = await _resolve_model(model)
+
+        content: list[dict] = []
+        for image in images:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": base64.b64encode(image).decode("utf-8"),
+                    },
+                }
+            )
+        content.append({"type": "text", "text": prompt})
+
+        body = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": content}],
+        }
+        if system:
+            body["system"] = system
+
+        resp = await self._get_http().post(
+            "https://api.anthropic.com/v1/messages",
+            json=body,
+            headers={
+                "x-api-key": config.claude.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usage", {})
+        if usage:
+            self._last_usage = usage
+        return data["content"][0]["text"]
+
+    async def _resolve_ollama_model(self, model: str, pipeline_stage: str = "") -> str:
+        """Pick the best Ollama model: fine-tuned adapter if available, else base."""
+        if pipeline_stage:
+            try:
+                from shared.db import get_config
+                ft_model = await get_config("fine_tuned_model")
+                if ft_model:
+                    logger.debug("Using fine-tuned model %s for stage %s", ft_model, pipeline_stage)
+                    return ft_model
+            except Exception:
+                pass  # Fall through to base model
+        return await _resolve_model("local" if model == "local" else "local-small")
+
+    async def _ollama_generate(
+        self, prompt: str, system: str, model: str, max_tokens: int, temperature: float,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Call local Ollama API with TurboQuant KV cache compression when available."""
+        model_name = await self._resolve_ollama_model(model, pipeline_stage)
+        options: dict = {
+            "num_predict": max_tokens,
+            "temperature": temperature,
+        }
+
+        # TurboQuant KV cache compression — 4.9x memory reduction, ~zero accuracy loss
+        # Requires Ollama >= 0.6.2 with llama.cpp TurboQuant support
+        if config.ollama.kv_cache_type:
+            options["cache_type_k"] = config.ollama.kv_cache_type
+            options["cache_type_v"] = config.ollama.kv_cache_type
+        if config.ollama.flash_attention:
+            options["flash_attention"] = True
+
         body = {
             "model": model_name,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": temperature,
-            },
+            "options": options,
         }
         if system:
             body["system"] = system
 
         resp = await self._get_http().post(f"{config.ollama.host}/api/generate", json=body)
+        if resp.status_code == 404 and model_name != config.ollama.secondary:
+            # Model not found — fall back to secondary model
+            logger.warning("Ollama model %s not found, falling back to %s", model_name, config.ollama.secondary)
+            body["model"] = config.ollama.secondary
+            resp = await self._get_http().post(f"{config.ollama.host}/api/generate", json=body)
         resp.raise_for_status()
         return resp.json()["response"]
 
     async def classify(self, text: str, categories: list[str]) -> str:
         """Quick classification using fast model."""
+        if not categories:
+            raise ValueError("categories list cannot be empty")
         cats = ", ".join(categories)
         prompt = f"Classify this text into exactly one category: [{cats}]\n\nText: {text}\n\nCategory:"
         result = await self.generate(prompt, model="local-small", max_tokens=50, temperature=0.0)

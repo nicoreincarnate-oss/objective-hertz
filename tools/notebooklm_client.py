@@ -18,12 +18,9 @@ Used by:
 import asyncio
 import json
 import logging
-import os
-import tempfile
-from pathlib import Path
 from typing import Any
 
-from tools.runtime_honesty import env_is_configured, truth_payload
+from tools.runtime_honesty import truth_payload
 
 logger = logging.getLogger("perseus.tools.notebooklm")
 

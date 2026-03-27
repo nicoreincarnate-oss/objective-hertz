@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import click
 from rich.console import Console
@@ -23,7 +23,7 @@ class CheckResult:
     name: str
     status: str  # "ok", "warn", "fail"
     message: str
-    details: Optional[str] = None
+    details: str | None = None
 
 
 # -- Individual checks -------------------------------------------------------
@@ -87,9 +87,9 @@ def _get_config() -> Any:
         return JarvisConfig()
 
 
-def _check_engines() -> List[CheckResult]:
+def _check_engines() -> list[CheckResult]:
     """Probe each registered engine for health."""
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
 
     _ensure_engines_imported()
 
@@ -122,9 +122,9 @@ def _check_engines() -> List[CheckResult]:
     return results
 
 
-def _check_models() -> List[CheckResult]:
+def _check_models() -> list[CheckResult]:
     """List models from healthy engines."""
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
 
     _ensure_engines_imported()
 
@@ -207,9 +207,9 @@ def _check_default_model() -> CheckResult:
     )
 
 
-def _check_optional_deps() -> List[CheckResult]:
+def _check_optional_deps() -> list[CheckResult]:
     """Check availability of optional dependency packages."""
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
     optional_packages = [
         ("fastapi", "openjarvis[server]", "REST API server"),
         ("torch", "pip install torch", "SFT/GRPO training"),
@@ -283,9 +283,9 @@ _STATUS_ICONS = {
 }
 
 
-def _run_all_checks() -> List[CheckResult]:
+def _run_all_checks() -> list[CheckResult]:
     """Run all diagnostic checks and return results."""
-    checks: List[CheckResult] = []
+    checks: list[CheckResult] = []
     checks.append(_check_python_version())
     checks.append(_check_config_exists())
     checks.append(_check_config_parses())
@@ -297,7 +297,7 @@ def _run_all_checks() -> List[CheckResult]:
     return checks
 
 
-def _results_to_dicts(checks: List[CheckResult]) -> List[Dict[str, Any]]:
+def _results_to_dicts(checks: list[CheckResult]) -> list[dict[str, Any]]:
     """Convert CheckResult list to JSON-serializable dicts."""
     return [asdict(c) for c in checks]
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.registry import MemoryRegistry
@@ -22,14 +22,14 @@ class _FakeBackend(MemoryBackend):
     backend_id: str = "fake"
 
     def __init__(self) -> None:
-        self._docs: Dict[str, tuple] = {}
+        self._docs: dict[str, tuple] = {}
 
     def store(
         self,
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         doc_id = uuid.uuid4().hex
         self._docs[doc_id] = (content, source, metadata or {})
@@ -41,7 +41,7 @@ class _FakeBackend(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         # Simple substring match with position-based scoring
         results = []
         for doc_id, (content, source, meta) in self._docs.items():

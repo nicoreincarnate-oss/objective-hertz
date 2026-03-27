@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any
 from unittest import mock
 
 from openjarvis.core.events import EventBus, EventType
@@ -15,7 +15,7 @@ from openjarvis.telemetry.wrapper import instrumented_generate
 class _StubEngine(InferenceEngine):
     engine_id = "stub"
 
-    def __init__(self, response: Dict[str, Any] | None = None) -> None:
+    def __init__(self, response: dict[str, Any] | None = None) -> None:
         self._response = response or {
             "content": "Hello",
             "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
@@ -23,7 +23,7 @@ class _StubEngine(InferenceEngine):
 
     def generate(
         self, messages: Sequence[Message], *, model: str, **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return self._response
 
     async def stream(
@@ -31,7 +31,7 @@ class _StubEngine(InferenceEngine):
     ) -> AsyncIterator[str]:
         yield "Hello"
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         return ["stub-model"]
 
     def health(self) -> bool:

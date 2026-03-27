@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
@@ -60,9 +60,9 @@ class _OpenAICompatibleEngine(InferenceEngine):
         temperature: float = 0.7,
         max_tokens: int = 1024,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": msg_dicts,
             "temperature": temperature,
@@ -94,7 +94,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
             }
         choice = choices[0]
         usage = data.get("usage", {})
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "content": choice["message"].get("content") or "",
             "usage": {
                 "prompt_tokens": usage.get("prompt_tokens", 0),
@@ -127,7 +127,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         msg_dicts = self._fix_tool_call_arguments(messages_to_dicts(messages))
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": msg_dicts,
             "temperature": temperature,
@@ -158,7 +158,7 @@ class _OpenAICompatibleEngine(InferenceEngine):
                 f"{self.engine_id} engine not reachable at {self._host}"
             ) from exc
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         try:
             resp = self._client.get(f"{self._api_prefix}/models")
             resp.raise_for_status()

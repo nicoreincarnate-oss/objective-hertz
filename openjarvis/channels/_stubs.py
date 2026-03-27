@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 
 class ChannelStatus(str, Enum):
@@ -27,11 +28,11 @@ class ChannelMessage:
     message_id: str = ""
     conversation_id: str = ""
     session_id: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # Type for message handler callbacks
-ChannelHandler = Callable[[ChannelMessage], Optional[str]]
+ChannelHandler = Callable[[ChannelMessage], str | None]
 
 
 class BaseChannel(ABC):
@@ -58,7 +59,7 @@ class BaseChannel(ABC):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a specific channel. Returns True on success."""
 
@@ -67,7 +68,7 @@ class BaseChannel(ABC):
         """Return the current connection status."""
 
     @abstractmethod
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return list of available channel names."""
 
     @abstractmethod

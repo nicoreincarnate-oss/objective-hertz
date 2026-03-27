@@ -342,12 +342,12 @@ async def pull_model(request: Request):
         )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
-        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}") from exc
     except _httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
-        )
+        ) from exc
     finally:
         client.close()
 
@@ -374,12 +374,12 @@ async def delete_model(model_name: str, request: Request):
         )
         resp.raise_for_status()
     except (_httpx.ConnectError, _httpx.TimeoutException) as exc:
-        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"Ollama unreachable: {exc}") from exc
     except _httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=exc.response.status_code,
             detail=f"Ollama error: {exc.response.text[:300]}",
-        )
+        ) from exc
     finally:
         client.close()
 

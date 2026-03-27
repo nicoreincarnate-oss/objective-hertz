@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def main() -> None:
@@ -53,7 +53,7 @@ def main() -> None:
         print("Error: --topics must contain at least one topic.", file=sys.stderr)
         sys.exit(1)
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
 
     try:
         from openjarvis import Jarvis

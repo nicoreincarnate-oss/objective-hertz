@@ -6,7 +6,7 @@ Agentic benchmark for terminal / command-line tasks.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -31,14 +31,14 @@ class TerminalBenchDataset(DatasetProvider):
     _default_split = "test"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         if not _HAS_DATASETS:
             raise ImportError(
@@ -78,7 +78,7 @@ class TerminalBenchDataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         # Try multiple field name variants for question
         question = str(
             raw.get("prompt")

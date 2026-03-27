@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Set, Tuple
 
 from openjarvis.workflow.types import WorkflowEdge, WorkflowNode
 
@@ -17,10 +16,10 @@ class WorkflowGraph:
 
     def __init__(self, name: str = "") -> None:
         self.name = name
-        self._nodes: Dict[str, WorkflowNode] = {}
-        self._edges: List[WorkflowEdge] = []
-        self._adjacency: Dict[str, List[str]] = defaultdict(list)
-        self._reverse: Dict[str, List[str]] = defaultdict(list)
+        self._nodes: dict[str, WorkflowNode] = {}
+        self._edges: list[WorkflowEdge] = []
+        self._adjacency: dict[str, list[str]] = defaultdict(list)
+        self._reverse: dict[str, list[str]] = defaultdict(list)
 
     def add_node(self, node: WorkflowNode) -> None:
         if node.id in self._nodes:
@@ -36,22 +35,22 @@ class WorkflowGraph:
         self._adjacency[edge.source].append(edge.target)
         self._reverse[edge.target].append(edge.source)
 
-    def get_node(self, node_id: str) -> Optional[WorkflowNode]:
+    def get_node(self, node_id: str) -> WorkflowNode | None:
         return self._nodes.get(node_id)
 
     @property
-    def nodes(self) -> List[WorkflowNode]:
+    def nodes(self) -> list[WorkflowNode]:
         return list(self._nodes.values())
 
     @property
-    def edges(self) -> List[WorkflowEdge]:
+    def edges(self) -> list[WorkflowEdge]:
         return list(self._edges)
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """Validate the graph: check for cycles and orphan nodes."""
         # Check for cycles using DFS
-        visited: Set[str] = set()
-        in_stack: Set[str] = set()
+        visited: set[str] = set()
+        in_stack: set[str] = set()
 
         def _dfs(node_id: str) -> bool:
             visited.add(node_id)
@@ -71,14 +70,14 @@ class WorkflowGraph:
 
         return True, ""
 
-    def topological_sort(self) -> List[str]:
+    def topological_sort(self) -> list[str]:
         """Return node IDs in topological order (Kahn's algorithm)."""
-        in_degree: Dict[str, int] = {nid: 0 for nid in self._nodes}
+        in_degree: dict[str, int] = {nid: 0 for nid in self._nodes}
         for edge in self._edges:
             in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
 
         queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
-        order: List[str] = []
+        order: list[str] = []
 
         while queue:
             node_id = queue.popleft()
@@ -92,22 +91,22 @@ class WorkflowGraph:
             raise ValueError("Graph contains a cycle; topological sort is impossible")
         return order
 
-    def execution_stages(self) -> List[List[str]]:
+    def execution_stages(self) -> list[list[str]]:
         """Group nodes into parallel execution stages.
 
         Nodes in the same stage have no dependencies on each other and
         can be executed concurrently.
         """
-        in_degree: Dict[str, int] = {nid: 0 for nid in self._nodes}
+        in_degree: dict[str, int] = {nid: 0 for nid in self._nodes}
         for edge in self._edges:
             in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
 
-        stages: List[List[str]] = []
+        stages: list[list[str]] = []
         ready = [nid for nid, deg in in_degree.items() if deg == 0]
 
         while ready:
             stages.append(sorted(ready))
-            next_ready: List[str] = []
+            next_ready: list[str] = []
             for node_id in ready:
                 for neighbor in self._adjacency.get(node_id, []):
                     in_degree[neighbor] -= 1
@@ -117,10 +116,10 @@ class WorkflowGraph:
 
         return stages
 
-    def predecessors(self, node_id: str) -> List[str]:
+    def predecessors(self, node_id: str) -> list[str]:
         return self._reverse.get(node_id, [])
 
-    def successors(self, node_id: str) -> List[str]:
+    def successors(self, node_id: str) -> list[str]:
         return self._adjacency.get(node_id, [])
 
 

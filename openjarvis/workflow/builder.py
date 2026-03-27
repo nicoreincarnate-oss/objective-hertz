@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.workflow.graph import WorkflowGraph
 from openjarvis.workflow.types import NodeType, WorkflowEdge, WorkflowNode
@@ -21,16 +21,16 @@ class WorkflowBuilder:
 
     def __init__(self, name: str = "") -> None:
         self._name = name
-        self._nodes: List[WorkflowNode] = []
-        self._edges: List[WorkflowEdge] = []
+        self._nodes: list[WorkflowNode] = []
+        self._edges: list[WorkflowEdge] = []
 
     def add_agent(
         self,
         node_id: str,
         *,
         agent: str = "simple",
-        tools: Optional[List[str]] = None,
-        config: Optional[Dict[str, Any]] = None,
+        tools: list[str] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> WorkflowBuilder:
         self._nodes.append(WorkflowNode(
             id=node_id,

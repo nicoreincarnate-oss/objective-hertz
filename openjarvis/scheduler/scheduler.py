@@ -6,8 +6,8 @@ import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from openjarvis.scheduler.store import SchedulerStore
 
@@ -28,13 +28,13 @@ class ScheduledTask:
     schedule_value: str  # cron expression, interval seconds, ISO datetime
     context_mode: str = "isolated"
     status: str = "active"
-    next_run: Optional[str] = None
-    last_run: Optional[str] = None
+    next_run: str | None = None
+    last_run: str | None = None
     agent: str = "simple"
     tools: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for store persistence."""
         return {
             "id": self.id,
@@ -51,7 +51,7 @@ class ScheduledTask:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> ScheduledTask:
+    def from_dict(cls, d: dict[str, Any]) -> ScheduledTask:
         """Deserialize from a plain dict."""
         return cls(
             id=d["id"],
@@ -70,7 +70,7 @@ class ScheduledTask:
 
 def _now_iso() -> str:
     """Return current UTC time as ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class TaskScheduler:
@@ -101,7 +101,7 @@ class TaskScheduler:
         self._poll_interval = poll_interval
         self._bus = bus
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
     # -- Public API ----------------------------------------------------------
@@ -148,7 +148,7 @@ class TaskScheduler:
             self._store.save_task(task.to_dict())
         return task
 
-    def list_tasks(self, *, status: Optional[str] = None) -> List[ScheduledTask]:
+    def list_tasks(self, *, status: str | None = None) -> list[ScheduledTask]:
         """Return tasks, optionally filtered by *status*."""
         with self._lock:
             rows = self._store.list_tasks(status=status)
@@ -223,7 +223,7 @@ class TaskScheduler:
                     if task.tools
                     else []
                 )
-                ask_kwargs: Dict[str, Any] = {
+                ask_kwargs: dict[str, Any] = {
                     "agent": task.agent,
                     "tools": tools_list if tools_list else None,
                 }
@@ -277,12 +277,12 @@ class TaskScheduler:
                 },
             )
 
-    def _compute_next_run(self, task: ScheduledTask) -> Optional[str]:
+    def _compute_next_run(self, task: ScheduledTask) -> str | None:
         """Compute the next run time for a task.
 
         Returns an ISO 8601 string, or ``None`` if the task should not run again.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if task.schedule_type == "once":
             # If already run, no more runs
@@ -304,7 +304,7 @@ class TaskScheduler:
     @staticmethod
     def _compute_next_cron(
         cron_expr: str, now: datetime
-    ) -> Optional[str]:
+    ) -> str | None:
         """Compute the next run time from a cron expression.
 
         Uses ``croniter`` if available, otherwise falls back to a basic

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -50,7 +50,7 @@ class RedditChannel(BaseChannel):
         username: str = "",
         password: str = "",
         user_agent: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._client_id = client_id or os.environ.get("REDDIT_CLIENT_ID", "")
         self._client_secret = client_secret or os.environ.get(
@@ -62,7 +62,7 @@ class RedditChannel(BaseChannel):
             "REDDIT_USER_AGENT", "openjarvis:v1.0"
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
         self._reddit: Any = None
 
@@ -76,11 +76,11 @@ class RedditChannel(BaseChannel):
             return
         try:
             import praw  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "praw not installed. Install with: "
                 "uv sync --extra channel-reddit"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -96,7 +96,7 @@ class RedditChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message or comment on Reddit.
 
@@ -146,7 +146,7 @@ class RedditChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["reddit"]
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -16,7 +16,7 @@ class KGAddEntityTool(BaseTool):
 
     tool_id = "kg_add_entity"
 
-    def __init__(self, backend: Optional[Any] = None) -> None:
+    def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
 
     @property
@@ -87,7 +87,7 @@ class KGAddRelationTool(BaseTool):
 
     tool_id = "kg_add_relation"
 
-    def __init__(self, backend: Optional[Any] = None) -> None:
+    def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
 
     @property
@@ -159,7 +159,7 @@ class KGQueryTool(BaseTool):
 
     tool_id = "kg_query"
 
-    def __init__(self, backend: Optional[Any] = None) -> None:
+    def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
 
     @property
@@ -237,7 +237,7 @@ class KGNeighborsTool(BaseTool):
 
     tool_id = "kg_neighbors"
 
-    def __init__(self, backend: Optional[Any] = None) -> None:
+    def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
 
     @property

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 from openjarvis.learning.optimize.types import ObjectiveSpec
 
@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
 
-def load_optimize_config(path: Union[str, Path]) -> Dict[str, Any]:
+def load_optimize_config(path: str | Path) -> dict[str, Any]:
     """Load an optimization config TOML file.
 
     Returns the raw dict with keys such as ``optimize.max_trials``,
@@ -28,12 +28,12 @@ def load_optimize_config(path: Union[str, Path]) -> Dict[str, Any]:
         raise FileNotFoundError(f"Optimization config not found: {path}")
 
     with open(path, "rb") as fh:
-        data: Dict[str, Any] = tomllib.load(fh)
+        data: dict[str, Any] = tomllib.load(fh)
 
     return data
 
 
-def load_objectives(data: Dict[str, Any]) -> List[ObjectiveSpec]:
+def load_objectives(data: dict[str, Any]) -> list[ObjectiveSpec]:
     """Extract objectives from a loaded optimization config.
 
     Reads ``optimize.objectives`` (a list of tables) and returns
@@ -47,7 +47,7 @@ def load_objectives(data: Dict[str, Any]) -> List[ObjectiveSpec]:
     if not raw_objectives:
         return list(DEFAULT_OBJECTIVES)
 
-    result: List[ObjectiveSpec] = []
+    result: list[ObjectiveSpec] = []
     for obj in raw_objectives:
         result.append(
             ObjectiveSpec(
@@ -59,7 +59,7 @@ def load_objectives(data: Dict[str, Any]) -> List[ObjectiveSpec]:
     return result
 
 
-def load_benchmark_specs(data: Dict[str, Any]) -> List[Any]:
+def load_benchmark_specs(data: dict[str, Any]) -> list[Any]:
     """Extract benchmark specs from a loaded optimization config.
 
     Supports two formats:
@@ -79,7 +79,7 @@ def load_benchmark_specs(data: Dict[str, Any]) -> List[Any]:
     if raw_benchmarks and isinstance(raw_benchmarks, list):
         # Check if it's a list of dicts (table array) vs list of strings
         if raw_benchmarks and isinstance(raw_benchmarks[0], dict):
-            specs: List[BenchmarkSpec] = []
+            specs: list[BenchmarkSpec] = []
             for entry in raw_benchmarks:
                 specs.append(
                     BenchmarkSpec(

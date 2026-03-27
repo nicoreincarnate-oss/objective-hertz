@@ -12,8 +12,8 @@ import json
 import logging
 import sqlite3
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -51,11 +51,11 @@ class ReviewItem:
     action_type: str
     agent: str
     content: str
-    context: Dict[str, Any]
+    context: dict[str, Any]
     status: str
     reviewer_notes: str
     created_at: float
-    reviewed_at: Optional[float] = None
+    reviewed_at: float | None = None
 
 
 class ReviewGate:
@@ -80,7 +80,7 @@ class ReviewGate:
     def __init__(
         self,
         db_path: str,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._db_path = db_path
         self._bus = bus
@@ -115,7 +115,7 @@ class ReviewGate:
         action_type: str,
         content: str,
         agent: str = "",
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> int:
         """Submit an action for human review. Returns review item ID."""
         now = time.time()
@@ -195,7 +195,7 @@ class ReviewGate:
         self._conn.commit()
         return result.rowcount > 0
 
-    def get_pending(self, action_type: str = "") -> List[ReviewItem]:
+    def get_pending(self, action_type: str = "") -> list[ReviewItem]:
         """Get all pending review items, optionally filtered by action type."""
         if action_type:
             rows = self._conn.execute(
@@ -222,7 +222,7 @@ class ReviewGate:
             for r in rows
         ]
 
-    def status(self) -> List[Dict[str, Any]]:
+    def status(self) -> list[dict[str, Any]]:
         """Get status of all configured action types."""
         rows = self._conn.execute(
             "SELECT * FROM review_gate_config ORDER BY action_type",

@@ -6,7 +6,7 @@ Adapted from IPW's reasoning benchmark loaders.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -28,14 +28,14 @@ class HLEDataset(DatasetProvider):
 
     def __init__(self, *, text_only: bool = True) -> None:
         self._text_only = text_only
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -77,7 +77,7 @@ class HLEDataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         # Skip multimodal rows when text_only is enabled
         if self._text_only and self._is_multimodal(raw):
             return None

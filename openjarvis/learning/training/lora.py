@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 
-def _select_device(hint: Optional[str] = None) -> str:
+def _select_device(hint: str | None = None) -> str:
     """Select the best available PyTorch device.
 
     Priority: explicit *hint* > cuda > mps > cpu.
@@ -78,7 +78,7 @@ class LoRATrainingConfig:
     lora_rank: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    target_modules: List[str] = field(
+    target_modules: list[str] = field(
         default_factory=lambda: ["q_proj", "v_proj"]
     )
 
@@ -140,7 +140,7 @@ class LoRATrainer:
         config: LoRATrainingConfig,
         *,
         model_name: str = "Qwen/Qwen3-0.6B",
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         if not HAS_TORCH:
             raise ImportError(
@@ -157,8 +157,8 @@ class LoRATrainer:
     # -- Public API ----------------------------------------------------------
 
     def prepare_dataset(
-        self, pairs: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, pairs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Convert SFT pairs to tokenized examples.
 
         Each returned dict contains ``input_ids``, ``attention_mask``,
@@ -172,7 +172,7 @@ class LoRATrainer:
         """
         self._ensure_tokenizer()
 
-        dataset: List[Dict[str, Any]] = []
+        dataset: list[dict[str, Any]] = []
         for pair in pairs:
             text = self._format_pair(pair)
             encoding = self.tokenizer(
@@ -190,7 +190,7 @@ class LoRATrainer:
 
         return dataset
 
-    def train(self, pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def train(self, pairs: list[dict[str, Any]]) -> dict[str, Any]:
         """Run LoRA fine-tuning on the given SFT pairs.
 
         Parameters
@@ -286,7 +286,7 @@ class LoRATrainer:
 
         self._ensure_tokenizer()
 
-        model_kwargs: Dict[str, Any] = {"torch_dtype": torch.bfloat16}
+        model_kwargs: dict[str, Any] = {"torch_dtype": torch.bfloat16}
 
         if self.config.use_4bit:
             try:
@@ -343,7 +343,7 @@ class LoRATrainer:
             self.config.target_modules,
         )
 
-    def _format_pair(self, pair: Dict[str, Any]) -> str:
+    def _format_pair(self, pair: dict[str, Any]) -> str:
         """Format an SFT pair as a chat-style training string."""
         user_input = pair.get("input", "")
         assistant_output = pair.get("output", "")
@@ -369,7 +369,7 @@ class LoRATrainer:
 
     def _train_epoch(
         self,
-        dataset: List[Dict[str, Any]],
+        dataset: list[dict[str, Any]],
         optimizer: Any,
     ) -> float:
         """Train one epoch over the dataset.  Returns average loss."""
@@ -386,7 +386,7 @@ class LoRATrainer:
 
     def _train_step(
         self,
-        batch_items: List[Dict[str, Any]],
+        batch_items: list[dict[str, Any]],
         optimizer: Any,
     ) -> float:
         """Execute a single training step on a micro-batch."""

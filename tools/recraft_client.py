@@ -46,6 +46,14 @@ def _headers() -> dict[str, str]:
     }
 
 
+def _check_recraft_available() -> dict[str, Any] | None:
+    """Return error payload if Recraft is unavailable, else None."""
+    status = get_recraft_status()
+    if not status.get("available"):
+        return status
+    return None
+
+
 async def generate_image(
     prompt: str,
     *,
@@ -66,9 +74,9 @@ async def generate_image(
     Returns:
         {"url": "...", "prompt": "...", "style": "..."} or error dict
     """
-    status = get_recraft_status()
-    if not status.get("available"):
-        return status
+    unavailable = _check_recraft_available()
+    if unavailable:
+        return unavailable
 
     body = {
         "prompt": prompt,
@@ -165,9 +173,9 @@ async def generate_social_graphic(
 
 async def remove_background(image_url: str, timeout: float = 30.0) -> dict[str, Any]:
     """Remove background from an image. $0.01 per use."""
-    status = get_recraft_status()
-    if not status.get("available"):
-        return status
+    unavailable = _check_recraft_available()
+    if unavailable:
+        return unavailable
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

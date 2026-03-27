@@ -11,7 +11,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.types import Trace
 from openjarvis.evals.core.backend import InferenceBackend
@@ -39,7 +39,7 @@ class LLMOptimizer:
         self,
         search_space: SearchSpace,
         optimizer_model: str = "claude-sonnet-4-6",
-        optimizer_backend: Optional[InferenceBackend] = None,
+        optimizer_backend: InferenceBackend | None = None,
     ) -> None:
         self.search_space = search_space
         self.optimizer_model = optimizer_model
@@ -68,9 +68,9 @@ class LLMOptimizer:
 
     def propose_next(
         self,
-        history: List[TrialResult],
-        traces: Optional[List[Trace]] = None,
-        frontier_ids: Optional[set] = None,
+        history: list[TrialResult],
+        traces: list[Trace] | None = None,
+        frontier_ids: set | None = None,
     ) -> TrialConfig:
         """Ask the LLM to propose the next config to evaluate."""
         if self.optimizer_backend is None:
@@ -92,9 +92,9 @@ class LLMOptimizer:
         self,
         trial: TrialConfig,
         summary: RunSummary,
-        traces: Optional[List[Trace]] = None,
-        sample_scores: Optional[List[SampleScore]] = None,
-        per_benchmark: Optional[List[BenchmarkScore]] = None,
+        traces: list[Trace] | None = None,
+        sample_scores: list[SampleScore] | None = None,
+        per_benchmark: list[BenchmarkScore] | None = None,
     ) -> TrialFeedback:
         """Ask the LLM to analyze a completed trial. Returns structured feedback."""
         if self.optimizer_backend is None:
@@ -120,7 +120,7 @@ class LLMOptimizer:
 
     def _build_initial_prompt(self) -> str:
         """Construct the prompt for the initial config proposal."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(
             "You are optimizing an OpenJarvis AI system configuration."
         )
@@ -153,12 +153,12 @@ class LLMOptimizer:
 
     def _build_propose_prompt(
         self,
-        history: List[TrialResult],
-        traces: Optional[List[Trace]] = None,
-        frontier_ids: Optional[set] = None,
+        history: list[TrialResult],
+        traces: list[Trace] | None = None,
+        frontier_ids: set | None = None,
     ) -> str:
         """Construct the full prompt for propose_next."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(
             "You are optimizing an OpenJarvis AI system configuration."
         )
@@ -205,12 +205,12 @@ class LLMOptimizer:
         self,
         trial: TrialConfig,
         summary: RunSummary,
-        traces: Optional[List[Trace]] = None,
-        sample_scores: Optional[List[SampleScore]] = None,
-        per_benchmark: Optional[List[BenchmarkScore]] = None,
+        traces: list[Trace] | None = None,
+        sample_scores: list[SampleScore] | None = None,
+        per_benchmark: list[BenchmarkScore] | None = None,
     ) -> str:
         """Construct the prompt for analyze_trial."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("Analyze this OpenJarvis evaluation result.")
         lines.append("")
 
@@ -287,11 +287,11 @@ class LLMOptimizer:
 
     def _format_history(
         self,
-        history: List[TrialResult],
-        frontier_ids: Optional[set] = None,
+        history: list[TrialResult],
+        frontier_ids: set | None = None,
     ) -> str:
         """Render trial history as structured text for the LLM prompt."""
-        lines: List[str] = []
+        lines: list[str] = []
         for i, result in enumerate(history, 1):
             tag = ""
             if frontier_ids and result.trial_id in frontier_ids:
@@ -340,7 +340,7 @@ class LLMOptimizer:
             lines.append("")
         return "\n".join(lines)
 
-    def _format_traces(self, traces: List[Trace]) -> str:
+    def _format_traces(self, traces: list[Trace]) -> str:
         """Render traces as structured text for the LLM prompt.
 
         Limits to the last 10 traces and truncates long outputs to keep
@@ -351,7 +351,7 @@ class LLMOptimizer:
         max_steps_per_trace = 10
 
         recent = traces[-max_traces:]
-        lines: List[str] = []
+        lines: list[str] = []
 
         for trace in recent:
             lines.append(
@@ -401,10 +401,10 @@ class LLMOptimizer:
 
     def propose_targeted(
         self,
-        history: List[TrialResult],
+        history: list[TrialResult],
         base_config: TrialConfig,
         target_primitive: str,
-        frontier_ids: Optional[set] = None,
+        frontier_ids: set | None = None,
     ) -> TrialConfig:
         """Propose a config that only changes one primitive."""
         if self.optimizer_backend is None:
@@ -436,9 +436,9 @@ class LLMOptimizer:
 
     def propose_merge(
         self,
-        candidates: List[TrialResult],
-        history: List[TrialResult],
-        frontier_ids: Optional[set] = None,
+        candidates: list[TrialResult],
+        history: list[TrialResult],
+        frontier_ids: set | None = None,
     ) -> TrialConfig:
         """Combine best aspects of frontier members into one config."""
         if self.optimizer_backend is None:
@@ -462,13 +462,13 @@ class LLMOptimizer:
 
     def _build_targeted_prompt(
         self,
-        history: List[TrialResult],
+        history: list[TrialResult],
         base_config: TrialConfig,
         target_primitive: str,
-        frontier_ids: Optional[set] = None,
+        frontier_ids: set | None = None,
     ) -> str:
         """Build prompt for primitive-targeted mutation."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(
             "You are optimizing an OpenJarvis AI system configuration."
         )
@@ -502,12 +502,12 @@ class LLMOptimizer:
 
     def _build_merge_prompt(
         self,
-        candidates: List[TrialResult],
-        history: List[TrialResult],
-        frontier_ids: Optional[set] = None,
+        candidates: list[TrialResult],
+        history: list[TrialResult],
+        frontier_ids: set | None = None,
     ) -> str:
         """Build prompt for merging frontier configs."""
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(
             "You are optimizing an OpenJarvis AI system configuration."
         )
@@ -546,13 +546,13 @@ class LLMOptimizer:
     # Sample score + feedback helpers
     # ------------------------------------------------------------------
 
-    def _format_sample_scores(self, scores: List[SampleScore]) -> str:
+    def _format_sample_scores(self, scores: list[SampleScore]) -> str:
         """Render per-sample scores for the LLM prompt."""
         passed = [s for s in scores if s.is_correct]
         failed = [s for s in scores if s.is_correct is False]
         errored = [s for s in scores if s.error]
 
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append(
             f"Total: {len(scores)} | Passed: {len(passed)} | "
             f"Failed: {len(failed)} | Errors: {len(errored)}"
@@ -674,7 +674,7 @@ class LLMOptimizer:
         )
 
     def _config_from_dict(
-        self, data: Dict[str, Any], trial_id: str
+        self, data: dict[str, Any], trial_id: str
     ) -> TrialConfig:
         """Build a TrialConfig from a parsed JSON dict.
 

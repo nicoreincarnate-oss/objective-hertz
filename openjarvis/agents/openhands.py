@@ -7,7 +7,7 @@ For the native CodeAct-style agent, see :mod:`openjarvis.agents.native_openhands
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus
@@ -31,11 +31,11 @@ class OpenHandsAgent(BaseAgent):
         engine: InferenceEngine,
         model: str,
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
-        workspace: Optional[str] = None,
-        api_key: Optional[str] = None,
+        workspace: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         super().__init__(
             engine, model, bus=bus,
@@ -47,7 +47,7 @@ class OpenHandsAgent(BaseAgent):
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         try:

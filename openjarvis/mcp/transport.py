@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from openjarvis.mcp.protocol import MCPRequest, MCPResponse
 
@@ -50,9 +50,16 @@ class StdioTransport(MCPTransport):
     stdin/stdout.
     """
 
-    def __init__(self, command: List[str]) -> None:
-        self._command = command
-        self._process: Optional[subprocess.Popen[str]] = None
+    def __init__(
+        self,
+        command: str | list[str],
+        args: list[str] | None = None,
+    ) -> None:
+        if isinstance(command, str):
+            self._command = [command] + (args or [])
+        else:
+            self._command = command + (args or [])
+        self._process: subprocess.Popen[str] | None = None
         self._start()
 
     def _start(self) -> None:

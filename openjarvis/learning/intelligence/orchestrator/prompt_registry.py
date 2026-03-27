@@ -7,7 +7,7 @@ prompt template and tool descriptions used by the structured-mode
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openjarvis.tools._stubs import BaseTool
@@ -52,7 +52,7 @@ NOW SOLVE THE TASK. You MUST use at least one tool - choose the best one for the
 # Tool descriptions for OpenJarvis built-in tools
 # ---------------------------------------------------------------------------
 
-TOOL_DESCRIPTIONS: Dict[str, dict] = {
+TOOL_DESCRIPTIONS: dict[str, dict] = {
     # Utility tools (instant, free, deterministic)
     "calculator": {
         "category": "utility",
@@ -208,7 +208,7 @@ TOOL_DESCRIPTIONS: Dict[str, dict] = {
 
 
 # Category labels for tool selection guide auto-generation
-_CAT_LABELS: Dict[str, str] = {
+_CAT_LABELS: dict[str, str] = {
     "math": "MATH PROBLEMS",
     "utility": "UTILITY / CODING TASKS",
     "memory": "GENERAL Q&A / FACTUAL",
@@ -217,9 +217,9 @@ _CAT_LABELS: Dict[str, str] = {
 
 
 def build_system_prompt(
-    tool_names: Optional[List[str]] = None,
+    tool_names: list[str] | None = None,
     *,
-    tools: Optional[List["BaseTool"]] = None,
+    tools: list[BaseTool] | None = None,
 ) -> str:
     """Build the complete system prompt for the given tools.
 
@@ -243,7 +243,7 @@ def build_system_prompt(
         desc_text = build_tool_descriptions(tools, include_cost=True)
 
         # Auto-generate tool selection guide by grouping tools by category
-        by_cat: Dict[str, List[str]] = {}
+        by_cat: dict[str, list[str]] = {}
         for t in tools:
             cat = t.spec.category or "llm"
             by_cat.setdefault(cat, []).append(t.spec.name)
@@ -275,7 +275,7 @@ def build_system_prompt(
         desc_lines.append(f"- {name}: {desc}")
 
     # Group tools by category
-    by_cat_names: Dict[str, List[str]] = {}
+    by_cat_names: dict[str, list[str]] = {}
     for name in tool_names:
         cat = (
             TOOL_DESCRIPTIONS[name]["category"]

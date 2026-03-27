@@ -12,7 +12,8 @@ Difficulty tiers:
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -28,7 +29,7 @@ Provide a clear, factual answer with specific numbers, names, or details where a
 # EASY tasks (10): single factual lookup
 # ---------------------------------------------------------------------------
 
-_EASY_TASKS: List[Dict[str, Any]] = [
+_EASY_TASKS: list[dict[str, Any]] = [
     {
         "question": "What is the maximum context length of Llama 3.1 405B?",
         "expected_facts": [
@@ -96,7 +97,7 @@ _EASY_TASKS: List[Dict[str, Any]] = [
 # MEDIUM tasks (10): comparison or multi-fact research
 # ---------------------------------------------------------------------------
 
-_MEDIUM_TASKS: List[Dict[str, Any]] = [
+_MEDIUM_TASKS: list[dict[str, Any]] = [
     {
         "question": "Compare the context window sizes of Claude 3.5 Sonnet, GPT-4 Turbo, and Gemini 1.5 Pro.",
         "expected_facts": [
@@ -182,7 +183,7 @@ _MEDIUM_TASKS: List[Dict[str, Any]] = [
 # HARD tasks (10): complex synthesis
 # ---------------------------------------------------------------------------
 
-_HARD_TASKS: List[Dict[str, Any]] = [
+_HARD_TASKS: list[dict[str, Any]] = [
     {
         "question": "What is the current state of the art for code generation benchmarks (HumanEval, MBPP)? Which models lead and what are their scores?",
         "expected_facts": [
@@ -279,9 +280,9 @@ class BrowserAssistantDataset(DatasetProvider):
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
+        max_samples: int | None = None,
         split: str = "test",
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> None:
         all_tasks = _EASY_TASKS + _MEDIUM_TASKS + _HARD_TASKS
         difficulties = (
@@ -290,7 +291,7 @@ class BrowserAssistantDataset(DatasetProvider):
             + ["hard"] * len(_HARD_TASKS)
         )
 
-        paired = list(zip(all_tasks, difficulties))
+        paired = list(zip(all_tasks, difficulties, strict=False))
         if seed is not None:
             rng = random.Random(seed)
             rng.shuffle(paired)
@@ -298,7 +299,7 @@ class BrowserAssistantDataset(DatasetProvider):
         if max_samples is not None:
             paired = paired[:max_samples]
 
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
         for idx, (task, diff) in enumerate(paired):
             prompt = _PROMPT_TEMPLATE.format(
                 question=task["question"],

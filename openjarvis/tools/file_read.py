@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -21,7 +21,7 @@ class FileReadTool(BaseTool):
 
     def __init__(
         self,
-        allowed_dirs: Optional[List[str]] = None,
+        allowed_dirs: list[str] | None = None,
     ) -> None:
         self._allowed_dirs = [Path(d).resolve() for d in (allowed_dirs or [])]
 
@@ -116,14 +116,24 @@ class FileReadTool(BaseTool):
             )
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        try:
-            text = _rust.FileReadTool().execute(str(path))
-        except Exception as exc:
-            return ToolResult(
-                tool_name="file_read",
-                content=f"Read error: {exc}",
-                success=False,
-            )
+        if _rust is None:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return ToolResult(
+                    tool_name="file_read",
+                    content=f"Read error: {exc}",
+                    success=False,
+                )
+        else:
+            try:
+                text = _rust.FileReadTool().execute(str(path))
+            except Exception as exc:
+                return ToolResult(
+                    tool_name="file_read",
+                    content=f"Read error: {exc}",
+                    success=False,
+                )
         max_lines = params.get("max_lines")
         if max_lines is not None and max_lines > 0:
             lines = text.splitlines(keepends=True)

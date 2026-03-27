@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from collections.abc import MutableMapping
 from pathlib import Path
 from types import TracebackType
-from typing import Any, MutableMapping, Optional, Type
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,9 +71,9 @@ class TerminalBenchTaskEnv:
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         self._metadata.pop("terminal", None)
         self._metadata.pop("session", None)
