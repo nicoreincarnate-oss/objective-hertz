@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import tomllib
@@ -20,7 +22,7 @@ class AgentTemplate:
     description: str = ""
     system_prompt: str = ""
     agent_type: str = "simple"
-    tools: List[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     max_turns: int = 10
     temperature: float = 0.7
 
@@ -51,10 +53,10 @@ def load_template(path: str | Path) -> AgentTemplate:
     with open(path, "rb") as fh:
         data = tomllib.load(fh)
 
-    template_data: Dict = data.get("template", {})
-    agent_data: Dict = data.get("agent", {})
+    template_data: dict = data.get("template", {})
+    agent_data: dict = data.get("agent", {})
 
-    return AgentTemplate(
+    template = AgentTemplate(
         name=template_data.get("name", path.stem),
         description=template_data.get("description", ""),
         system_prompt=agent_data.get("system_prompt", ""),
@@ -63,6 +65,19 @@ def load_template(path: str | Path) -> AgentTemplate:
         max_turns=agent_data.get("max_turns", 10),
         temperature=agent_data.get("temperature", 0.7),
     )
+
+    # Validate agent_type against registry
+    try:
+        from openjarvis.core.registry import AgentRegistry
+        if not AgentRegistry.contains(template.agent_type):
+            logger.warning(
+                "Template '%s' references unknown agent type '%s'",
+                template.name, template.agent_type,
+            )
+    except ImportError:
+        pass
+
+    return template
 
 
 def _builtin_templates_dir() -> Path:
@@ -76,8 +91,8 @@ def _user_templates_dir() -> Path:
 
 
 def discover_templates(
-    extra_dirs: Optional[List[str | Path]] = None,
-) -> List[AgentTemplate]:
+    extra_dirs: list[str | Path] | None = None,
+) -> list[AgentTemplate]:
     """Discover and load all agent templates from known directories.
 
     Search order:
@@ -87,11 +102,11 @@ def discover_templates(
 
     Returns a list of :class:`AgentTemplate` instances sorted by name.
     """
-    dirs: List[Path] = [_builtin_templates_dir(), _user_templates_dir()]
+    dirs: list[Path] = [_builtin_templates_dir(), _user_templates_dir()]
     if extra_dirs:
         dirs.extend(Path(d) for d in extra_dirs)
 
-    seen: Dict[str, AgentTemplate] = {}
+    seen: dict[str, AgentTemplate] = {}
     for directory in dirs:
         if not directory.is_dir():
             continue

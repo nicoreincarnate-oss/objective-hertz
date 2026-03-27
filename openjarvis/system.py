@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.config import JarvisConfig, load_config
 from openjarvis.core.events import EventBus, get_event_bus
@@ -24,44 +24,44 @@ class JarvisSystem:
     engine: InferenceEngine
     engine_key: str
     model: str
-    agent: Optional[Any] = None  # BaseAgent
+    agent: Any | None = None  # BaseAgent
     agent_name: str = ""
-    tools: List[BaseTool] = field(default_factory=list)
-    tool_executor: Optional[ToolExecutor] = None
-    memory_backend: Optional[Any] = None  # MemoryBackend
-    channel_backend: Optional[Any] = None  # BaseChannel
-    router: Optional[Any] = None  # RouterPolicy
-    mcp_server: Optional[Any] = None  # MCPServer
-    telemetry_store: Optional[Any] = None
-    trace_store: Optional[Any] = None
-    trace_collector: Optional[Any] = None
-    gpu_monitor: Optional[Any] = None
-    scheduler_store: Optional[Any] = None  # SchedulerStore
-    scheduler: Optional[Any] = None  # TaskScheduler
-    container_runner: Optional[Any] = None  # ContainerRunner
-    workflow_engine: Optional[Any] = None  # WorkflowEngine
-    session_store: Optional[Any] = None  # SessionStore
-    capability_policy: Optional[Any] = None  # CapabilityPolicy
-    audit_logger: Optional[Any] = None  # AuditLogger
-    operator_manager: Optional[Any] = None  # OperatorManager
-    agent_manager: Optional[Any] = None  # AgentManager
-    agent_scheduler: Optional[Any] = None  # AgentScheduler
-    agent_executor: Optional[Any] = None  # AgentExecutor
-    speech_backend: Optional[Any] = None  # SpeechBackend
-    _learning_orchestrator: Optional[Any] = None  # LearningOrchestrator
+    tools: list[BaseTool] = field(default_factory=list)
+    tool_executor: ToolExecutor | None = None
+    memory_backend: Any | None = None  # MemoryBackend
+    channel_backend: Any | None = None  # BaseChannel
+    router: Any | None = None  # RouterPolicy
+    mcp_server: Any | None = None  # MCPServer
+    telemetry_store: Any | None = None
+    trace_store: Any | None = None
+    trace_collector: Any | None = None
+    gpu_monitor: Any | None = None
+    scheduler_store: Any | None = None  # SchedulerStore
+    scheduler: Any | None = None  # TaskScheduler
+    container_runner: Any | None = None  # ContainerRunner
+    workflow_engine: Any | None = None  # WorkflowEngine
+    session_store: Any | None = None  # SessionStore
+    capability_policy: Any | None = None  # CapabilityPolicy
+    audit_logger: Any | None = None  # AuditLogger
+    operator_manager: Any | None = None  # OperatorManager
+    agent_manager: Any | None = None  # AgentManager
+    agent_scheduler: Any | None = None  # AgentScheduler
+    agent_executor: Any | None = None  # AgentExecutor
+    speech_backend: Any | None = None  # SpeechBackend
+    _learning_orchestrator: Any | None = None  # LearningOrchestrator
 
     def ask(
         self,
         query: str,
         *,
         context: bool = True,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        agent: Optional[str] = None,
-        tools: Optional[List[str]] = None,
-        system_prompt: Optional[str] = None,
-        operator_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        agent: str | None = None,
+        tools: list[str] | None = None,
+        system_prompt: str | None = None,
+        operator_id: str | None = None,
+    ) -> dict[str, Any]:
         """Execute a query through the system and return a result dict."""
         if temperature is None:
             temperature = self.config.intelligence.temperature
@@ -112,7 +112,7 @@ class JarvisSystem:
     def _run_agent(
         self, query, messages, agent_name, tool_names, temperature, max_tokens,
         *, system_prompt=None, operator_id=None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run through an agent."""
         from openjarvis.agents._stubs import AgentContext
         from openjarvis.core.events import EventType
@@ -139,7 +139,7 @@ class JarvisSystem:
                 ctx.conversation.add(msg)
 
         # Instantiate agent with the same pattern as CLI
-        agent_kwargs: Dict[str, Any] = {
+        agent_kwargs: dict[str, Any] = {
             "bus": self.bus,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -165,7 +165,7 @@ class JarvisSystem:
                 ag = agent_cls()
 
         # Collect telemetry from all engine calls during agent run
-        telemetry_events: List[Dict[str, Any]] = []
+        telemetry_events: list[dict[str, Any]] = []
 
         def _on_inference_end(event: Any) -> None:
             telemetry_events.append(event.data if hasattr(event, "data") else event)
@@ -179,7 +179,7 @@ class JarvisSystem:
             self.bus.unsubscribe(EventType.INFERENCE_END, _on_inference_end)
 
         # Aggregate telemetry across all engine calls
-        _telemetry: Dict[str, Any] = {}
+        _telemetry: dict[str, Any] = {}
         if telemetry_events:
             total_energy = sum(e.get("energy_joules", 0.0) for e in telemetry_events)
             total_latency = sum(e.get("latency", 0.0) for e in telemetry_events)
@@ -248,11 +248,11 @@ class JarvisSystem:
             "_telemetry": _telemetry,
         }
 
-    def _build_tools(self, tool_names: List[str]) -> List[BaseTool]:
+    def _build_tools(self, tool_names: list[str]) -> list[BaseTool]:
         """Build tool instances from tool names."""
         from openjarvis.core.registry import ToolRegistry
 
-        tools: List[BaseTool] = []
+        tools: list[BaseTool] = []
         for name in tool_names:
             try:
                 if name == "retrieval" and self.memory_backend:
@@ -317,12 +317,12 @@ class JarvisSystem:
             try:
                 if _system.agent_name and _system.agent_name != "none":
                     result = _system.ask(
-                        cm.content, context=False,
+                        cm.content, context=ctx,
                         agent=_system.agent_name,
                     )
                     reply = result.get("content", "")
                 else:
-                    result = _system.ask(cm.content, context=False)
+                    result = _system.ask(cm.content, context=ctx)
                     reply = result.get("content", "")
             except Exception:
                 logger.exception("Channel message handler error")
@@ -383,9 +383,9 @@ class SystemBuilder:
 
     def __init__(
         self,
-        config: Optional[JarvisConfig] = None,
+        config: JarvisConfig | None = None,
         *,
-        config_path: Optional[Any] = None,
+        config_path: Any | None = None,
     ) -> None:
         if config is not None:
             self._config = config
@@ -396,18 +396,18 @@ class SystemBuilder:
         else:
             self._config = load_config()
 
-        self._engine_key: Optional[str] = None
-        self._model: Optional[str] = None
-        self._agent_name: Optional[str] = None
-        self._tool_names: Optional[List[str]] = None
-        self._telemetry: Optional[bool] = None
-        self._traces: Optional[bool] = None
-        self._bus: Optional[EventBus] = None
-        self._sandbox: Optional[bool] = None
-        self._scheduler: Optional[bool] = None
-        self._workflow: Optional[bool] = None
-        self._sessions: Optional[bool] = None
-        self._speech: Optional[bool] = None
+        self._engine_key: str | None = None
+        self._model: str | None = None
+        self._agent_name: str | None = None
+        self._tool_names: list[str] | None = None
+        self._telemetry: bool | None = None
+        self._traces: bool | None = None
+        self._bus: EventBus | None = None
+        self._sandbox: bool | None = None
+        self._scheduler: bool | None = None
+        self._workflow: bool | None = None
+        self._sessions: bool | None = None
+        self._speech: bool | None = None
 
     def engine(self, key: str) -> SystemBuilder:
         self._engine_key = key
@@ -421,7 +421,7 @@ class SystemBuilder:
         self._agent_name = name
         return self
 
-    def tools(self, names: List[str]) -> SystemBuilder:
+    def tools(self, names: list[str]) -> SystemBuilder:
         self._tool_names = names
         return self
 
@@ -703,7 +703,7 @@ class SystemBuilder:
             if not ChannelRegistry.contains(key):
                 return None
 
-            kwargs: Dict[str, Any] = {"bus": bus}
+            kwargs: dict[str, Any] = {"bus": bus}
             if key == "telegram":
                 tc = config.channel.telegram
                 if tc.bot_token:
@@ -1025,7 +1025,7 @@ class SystemBuilder:
             return None
 
     @staticmethod
-    def _discover_external_mcp(server_cfg) -> List[BaseTool]:
+    def _discover_external_mcp(server_cfg) -> list[BaseTool]:
         """Discover tools from an external MCP server configuration."""
         import json
 

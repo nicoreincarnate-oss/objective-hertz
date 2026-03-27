@@ -10,9 +10,12 @@ and carries a ``kind`` that determines its lifecycle:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 try:
     import tomllib
@@ -233,6 +236,36 @@ def load_recipe(path: str | Path) -> Recipe:
         required_capabilities=recipe_sec.get("required_capabilities", []),
         raw=data,
     )
+
+    _validate_recipe(recipe)
+    return recipe
+
+
+def _validate_recipe(recipe: Recipe) -> None:
+    """Emit warnings for unresolvable agent types or benchmark names."""
+    if recipe.agent_type:
+        try:
+            from openjarvis.core.registry import AgentRegistry
+            if not AgentRegistry.contains(recipe.agent_type):
+                logger.warning(
+                    "Recipe '%s' references unknown agent type '%s'",
+                    recipe.name, recipe.agent_type,
+                )
+        except ImportError:
+            pass
+
+    all_benchmarks = list(recipe.eval_benchmarks) + list(recipe.eval_suites)
+    if all_benchmarks:
+        try:
+            from openjarvis.evals.core.config import KNOWN_BENCHMARKS
+            for bname in all_benchmarks:
+                if bname not in KNOWN_BENCHMARKS:
+                    logger.warning(
+                        "Recipe '%s' references unknown benchmark '%s'",
+                        recipe.name, bname,
+                    )
+        except ImportError:
+            pass
 
 
 def _load_operator_as_recipe(path: Path, data: dict[str, Any]) -> Recipe:

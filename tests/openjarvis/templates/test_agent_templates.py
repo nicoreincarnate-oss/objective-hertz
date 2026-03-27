@@ -16,7 +16,7 @@ TEMPLATES_DIR = (
     Path(__file__).resolve().parents[2] / "src" / "openjarvis" / "templates" / "data"
 )
 
-VALID_AGENT_TYPES = {"simple", "orchestrator", "native_react", "monitor"}
+VALID_AGENT_TYPES = {"simple", "orchestrator", "native_react", "native_openhands", "monitor_operative"}
 
 
 def test_load_single_template() -> None:

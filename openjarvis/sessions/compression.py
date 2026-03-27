@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import replace
-from typing import List
 
 from openjarvis.core.registry import CompressionRegistry
 from openjarvis.core.types import Message, Role
@@ -13,7 +12,7 @@ class BaseCompressor(ABC):
     """Abstract base for context compression strategies."""
 
     @abstractmethod
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
+    def compress(self, messages: list[Message], threshold: float) -> list[Message]:
         ...
 
 
@@ -21,7 +20,7 @@ class BaseCompressor(ABC):
 class SessionConsolidation(BaseCompressor):
     """Summarize oldest N% of turns, keep recent (100-N)%."""
 
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
+    def compress(self, messages: list[Message], threshold: float) -> list[Message]:
         if not messages:
             return messages
         split = int(len(messages) * threshold)
@@ -42,7 +41,7 @@ class RuleBasedPrecompression(BaseCompressor):
 
     TOOL_OUTPUT_MAX = 2000
 
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
+    def compress(self, messages: list[Message], threshold: float) -> list[Message]:
         result: list[Message] = []
         for msg in messages:
             if msg.role == Role.TOOL and len(msg.content) > self.TOOL_OUTPUT_MAX:
@@ -67,18 +66,66 @@ class RuleBasedPrecompression(BaseCompressor):
 
 @CompressionRegistry.register("model_summarization")
 class ModelSummarization(BaseCompressor):
-    """LLM-based summarization using configured engine/model."""
+    """LLM-based summarization using configured engine/model.
 
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
-        fallback = SessionConsolidation()
-        return fallback.compress(messages, threshold)
+    Falls back to SessionConsolidation if no engine is available.
+    """
+
+    def __init__(self, engine: object | None = None, model: str = "") -> None:
+        self._engine = engine
+        self._model = model
+
+    def compress(self, messages: list[Message], threshold: float) -> list[Message]:
+        if not messages:
+            return messages
+
+        split = int(len(messages) * threshold)
+        old = messages[:split]
+        recent = messages[split:]
+        if not old:
+            return messages
+
+        # If no engine, fall back to rule-based summarization
+        if self._engine is None or not hasattr(self._engine, "generate"):
+            fallback = SessionConsolidation()
+            return fallback.compress(messages, threshold)
+
+        # Build a summarization prompt from old messages
+        conversation = "\n".join(
+            f"[{m.role}]: {m.content[:300]}" for m in old
+        )
+        prompt = (
+            "Summarize the following conversation history in 2-3 sentences, "
+            "capturing the key topics, decisions, and any pending questions:\n\n"
+            f"{conversation}"
+        )
+
+        try:
+            response = self._engine.generate(
+                prompt=prompt,
+                model=self._model,
+                max_tokens=300,
+                temperature=0.0,
+            )
+            summary_text = (
+                response.content
+                if hasattr(response, "content")
+                else str(response)
+            )
+        except Exception:
+            # If model call fails, fall back
+            fallback = SessionConsolidation()
+            return fallback.compress(messages, threshold)
+
+        summary = Message(role=Role.SYSTEM, content=f"[Session summary] {summary_text}")
+        return [summary] + recent
 
 
 @CompressionRegistry.register("tiered_summaries")
 class TieredSummaries(BaseCompressor):
     """Progressive compression: L0 (full) -> L1 (paragraph) -> L2 (one-line)."""
 
-    def compress(self, messages: List[Message], threshold: float) -> List[Message]:
+    def compress(self, messages: list[Message], threshold: float) -> list[Message]:
         if not messages:
             return messages
         n = len(messages)
