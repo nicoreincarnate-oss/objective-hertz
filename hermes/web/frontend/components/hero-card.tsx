@@ -33,7 +33,15 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       transition={{ duration: 0.6 }}
       className="relative overflow-hidden"
     >
-      {/* Dynamic aurora background — shifts by health */}
+      {/* Hero banner background image */}
+      <div className="absolute inset-0 overflow-hidden rounded-2xl">
+        <img
+          src="/assets/generated/hero-banner.svg"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-40"
+        />
+      </div>
+      {/* Dynamic aurora overlay — shifts by health */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <motion.div
           className="absolute inset-0"

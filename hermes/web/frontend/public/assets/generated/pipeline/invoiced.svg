@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)" stroke="#ffb347" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Receipt body -->
+    <path d="M7 4 L25 4 L25 26 Q22 24 19 26 Q16 24 13 26 Q10 24 7 26 Z" stroke-width="1.8"/>
+    <!-- Dollar sign -->
+    <text x="16" y="17" text-anchor="middle" font-size="12" font-family="monospace" fill="#ffb347" stroke="none">$</text>
+    <!-- Horizontal lines (receipt items) -->
+    <line x1="10" y1="20" x2="22" y2="20" stroke-width="1" stroke-opacity="0.6"/>
+    <line x1="10" y1="22" x2="18" y2="22" stroke-width="1" stroke-opacity="0.6"/>
+    <!-- Top label lines -->
+    <line x1="10" y1="8" x2="22" y2="8" stroke-width="1.2"/>
+    <line x1="10" y1="11" x2="18" y2="11" stroke-width="0.9" stroke-opacity="0.5"/>
+  </g>
+</svg>

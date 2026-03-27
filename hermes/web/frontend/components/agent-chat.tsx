@@ -23,10 +23,10 @@ interface Message {
 type MessageStatus = 'sending' | 'sent' | 'delivered' | 'acknowledged'
 
 const AGENTS = [
-  { id: 'perseus', name: 'Perseus', role: 'CEO / Scheduler', icon: Zap, color: '#58e0ff' },
-  { id: 'titan', name: 'Titan', role: 'Revenue Engine', icon: Bot, color: '#39f3e2' },
-  { id: 'clawdbot', name: 'ClawdBot', role: 'Site Builder', icon: Shield, color: '#62f1b5' },
-  { id: 'hermes', name: 'Hermes', role: 'Alerts / Comms', icon: Radio, color: '#ffb347' },
+  { id: 'perseus', name: 'Perseus', role: 'CEO / Scheduler', icon: Zap, color: '#58e0ff', avatar: '/assets/generated/agents/perseus.svg' },
+  { id: 'titan', name: 'Titan', role: 'Revenue Engine', icon: Bot, color: '#39f3e2', avatar: '/assets/generated/agents/titan.svg' },
+  { id: 'clawdbot', name: 'ClawdBot', role: 'Site Builder', icon: Shield, color: '#62f1b5', avatar: '/assets/generated/agents/clawdbot.svg' },
+  { id: 'hermes', name: 'Hermes', role: 'Alerts / Comms', icon: Radio, color: '#ffb347', avatar: '/assets/generated/agents/hermes.svg' },
 ]
 
 const PRIORITIES = [
@@ -38,17 +38,14 @@ const PRIORITIES = [
 function AgentAvatar({ agentId, size = 'sm' }: { agentId: string; size?: 'sm' | 'md' }) {
   const agent = AGENTS.find(a => a.id === agentId)
   if (!agent) return null
-  const Icon = agent.icon
   const dim = size === 'md' ? 'w-9 h-9' : 'w-7 h-7'
-  const iconDim = size === 'md' ? 'w-4 h-4' : 'w-3.5 h-3.5'
 
   return (
-    <div
-      className={`${dim} rounded-full flex items-center justify-center shrink-0`}
-      style={{ backgroundColor: `${agent.color}18`, border: `1px solid ${agent.color}30` }}
-    >
-      <Icon className={iconDim} style={{ color: agent.color }} />
-    </div>
+    <img
+      src={agent.avatar}
+      alt={agent.name}
+      className={`${dim} rounded-full shrink-0`}
+    />
   )
 }
 

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" width="200" height="160">
+  <defs>
+    <style>
+      .muted { opacity: 0.25; }
+      .label { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Dashed enclosing circle -->
+  <circle cx="100" cy="72" r="52" fill="none" stroke="#58e0ff" stroke-width="1.2" stroke-dasharray="4 4" class="muted"/>
+
+  <!-- Person silhouette 1 (left, smaller/farther) -->
+  <g class="muted" transform="translate(62, 42)" opacity="0.6">
+    <circle cx="0" cy="0" r="8" fill="none" stroke="#58e0ff" stroke-width="1.2"/>
+    <path d="M-12 28 Q-12 16 0 16 Q12 16 12 28" fill="none" stroke="#58e0ff" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Person silhouette 2 (right, smaller/farther) -->
+  <g class="muted" transform="translate(138, 42)" opacity="0.6">
+    <circle cx="0" cy="0" r="8" fill="none" stroke="#58e0ff" stroke-width="1.2"/>
+    <path d="M-12 28 Q-12 16 0 16 Q12 16 12 28" fill="none" stroke="#58e0ff" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Person silhouette 3 (center, primary) -->
+  <g class="muted" transform="translate(100, 58)">
+    <circle cx="0" cy="0" r="12" fill="none" stroke="#58e0ff" stroke-width="1.5"/>
+    <path d="M-18 36 Q-18 22 0 22 Q18 22 18 36" fill="none" stroke="#58e0ff" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Question mark on primary person -->
+  <text x="100" y="62" text-anchor="middle" font-size="11" fill="#58e0ff" font-family="monospace" opacity="0.2">?</text>
+
+  <!-- Label -->
+  <text x="100" y="138" text-anchor="middle" font-size="11" fill="#58e0ff" class="label muted" letter-spacing="2">NO LEADS YET</text>
+  <text x="100" y="153" text-anchor="middle" font-size="9" fill="#58e0ff" class="label" opacity="0.15">Pipeline is empty</text>
+</svg>

@@ -187,8 +187,9 @@ export function SignalLedger({ events }: SignalLedgerProps) {
           </AnimatePresence>
 
           {filteredEvents.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground text-xs">
-              No events matching filters
+            <div className="text-center py-12">
+              <img src="/assets/generated/states/no-events.svg" alt="" className="w-28 h-20 mx-auto mb-3 opacity-60" />
+              <p className="text-xs text-muted-foreground">No events matching filters</p>
             </div>
           )}
         </div>

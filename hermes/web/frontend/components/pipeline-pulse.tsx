@@ -27,19 +27,19 @@ interface PipelinePulseProps {
 }
 
 const STAGES = [
-  { key: 'discovered', label: 'Discovered', color: '#58e0ff' },
-  { key: 'researched', label: 'Researched', color: '#4dd4f0' },
-  { key: 'email_drafted', label: 'Drafted', color: '#42c8e0' },
-  { key: 'email_queued', label: 'Queued', color: '#39f3e2' },
-  { key: 'email_sent', label: 'Sent', color: '#39e0c8' },
-  { key: 'replied', label: 'Replied', color: '#3fd8a0' },
-  { key: 'interested', label: 'Interested', color: '#62f1b5' },
-  { key: 'demo_built', label: 'Demo Built', color: '#7ef0a0' },
-  { key: 'proposal_sent', label: 'Proposal', color: '#a0e878' },
-  { key: 'closed', label: 'Closed', color: '#c8e060' },
-  { key: 'deployed', label: 'Deployed', color: '#e0d050' },
-  { key: 'invoiced', label: 'Invoiced', color: '#ffb347' },
-  { key: 'paid', label: 'Paid', color: '#ff9040' },
+  { key: 'discovered', label: 'Discovered', color: '#58e0ff', icon: '/assets/generated/pipeline/discovered.svg' },
+  { key: 'researched', label: 'Researched', color: '#4dd4f0', icon: '/assets/generated/pipeline/researched.svg' },
+  { key: 'email_drafted', label: 'Drafted', color: '#42c8e0', icon: '/assets/generated/pipeline/email_drafted.svg' },
+  { key: 'email_queued', label: 'Queued', color: '#39f3e2', icon: '/assets/generated/pipeline/email_queued.svg' },
+  { key: 'email_sent', label: 'Sent', color: '#39e0c8', icon: '/assets/generated/pipeline/email_sent.svg' },
+  { key: 'replied', label: 'Replied', color: '#3fd8a0', icon: '/assets/generated/pipeline/replied.svg' },
+  { key: 'interested', label: 'Interested', color: '#62f1b5', icon: '/assets/generated/pipeline/interested.svg' },
+  { key: 'demo_built', label: 'Demo Built', color: '#7ef0a0', icon: '/assets/generated/pipeline/demo_built.svg' },
+  { key: 'proposal_sent', label: 'Proposal', color: '#a0e878', icon: '/assets/generated/pipeline/proposal_sent.svg' },
+  { key: 'closed', label: 'Closed', color: '#c8e060', icon: '/assets/generated/pipeline/closed.svg' },
+  { key: 'deployed', label: 'Deployed', color: '#e0d050', icon: '/assets/generated/pipeline/deployed.svg' },
+  { key: 'invoiced', label: 'Invoiced', color: '#ffb347', icon: '/assets/generated/pipeline/invoiced.svg' },
+  { key: 'paid', label: 'Paid', color: '#ff9040', icon: '/assets/generated/pipeline/paid.svg' },
 ] as const
 
 export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
@@ -88,15 +88,12 @@ export function PipelinePulse({ data, leads = [] }: PipelinePulseProps) {
                   onClick={() => setSelectedStage(stage.key)}
                   className="group w-full flex items-center gap-3 py-1.5 hover:bg-white/[0.03] rounded-lg px-2 -mx-2 transition-colors cursor-pointer"
                 >
-                  {/* Stage dot */}
-                  <div
-                    className="w-3 h-3 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-background"
-                    style={{
-                      backgroundColor: value > 0 ? stage.color : 'transparent',
-                      borderColor: stage.color,
-                      ringColor: stage.color,
-                      boxShadow: value > 0 ? `0 0 8px ${stage.color}40` : 'none',
-                    }}
+                  {/* Stage icon */}
+                  <img
+                    src={stage.icon}
+                    alt={stage.label}
+                    className="w-5 h-5 shrink-0"
+                    style={{ opacity: value > 0 ? 1 : 0.3 }}
                   />
 
                   {/* Label */}

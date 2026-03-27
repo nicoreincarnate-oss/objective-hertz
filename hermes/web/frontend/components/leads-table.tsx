@@ -330,8 +330,9 @@ export function LeadsTable({ leads }: LeadsTableProps) {
               ))}
               {table.getRowModel().rows.length === 0 && (
                 <tr>
-                  <td colSpan={columns.length} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                    No leads found
+                  <td colSpan={columns.length} className="px-5 py-12 text-center">
+                    <img src="/assets/generated/states/no-leads.svg" alt="" className="w-24 h-20 mx-auto mb-3 opacity-60" />
+                    <p className="text-sm text-muted-foreground">No leads found</p>
                   </td>
                 </tr>
               )}
