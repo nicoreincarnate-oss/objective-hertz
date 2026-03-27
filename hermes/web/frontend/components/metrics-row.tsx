@@ -5,7 +5,6 @@ import { motion } from 'framer-motion'
 import { DollarSign, Clock, Mail, Percent, Zap, Wallet } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { NumberTicker } from '@/components/ui/number-ticker'
-import { ShineBorder } from '@/components/ui/shine-border'
 
 interface MetricsRowProps {
   revenueCleared: number
@@ -169,99 +168,86 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: index * 0.08 }}
-      className={`flip-card cursor-pointer ${isFlipped ? 'flipped' : ''}`}
+      className={`cursor-pointer h-[140px] ${isFlipped ? 'flipped' : ''}`}
+      style={{ perspective: '1200px', zIndex: isFlipped ? 10 : 1 }}
       onClick={() => setIsFlipped(!isFlipped)}
     >
       <div
-        className="flip-card-inner relative"
-        style={{ transformStyle: 'preserve-3d', transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+        className="relative w-full h-full"
+        style={{
+          transformStyle: 'preserve-3d',
+          transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+          transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+        }}
       >
-        {/* Front face — metric value wrapped in ShineBorder */}
-        <div style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' } as React.CSSProperties}>
-          <ShineBorder
-            borderRadius={12}
-            borderWidth={1}
-            duration={14}
-            color={metric.shineBorderColor}
-            className={`group glass-card hud-panel rounded-xl p-0 transition-shadow duration-300 hover:shadow-xl w-full min-w-0 ${glowClasses[metric.color]} bg-transparent dark:bg-transparent`}
-          >
-          <motion.div
-            whileHover={{ y: -3 }}
-            className="p-4 md:p-5 w-full"
-          >
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-3">
-                <div className={`${colorClasses[metric.color]} opacity-70`}>
-                  {metric.icon}
-                </div>
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                  {metric.label}
-                </span>
-              </div>
-
-              <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
-                {metric.prefix}
-                <NumberTicker
-                  value={metric.value}
-                  decimalPlaces={metric.decimals}
-                  className={colorClasses[metric.color]}
-                />
-                {metric.suffix}
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                {metric.subtext}
-              </p>
+        {/* Front face */}
+        <div
+          className={`absolute inset-0 glass-card hud-panel rounded-xl p-4 md:p-5 group transition-shadow duration-300 hover:shadow-xl ${glowClasses[metric.color]}`}
+          style={{ backfaceVisibility: 'hidden' }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <div className={`${colorClasses[metric.color]} opacity-70`}>
+              {metric.icon}
             </div>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">
+              {metric.label}
+            </span>
+          </div>
 
-            {/* Flip hint */}
-            <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
-              <span className="text-[9px] text-muted-foreground">click for chart</span>
-            </div>
-          </motion.div>
-          </ShineBorder>
+          <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
+            {metric.prefix}
+            <NumberTicker
+              value={metric.value}
+              decimalPlaces={metric.decimals}
+              className={colorClasses[metric.color]}
+            />
+            {metric.suffix}
+          </div>
+
+          <p className="text-xs text-muted-foreground">{metric.subtext}</p>
+
+          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
+            <span className="text-[9px] text-muted-foreground">click for chart</span>
+          </div>
         </div>
 
         {/* Back face — sparkline chart */}
         <div
-          className={`absolute inset-0 glass-card hud-panel rounded-xl p-4 md:p-5 ${glowClasses[metric.color]}`}
+          className={`absolute inset-0 glass-card hud-panel rounded-xl p-4 ${glowClasses[metric.color]}`}
           style={{
             backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden',
             transform: 'rotateY(180deg)',
           }}
         >
-          <div className="relative h-full flex flex-col">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                {metric.label} — Trend
-              </span>
-            </div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              {metric.label} — Trend
+            </span>
+          </div>
 
-            <div className="flex-1 min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={sparkData}>
-                  <defs>
-                    <linearGradient id={`gradient-${index}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={metric.sparklineColor} stopOpacity={0.3} />
-                      <stop offset="95%" stopColor={metric.sparklineColor} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area
-                    type="monotone"
-                    dataKey="v"
-                    stroke={metric.sparklineColor}
-                    strokeWidth={2}
-                    fill={`url(#gradient-${index})`}
-                    dot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+          <div style={{ height: 70 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sparkData}>
+                <defs>
+                  <linearGradient id={`gradient-${index}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={metric.sparklineColor} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={metric.sparklineColor} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="v"
+                  stroke={metric.sparklineColor}
+                  strokeWidth={2}
+                  fill={`url(#gradient-${index})`}
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
 
-            <div className={`text-lg font-bold ${colorClasses[metric.color]}`}>
-              {metric.prefix}{metric.value.toFixed(metric.decimals)}{metric.suffix}
-            </div>
+          <div className={`text-sm font-bold ${colorClasses[metric.color]} mt-1`}>
+            {metric.prefix}{metric.value.toFixed(metric.decimals)}{metric.suffix}
           </div>
         </div>
       </div>
