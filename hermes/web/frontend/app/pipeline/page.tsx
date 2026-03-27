@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import { useState } from 'react'
+import { GlowCard } from '@/components/ui/spotlight-card'
+import { HyperText } from '@/components/ui/hyper-text'
 
 /**
  * Pipeline (/pipeline) — Revenue funnel
@@ -243,33 +245,38 @@ export default function PipelinePage() {
     <div className="space-y-8">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
+        <HyperText text="Pipeline" className="text-2xl font-bold text-foreground" />
         <p className="text-xs text-muted-foreground mt-1">Revenue funnel — manage leads, track progression</p>
       </div>
 
       {/*
        * 5/7 grid split: pipeline stages need less width, leads table needs more.
        * Both panes stretch to equal height (items-stretch) for visual balance.
+       * gap-6 ensures consistent space between the two panels.
        */}
       <div className="grid lg:grid-cols-12 gap-6 items-stretch min-h-[600px]">
         {/* Left (5 cols): AgentPlan-style pipeline stages */}
-        <div className="lg:col-span-5 flex flex-col">
-          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+        <div className="lg:col-span-5 flex flex-col gap-6">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em]">
             Stage Progress
           </p>
-          <div className="flex-1">
-            <PipelineAgentPlan pipeline={pipeline ?? {}} />
-          </div>
+          <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none flex-1">
+            <div className="flex-1">
+              <PipelineAgentPlan pipeline={pipeline ?? {}} />
+            </div>
+          </GlowCard>
         </div>
 
         {/* Right (7 cols): Leads table */}
-        <div className="lg:col-span-7 flex flex-col">
-          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+        <div className="lg:col-span-7 flex flex-col gap-6">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em]">
             Active Leads
           </p>
-          <div className="flex-1">
-            <LeadsTable leads={leads ?? []} />
-          </div>
+          <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none flex-1">
+            <div className="flex-1">
+              <LeadsTable leads={leads ?? []} />
+            </div>
+          </GlowCard>
         </div>
       </div>
     </div>

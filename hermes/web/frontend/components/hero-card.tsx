@@ -2,8 +2,9 @@
 
 import { motion } from 'framer-motion'
 import { Activity, Mail, Users, TrendingUp, Clock, Wifi, WifiOff } from 'lucide-react'
-import { SparklesText } from '@/components/ui/sparkles-text'
+import { HyperText } from '@/components/ui/hyper-text'
 import { NumberTicker } from '@/components/ui/number-ticker'
+import { GlowCard } from '@/components/ui/spotlight-card'
 
 interface HeroCardProps {
   mode: 'review' | 'autonomous'
@@ -90,6 +91,7 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       </div>
 
       {/* Main card — elevated glass */}
+      <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
       <div className="relative glass-card-elevated hud-panel rounded-2xl p-6 breathing-glow">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -97,11 +99,9 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
             <div className="relative">
               <div className="absolute inset-0 bg-gold/30 blur-md rounded-lg" />
               <div className="relative bg-gradient-to-br from-gold to-gold-dim px-3 py-1 rounded-lg">
-                <SparklesText
+                <HyperText
                   text="PERSEUS"
                   className="text-background font-bold text-sm tracking-[0.2em]"
-                  sparklesCount={6}
-                  colors={{ first: '#ffffff', second: '#ffd700' }}
                 />
               </div>
             </div>
@@ -173,6 +173,7 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
           />
         </div>
       </div>
+      </GlowCard>
     </motion.div>
   )
 }

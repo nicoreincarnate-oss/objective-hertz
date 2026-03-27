@@ -29,7 +29,8 @@ class AnimationController {
     private dpr: number
     private size: number
     private stars: Star[] = []
-    
+    private loop: boolean
+
     // 常量
     private readonly changeEventTime = 0.32
     private readonly cameraZ = -400
@@ -38,14 +39,15 @@ class AnimationController {
     private readonly viewZoom = 100
     private readonly numberOfStars = 5000
     private readonly trailLength = 80
-    
-    constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, dpr: number, size: number) {
+
+    constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, dpr: number, size: number, loop = true) {
         this.canvas = canvas
         this.ctx = ctx
         this.dpr = dpr
         this.size = size
-        this.timeline = gsap.timeline({ repeat: -1 })
-        
+        this.loop = loop
+        this.timeline = gsap.timeline({ repeat: loop ? -1 : 0 })
+
         // 初始化
         this.setupRandomGenerator()
         this.createStars()
@@ -81,7 +83,7 @@ class AnimationController {
             .to(this, {
                 time: 1,
                 duration: 15,
-                repeat: -1,
+                repeat: this.loop ? -1 : 0,
                 ease: "none",
                 onUpdate: () => this.render()
             })
@@ -389,7 +391,11 @@ class Star {
     }
 }
 
-export function SpiralAnimation() {
+interface SpiralAnimationProps {
+    loop?: boolean
+}
+
+export function SpiralAnimation({ loop = true }: SpiralAnimationProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const animationRef = useRef<AnimationController | null>(null)
     const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
@@ -432,7 +438,7 @@ export function SpiralAnimation() {
         ctx.scale(dpr, dpr)
         
         // 创建动画控制器
-        animationRef.current = new AnimationController(canvas, ctx, dpr, size)
+        animationRef.current = new AnimationController(canvas, ctx, dpr, size, loop)
         
         return () => {
             // 清理动画
@@ -441,7 +447,7 @@ export function SpiralAnimation() {
                 animationRef.current = null
             }
         }
-    }, [dimensions])
+    }, [dimensions, loop])
     
     return (
         <div className="relative w-full h-full">

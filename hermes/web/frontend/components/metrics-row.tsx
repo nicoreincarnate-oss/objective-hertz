@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { DollarSign, Clock, Mail, Percent, Zap, Wallet } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { NumberTicker } from '@/components/ui/number-ticker'
+import { HyperText } from '@/components/ui/hyper-text'
 
 interface MetricsRowProps {
   revenueCleared: number
@@ -177,9 +178,7 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
         >
           <div className="flex items-center gap-1.5 mb-2">
             <div className={`${colorClasses[metric.color]} opacity-60`}>{metric.icon}</div>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider truncate">
-              {metric.label}
-            </span>
+            <HyperText text={metric.label} className="text-[10px] text-muted-foreground uppercase tracking-wider truncate" />
           </div>
           <div className={`text-xl font-bold ${colorClasses[metric.color]} leading-none mb-1`}>
             {metric.prefix}

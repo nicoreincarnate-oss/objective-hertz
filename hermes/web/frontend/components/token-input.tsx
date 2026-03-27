@@ -34,9 +34,9 @@ export function TokenInput({ onTokenSubmit }: TokenInputProps) {
 
   return (
     <div className="relative min-h-screen bg-background flex items-center justify-center overflow-hidden p-6">
-      {/* SpiralAnimation — full-screen ambient backdrop */}
+      {/* SpiralAnimation — full-screen ambient backdrop, plays once then holds final state */}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <SpiralAnimation />
+        <SpiralAnimation loop={false} />
       </div>
 
       {/* Radial vignette so edges recede */}

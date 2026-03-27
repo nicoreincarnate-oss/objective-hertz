@@ -7,6 +7,8 @@ import { MessageDock } from '@/components/ui/message-dock'
 import { Globe } from '@/components/ui/cobe-globe'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { GlowCard } from '@/components/ui/spotlight-card'
+import { HyperText } from '@/components/ui/hyper-text'
 
 /**
  * Agents (/agents) — Daemon control
@@ -122,7 +124,7 @@ export default function AgentsPage() {
     <div className="space-y-8 pb-24">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Agents</h1>
+        <HyperText text="Agents" className="text-2xl font-bold text-foreground" />
         <p className="text-xs text-muted-foreground mt-1">Daemon control — communicate, monitor, review</p>
       </div>
 
@@ -170,12 +172,13 @@ export default function AgentsPage() {
                         className="w-6 h-6 rounded-full shrink-0"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                       />
-                      <span className={cn(
-                        'text-xl font-normal tracking-tight transition-colors duration-300',
-                        isActive ? 'text-foreground' : ''
-                      )}>
-                        {agent.name}
-                      </span>
+                      <HyperText
+                        text={agent.name}
+                        className={cn(
+                          'text-xl font-normal tracking-tight transition-colors duration-300',
+                          isActive ? 'text-foreground' : ''
+                        )}
+                      />
                       {/* Online dot */}
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                     </div>
@@ -209,6 +212,7 @@ export default function AgentsPage() {
           </p>
 
           {/* Detail card — clean, no globe background */}
+          <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
           <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[380px]">
             {/* Animated agent content */}
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
@@ -242,7 +246,7 @@ export default function AgentsPage() {
                     />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-bold text-foreground">{activeAgent.name}</h3>
+                    <HyperText text={activeAgent.name} className="text-2xl font-bold text-foreground" />
                     <p className="text-xs text-muted-foreground">{activeAgent.role}</p>
                   </div>
                   <div className="ml-auto flex items-center gap-1.5">
@@ -291,6 +295,7 @@ export default function AgentsPage() {
               </motion.div>
             </AnimatePresence>
           </div>
+          </GlowCard>
         </div>
       </div>
 
@@ -299,6 +304,7 @@ export default function AgentsPage() {
         <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Lead Geography
         </p>
+        <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
         <div className="rounded-2xl border border-border/50 bg-card p-6 flex flex-col items-center gap-4">
           <div>
             <p className="text-sm font-semibold text-foreground text-center">Global Lead Distribution</p>
@@ -325,6 +331,7 @@ export default function AgentsPage() {
             ))}
           </div>
         </div>
+        </GlowCard>
       </div>
 
       {/* ── AGENT CHAT ────────────────────────────────────────────── */}
@@ -333,13 +340,15 @@ export default function AgentsPage() {
           Agent Chat
         </p>
         {/* MessageDock — full width, anchored to bottom of content */}
-        <MessageDock
-          characters={dockCharacters}
-          theme="dark"
-          onMessageSend={handleMessageSend}
-          placeholder={(name) => `Message ${name}...`}
-          closeOnSend={false}
-        />
+        <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
+          <MessageDock
+            characters={dockCharacters}
+            theme="dark"
+            onMessageSend={handleMessageSend}
+            placeholder={(name) => `Message ${name}...`}
+            closeOnSend={false}
+          />
+        </GlowCard>
       </div>
     </div>
   )
