@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useToken } from '@/hooks/use-token'
 import { StrategicView } from '@/components/strategic-view'
+import { GlowCard } from '@/components/ui/spotlight-card'
 import { Brain, Zap, TrendingUp, Target, AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 
@@ -36,8 +37,8 @@ export default function IntelPage() {
 
   return (
     <div className="relative space-y-6">
-      {/* Spiral animation — full page ambient backdrop */}
-      <div className="fixed inset-0 pointer-events-none opacity-[0.06] z-0">
+      {/* Spiral animation — full page ambient backdrop at 15% so particles are visible */}
+      <div className="fixed inset-0 pointer-events-none opacity-[0.15] z-0">
         <SpiralAnimation />
       </div>
 
@@ -68,20 +69,26 @@ export default function IntelPage() {
           {/* Single row of 4 cards on desktop, 2x2 on mobile */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {SUGGESTED_QUESTIONS.map(({ icon: Icon, text }, i) => (
-              <button
+              <GlowCard
                 key={i}
-                className="text-left p-4 rounded-xl bg-card/80 border border-border/40 hover:border-border/70 hover:bg-card transition-all duration-200 backdrop-blur-sm group"
-                onClick={() => setPendingQuestion(text)}
+                customSize
+                glowColor="blue"
+                className="w-full p-0 cursor-pointer"
               >
-                <div className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-gold/10 transition-colors">
-                    <Icon className="w-3.5 h-3.5 text-muted-foreground group-hover:text-gold transition-colors" />
+                <button
+                  className="w-full text-left p-4 group"
+                  onClick={() => setPendingQuestion(text)}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-gold/10 transition-colors">
+                      <Icon className="w-3.5 h-3.5 text-muted-foreground group-hover:text-gold transition-colors" />
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed group-hover:text-foreground transition-colors">
+                      {text}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed group-hover:text-foreground transition-colors">
-                    {text}
-                  </p>
-                </div>
-              </button>
+                </button>
+              </GlowCard>
             ))}
           </div>
         </div>

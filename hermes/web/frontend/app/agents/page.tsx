@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 /**
  * Agents (/agents) — Daemon control
  * VerticalTabs pattern (adapted) for agent sidebar,
- * MessageDock for floating chat, CobeGlobe as ambient background in detail card.
+ * MessageDock for floating chat, CobeGlobe as its own "Lead Geography" section.
  *
  * VerticalTabs from vertical-tabs.tsx uses a hardcoded SERVICES array
  * with external Unsplash images — not usable directly with agent data.
@@ -202,33 +202,14 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        {/* Right (8 cols): Agent detail card with ambient globe background */}
+        {/* Right (8 cols): Agent detail card */}
         <div className="lg:col-span-8 flex flex-col">
           <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-4">
             Agent Detail
           </p>
 
-          {/* Detail card — globe as ambient background */}
-          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[480px]">
-            {/* Ambient globe — behind all content */}
-            <div className="absolute inset-0 flex items-center justify-end pointer-events-none overflow-hidden">
-              <div className="opacity-15 translate-x-1/4">
-                <Globe
-                  className="w-[420px] h-[420px]"
-                  markers={GLOBE_MARKERS}
-                  dark={1}
-                  baseColor={[0.1, 0.1, 0.15]}
-                  markerColor={[0.35, 0.95, 0.8]}
-                  glowColor={[0.2, 0.8, 0.7]}
-                  mapBrightness={4}
-                  speed={0.003}
-                />
-              </div>
-            </div>
-
-            {/* Gradient fade over globe so text is readable */}
-            <div className="absolute inset-0 bg-gradient-to-r from-card via-card/80 to-transparent pointer-events-none" />
-
+          {/* Detail card — clean, no globe background */}
+          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[380px]">
             {/* Animated agent content */}
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
               <motion.div
@@ -307,13 +288,41 @@ export default function AgentsPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Geography label — references the globe */}
-                <div className="absolute bottom-5 right-5 text-[10px] text-muted-foreground/40 font-mono uppercase tracking-widest">
-                  {GLOBE_MARKERS.length} lead regions
-                </div>
               </motion.div>
             </AnimatePresence>
+          </div>
+        </div>
+      </div>
+
+      {/* ── LEAD GEOGRAPHY ────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          Lead Geography
+        </p>
+        <div className="rounded-2xl border border-border/50 bg-card p-6 flex flex-col items-center gap-4">
+          <div>
+            <p className="text-sm font-semibold text-foreground text-center">Global Lead Distribution</p>
+            <p className="text-xs text-muted-foreground text-center mt-1">
+              {GLOBE_MARKERS.length} active regions tracked by the pipeline
+            </p>
+          </div>
+          <Globe
+            className="w-[300px] h-[300px]"
+            markers={GLOBE_MARKERS}
+            dark={1}
+            baseColor={[0.1, 0.1, 0.15]}
+            markerColor={[0.35, 0.95, 0.8]}
+            glowColor={[0.2, 0.8, 0.7]}
+            mapBrightness={4}
+            speed={0.003}
+          />
+          {/* Region labels */}
+          <div className="flex flex-wrap gap-2 justify-center">
+            {GLOBE_MARKERS.map((m) => (
+              <span key={m.id} className="text-[10px] font-mono text-muted-foreground/60 bg-white/5 px-2 py-1 rounded-md border border-border/20">
+                {m.label}
+              </span>
+            ))}
           </div>
         </div>
       </div>
