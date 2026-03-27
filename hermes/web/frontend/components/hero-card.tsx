@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Activity, Mail, Users, TrendingUp, Clock } from 'lucide-react'
+import { Activity, Mail, Users, TrendingUp, Clock, Wifi, WifiOff } from 'lucide-react'
 
 interface HeroCardProps {
   mode: 'review' | 'autonomous'
@@ -14,13 +14,17 @@ interface HeroCardProps {
 
 export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesClosed, lastSync }: HeroCardProps) {
   const isReviewMode = mode === 'review'
-  
+  const isLive = lastSync === 'LIVE'
+
   const getHeadline = () => {
     if (pendingApprovals > 0) {
       return `${pendingApprovals} approval${pendingApprovals > 1 ? 's' : ''} waiting`
     }
     return 'Runtime is clear'
   }
+
+  // Health status drives aurora intensity
+  const healthLevel = pendingApprovals > 5 ? 'critical' : pendingApprovals > 0 ? 'warning' : 'healthy'
 
   return (
     <motion.div
@@ -29,36 +33,53 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       transition={{ duration: 0.6 }}
       className="relative overflow-hidden"
     >
-      {/* Floating orbs background */}
+      {/* Dynamic aurora background — shifts by health */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <motion.div
+          className="absolute inset-0"
           animate={{
-            x: [0, 30, 0],
-            y: [0, -20, 0],
+            opacity: [0.6, 1, 0.6],
           }}
-          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-20 -left-20 w-60 h-60 rounded-full bg-gold/10 blur-3xl"
-        />
-        <motion.div
-          animate={{
-            x: [0, -20, 0],
-            y: [0, 30, 0],
-          }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -bottom-20 -right-20 w-80 h-80 rounded-full bg-teal/8 blur-3xl"
-        />
-        <motion.div
-          animate={{
-            x: [0, 15, 0],
-            y: [0, 15, 0],
-          }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-1/2 left-1/3 w-40 h-40 rounded-full bg-gold/5 blur-2xl"
-        />
+          transition={{ duration: healthLevel === 'critical' ? 2 : healthLevel === 'warning' ? 4 : 8, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {/* Primary aurora blob */}
+          <motion.div
+            animate={{
+              x: ['-5%', '15%', '-5%'],
+              y: ['-10%', '10%', '-10%'],
+              scale: [1, 1.2, 1],
+            }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+            className={`absolute -top-20 -left-20 w-80 h-80 rounded-full blur-3xl ${
+              healthLevel === 'critical' ? 'bg-red/15' : healthLevel === 'warning' ? 'bg-amber/12' : 'bg-gold/10'
+            }`}
+          />
+          {/* Secondary aurora blob */}
+          <motion.div
+            animate={{
+              x: ['5%', '-15%', '5%'],
+              y: ['10%', '-10%', '10%'],
+              scale: [1.1, 0.9, 1.1],
+            }}
+            transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
+            className={`absolute -bottom-20 -right-20 w-96 h-96 rounded-full blur-3xl ${
+              healthLevel === 'critical' ? 'bg-red/10' : healthLevel === 'warning' ? 'bg-amber/8' : 'bg-teal/8'
+            }`}
+          />
+          {/* Tertiary accent */}
+          <motion.div
+            animate={{
+              x: [0, 20, 0],
+              y: [0, -15, 0],
+            }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute top-1/2 left-1/3 w-48 h-48 rounded-full bg-gold/5 blur-2xl"
+          />
+        </motion.div>
       </div>
 
-      {/* Main card */}
-      <div className="relative glass-card hud-panel rounded-2xl p-6 breathing-glow">
+      {/* Main card — elevated glass */}
+      <div className="relative glass-card-elevated hud-panel rounded-2xl p-6 breathing-glow">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -69,14 +90,14 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
               </div>
             </div>
           </div>
-          
+
           {/* Mode pill */}
           <motion.div
             animate={{ opacity: [0.8, 1, 0.8] }}
             transition={{ duration: 2, repeat: Infinity }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
-              isReviewMode 
-                ? 'bg-amber/10 border-amber/30 text-amber' 
+              isReviewMode
+                ? 'bg-amber/10 border-amber/30 text-amber'
                 : 'bg-green/10 border-green/30 text-green'
             }`}
           >
@@ -97,31 +118,37 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
           </p>
         </div>
 
-        {/* Signal rail */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <SignalPill 
+        {/* Signal rail — 5 pills now */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <SignalPill
             icon={<Activity className="w-3.5 h-3.5" />}
             label="Mode"
             value={isReviewMode ? 'Review' : 'Auto'}
             color={isReviewMode ? 'amber' : 'green'}
           />
-          <SignalPill 
+          <SignalPill
             icon={<Mail className="w-3.5 h-3.5" />}
             label="Review"
             value={pendingApprovals.toString()}
             color={pendingApprovals > 0 ? 'amber' : 'green'}
           />
-          <SignalPill 
+          <SignalPill
+            icon={<Users className="w-3.5 h-3.5" />}
+            label="Warm"
+            value={warmLeads.toString()}
+            color={warmLeads > 0 ? 'green' : 'muted'}
+          />
+          <SignalPill
             icon={<TrendingUp className="w-3.5 h-3.5" />}
             label="Closed"
             value={salesClosed.toString()}
             color="green"
           />
-          <SignalPill 
-            icon={<Clock className="w-3.5 h-3.5" />}
+          <SignalPill
+            icon={isLive ? <Wifi className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
             label="Sync"
             value={lastSync}
-            color="muted"
+            color={isLive ? 'green' : 'muted'}
           />
         </div>
       </div>
@@ -129,12 +156,12 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
   )
 }
 
-function SignalPill({ 
-  icon, 
-  label, 
-  value, 
-  color 
-}: { 
+function SignalPill({
+  icon,
+  label,
+  value,
+  color
+}: {
   icon: React.ReactNode
   label: string
   value: string

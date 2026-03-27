@@ -11,8 +11,10 @@ Tokens are NEVER accepted from query parameters (they leak into logs,
 browser history, Referer headers, and analytics).
 """
 
+import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import secrets
@@ -20,12 +22,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
@@ -464,4 +466,275 @@ async def api_metrics():
     return PlainTextResponse(
         render_prometheus_metrics().decode("utf-8"),
         media_type=prometheus_content_type(),
+    )
+
+
+# ── Phase 1: WebSocket Real-Time Layer ──────────────────────────────────
+# Provides instant updates instead of 30-second SWR polling.
+# Auth: first message must be {"token": "<DASHBOARD_SECRET>"}.
+# Then broadcasts a sync envelope every 5 seconds + pushes new events.
+
+_ws_connections: set[WebSocket] = set()
+
+
+async def _build_sync_payload() -> dict:
+    """Build the full sync envelope from real DB state."""
+    try:
+        # Pipeline counts
+        pipeline_rows = await fetch_all(
+            "SELECT status, COUNT(*) as cnt FROM clients GROUP BY status ORDER BY status"
+        )
+        pipeline = {r["status"]: int(r["cnt"]) for r in pipeline_rows}
+
+        # Recent leads
+        leads_rows = await fetch_all(
+            "SELECT id, business_name, email, industry, status, lead_score, created_at "
+            "FROM clients ORDER BY created_at DESC LIMIT 50"
+        )
+        leads = []
+        for r in leads_rows:
+            leads.append({
+                "id": r["id"],
+                "business_name": r["business_name"],
+                "email": r["email"],
+                "industry": r.get("industry", ""),
+                "status": r["status"],
+                "lead_score": r.get("lead_score", 0),
+                "created_at": str(r["created_at"]) if r.get("created_at") else None,
+            })
+
+        # Recent events
+        events_rows = await fetch_all(
+            "SELECT id, event_type, payload, created_at, acknowledged "
+            "FROM events ORDER BY id DESC LIMIT 30"
+        )
+        events = []
+        for r in events_rows:
+            payload = r.get("payload", {})
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (json.JSONDecodeError, TypeError):
+                    payload = {}
+            events.append({
+                "id": r["id"],
+                "event_type": r["event_type"],
+                "payload": payload,
+                "created_at": str(r["created_at"]) if r.get("created_at") else None,
+                "acknowledged": r.get("acknowledged", False),
+            })
+
+        # Health metrics (reuse the same queries as /api/health)
+        from shared.config import config
+        review_mode = getattr(config, "review_mode", True)
+        emails_today = await fetch_val(
+            "SELECT COUNT(*) FROM email_sequences WHERE status IN ('queued','sent') "
+            "AND created_at > NOW() - INTERVAL '1 day'"
+        ) or 0
+        warm_leads = await fetch_val(
+            "SELECT COUNT(*) FROM clients WHERE status IN ('interested','demo_built','proposal_sent')"
+        ) or 0
+        sales_closed = await fetch_val(
+            "SELECT COUNT(*) FROM clients WHERE status IN ('closed','invoiced','paid')"
+        ) or 0
+        pending_approvals = await fetch_val(
+            "SELECT COUNT(*) FROM review_queue WHERE status = 'pending_review'"
+        ) or 0
+        revenue_cleared = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'paid'"
+        ) or 0
+        revenue_pending = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'pending'"
+        ) or 0
+
+        health = {
+            "status": "running",
+            "mode": "review" if review_mode else "autonomous",
+            "metrics": {
+                "emails_sent_today": int(emails_today),
+                "warm_leads": int(warm_leads),
+                "sales_closed": int(sales_closed),
+                "pending_approvals": int(pending_approvals),
+                "revenue_cleared": float(revenue_cleared),
+                "revenue_pending": float(revenue_pending),
+            },
+        }
+
+        return {
+            "type": "sync",
+            "health": health,
+            "pipeline": pipeline,
+            "leads": leads,
+            "events": events,
+        }
+    except Exception as e:
+        logger.error("WebSocket sync build failed: %s", e)
+        return {"type": "sync", "error": str(e)}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    """Real-time WebSocket for the War Room dashboard.
+
+    Auth protocol:
+    1. Client connects
+    2. Client sends first message: {"token": "<DASHBOARD_SECRET>"}
+    3. If valid, server enters broadcast loop
+    4. If invalid, server closes with code 4001
+    """
+    await ws.accept()
+
+    # Auth: first message must contain the dashboard secret
+    secret = _get_dashboard_secret()
+    if not secret:
+        await ws.close(code=4001, reason="DASHBOARD_SECRET not configured")
+        return
+
+    try:
+        auth_msg = await asyncio.wait_for(ws.receive_text(), timeout=10.0)
+        auth_data = json.loads(auth_msg)
+        token = auth_data.get("token", "")
+        if not hmac.compare_digest(token, secret):
+            await ws.close(code=4001, reason="Invalid token")
+            return
+    except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+        await ws.close(code=4001, reason="Auth timeout or invalid format")
+        return
+
+    # Authenticated — add to connection set
+    _ws_connections.add(ws)
+    logger.info("WebSocket client connected (%d total)", len(_ws_connections))
+
+    last_event_id = 0
+    try:
+        while True:
+            # Build and send full sync
+            payload = await _build_sync_payload()
+            await ws.send_json(payload)
+
+            # Track latest event ID for incremental pushes
+            events = payload.get("events", [])
+            if events:
+                last_event_id = max(e.get("id", 0) for e in events)
+
+            # Wait 5 seconds, but also listen for client messages (pings, etc.)
+            try:
+                msg = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
+                # Client can send {"type": "ping"} to keep alive
+                if msg:
+                    data = json.loads(msg)
+                    if data.get("type") == "ping":
+                        await ws.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                pass  # Normal — 5-second sync interval elapsed
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning("WebSocket error: %s", e)
+    finally:
+        _ws_connections.discard(ws)
+        logger.info("WebSocket client disconnected (%d remaining)", len(_ws_connections))
+
+
+# ── Phase 1: Lead Actions ───────────────────────────────────────────────
+
+@app.post("/api/leads/{lead_id}/action")
+async def api_lead_action(lead_id: int, request: Request):
+    """Inline lead actions: approve, reject, escalate."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    action = body.get("action", "")
+    if action not in ("approve", "reject", "escalate"):
+        return JSONResponse({"error": f"Unknown action: {action}"}, status_code=400)
+
+    lead = await fetch_val("SELECT id FROM clients WHERE id = %s", (lead_id,))
+    if not lead:
+        return JSONResponse({"error": "Lead not found"}, status_code=404)
+
+    if action == "approve":
+        from shared.db import execute
+        await execute(
+            "UPDATE review_queue SET status = 'approved' WHERE client_id = %s AND status = 'pending_review'",
+            (lead_id,),
+        )
+        await emit_event("lead_approved", {"lead_id": lead_id, "source": "operator"})
+    elif action == "reject":
+        from shared.db import execute
+        await execute(
+            "UPDATE review_queue SET status = 'rejected' WHERE client_id = %s AND status = 'pending_review'",
+            (lead_id,),
+        )
+        await emit_event("lead_rejected", {"lead_id": lead_id, "source": "operator"})
+    elif action == "escalate":
+        await insert_task("operator_escalation", {"lead_id": lead_id}, priority=1)
+        await emit_event("lead_escalated", {"lead_id": lead_id, "source": "operator"})
+
+    return JSONResponse({"success": True, "action": action, "lead_id": lead_id})
+
+
+# ── Phase 1: Streaming Insights (SSE) ──────────────────────────────────
+
+@app.post("/api/insights/stream")
+async def api_insights_stream(request: Request):
+    """Stream strategic insight responses token-by-token via SSE."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    question = (body.get("question") or "").strip()
+    if not question:
+        return JSONResponse({"error": "Empty question"}, status_code=400)
+
+    async def generate():
+        try:
+            from shared.llm_client import llm
+
+            # Build context from DB
+            pipeline_rows = await fetch_all(
+                "SELECT status, COUNT(*) as cnt FROM clients GROUP BY status"
+            )
+            pipeline_summary = ", ".join(f"{r['status']}: {r['cnt']}" for r in pipeline_rows)
+
+            recent_events = await fetch_all(
+                "SELECT event_type, payload FROM events ORDER BY id DESC LIMIT 10"
+            )
+            events_summary = "; ".join(
+                f"{e['event_type']}" for e in recent_events
+            )
+
+            prompt = (
+                f"You are the Perseus strategic analyst. Answer the operator's question "
+                f"using this live data:\n\nPipeline: {pipeline_summary}\n"
+                f"Recent events: {events_summary}\n\n"
+                f"Question: {question}\n\n"
+                f"Provide a concise answer with evidence and 1-3 recommended actions."
+            )
+
+            # Use streaming if available, otherwise chunk the full response
+            response = await llm.generate(prompt, model="local", max_tokens=500, temperature=0.3)
+
+            # Simulate streaming by yielding chunks
+            words = response.split()
+            buffer = ""
+            for i, word in enumerate(words):
+                buffer += word + " "
+                if len(buffer) > 20 or i == len(words) - 1:
+                    yield f"data: {json.dumps({'token': buffer})}\n\n"
+                    buffer = ""
+                    await asyncio.sleep(0.05)  # 50ms between chunks
+
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

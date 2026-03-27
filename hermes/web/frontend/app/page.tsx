@@ -1,9 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import useSWR from 'swr'
 import { motion } from 'framer-motion'
-import { useToken, authHeaders } from '@/hooks/use-token'
+import { useToken } from '@/hooks/use-token'
+import { WarRoomProvider, useWarRoom } from '@/contexts/war-room-context'
 import { HeroCard } from '@/components/hero-card'
 import { MetricsRow } from '@/components/metrics-row'
 import { AgentChat } from '@/components/agent-chat'
@@ -15,111 +14,144 @@ import { LeadsTable } from '@/components/leads-table'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { TokenInput } from '@/components/token-input'
 
-/**
- * SWR fetcher that sends the token via Authorization: Bearer header.
- * NEVER sends tokens as query parameters.
- */
-function createAuthFetcher(token: string) {
-  return (url: string) =>
-    fetch(url, { headers: authHeaders(token) }).then(res => res.json())
+function ConnectionIndicator() {
+  const { connectionStatus, lastSyncTime } = useWarRoom()
+
+  const dotClass =
+    connectionStatus === 'connected'
+      ? 'ws-dot ws-dot-connected'
+      : connectionStatus === 'polling'
+      ? 'ws-dot ws-dot-polling'
+      : 'ws-dot ws-dot-disconnected'
+
+  const label =
+    connectionStatus === 'connected'
+      ? 'Live'
+      : connectionStatus === 'polling'
+      ? 'Polling'
+      : 'Offline'
+
+  const syncTime = lastSyncTime
+    ? lastSyncTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '--:--'
+
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      <span className={dotClass} />
+      {label} • Last sync: {syncTime}
+    </span>
+  )
 }
 
-interface HealthData {
-  error?: string
-  status: string
-  db_ok: boolean
-  mode: 'review' | 'autonomous'
-  agents: Record<string, { status: string; last_heartbeat: string }>
-  metrics: {
-    emails_sent_today: number
-    emails_sent_week: number
-    warm_leads: number
-    sales_closed: number
-    pending_approvals: number
-    revenue_cleared: number
-    revenue_pending: number
-    total_leads: number
-  }
-}
+function WarRoomDashboard() {
+  const { token } = useToken()
+  const {
+    health,
+    pipeline,
+    leads,
+    events,
+    healthStatus,
+    isLoading,
+    connectionStatus,
+  } = useWarRoom()
 
-interface PipelineData {
-  discovered: number
-  researched: number
-  email_sent: number
-  followed_up: number
-  replied: number
-  interested: number
-  demo_built: number
-  proposal_sent: number
-  closed: number
-  building: number
-  deployed: number
-  invoiced: number
-  paid: number
-}
+  const revenueCleared = health?.metrics?.revenue_cleared ?? 0
+  const pendingRevenue = health?.metrics?.revenue_pending ?? 0
+  const totalLeads = (leads?.length ?? 0)
+  const closedLeads = health?.metrics?.sales_closed ?? 0
+  const closeRate = totalLeads > 0 ? (closedLeads / totalLeads) * 100 : 0
 
-interface Lead {
-  id: string
-  business_name: string
-  email: string
-  industry: string
-  status: string
-  lead_score: number
-  created_at: string
-}
+  const backendOffline = connectionStatus === 'disconnected' && !health
 
-interface Event {
-  id: string
-  event_type: string
-  payload: Record<string, unknown>
-  created_at: string
-  acknowledged: boolean
+  return (
+    <div className="relative min-h-screen bg-background aurora-bg noise-overlay overflow-hidden">
+      <CinematicBackdrop />
+
+      {/* Health-reactive aurora overlay */}
+      <div
+        className={`absolute inset-0 pointer-events-none transition-all duration-1000 ${
+          healthStatus === 'green'
+            ? 'aurora-health-green'
+            : healthStatus === 'amber'
+            ? 'aurora-health-amber'
+            : 'aurora-health-red'
+        }`}
+      />
+
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        {backendOffline && (
+          <section className="mb-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card hud-panel rounded-xl p-4 flex items-start gap-3 border border-amber/30"
+            >
+              <AlertTriangle className="w-5 h-5 text-amber mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Backend Status</p>
+                <p className="text-sm text-muted-foreground">
+                  Unable to reach Hermes backend. The War Room shell is live, but data modules are offline.
+                </p>
+              </div>
+            </motion.div>
+          </section>
+        )}
+
+        <section className="mb-6">
+          <HeroCard
+            mode={health?.mode || 'review'}
+            pendingApprovals={health?.metrics?.pending_approvals || 0}
+            emailsSent={health?.metrics?.emails_sent_today || 0}
+            warmLeads={health?.metrics?.warm_leads || 0}
+            salesClosed={health?.metrics?.sales_closed || 0}
+            lastSync={
+              connectionStatus === 'connected'
+                ? 'LIVE'
+                : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+            }
+          />
+        </section>
+
+        <section className="mb-6">
+          <MetricsRow
+            revenueCleared={revenueCleared}
+            pendingRevenue={pendingRevenue}
+            emailsToday={health?.metrics?.emails_sent_today || 0}
+            emailsWeek={0}
+            closeRate={closeRate}
+          />
+        </section>
+
+        <div className="grid lg:grid-cols-2 gap-6 mb-6">
+          <AgentChat token={token!} />
+          {pipeline && Object.keys(pipeline).length > 0 && <PipelinePulse data={pipeline} />}
+        </div>
+
+        <section className="mb-6">
+          <StrategicView token={token!} />
+        </section>
+
+        <section className="mb-6">
+          {events && events.length > 0 && <SignalLedger events={events} />}
+        </section>
+
+        <section>
+          {leads && leads.length > 0 && <LeadsTable leads={leads} />}
+        </section>
+
+        <footer className="mt-8 pt-6 border-t border-border flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            PERSEUS War Room • Autonomous AI Revenue System • v2.0.0
+          </p>
+          <ConnectionIndicator />
+        </footer>
+      </div>
+    </div>
+  )
 }
 
 export default function PerseusWarRoom() {
   const { token, isLoading: tokenLoading, setToken } = useToken()
-  const [lastSync, setLastSync] = useState('--:--')
-
-  const refreshInterval = 30000
-  const fetcher = token ? createAuthFetcher(token) : null
-
-  const { data: health, error: healthFetchError, isLoading: healthLoading } = useSWR<HealthData>(
-    fetcher ? '/api/health' : null,
-    fetcher!,
-    { refreshInterval }
-  )
-
-  const { data: pipeline } = useSWR<PipelineData>(
-    fetcher ? '/api/pipeline' : null,
-    fetcher!,
-    { refreshInterval }
-  )
-
-  const { data: leads } = useSWR<Lead[]>(
-    fetcher ? '/api/leads' : null,
-    fetcher!,
-    { refreshInterval }
-  )
-
-  const { data: events } = useSWR<Event[]>(
-    fetcher ? '/api/events' : null,
-    fetcher!,
-    { refreshInterval }
-  )
-
-  useEffect(() => {
-    const updateSync = () => {
-      const now = new Date()
-      setLastSync(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }))
-    }
-
-    if (health) {
-      updateSync()
-    }
-
-    const interval = setInterval(updateSync, refreshInterval)
-    return () => clearInterval(interval)
-  }, [health])
 
   if (tokenLoading) {
     return (
@@ -144,83 +176,9 @@ export default function PerseusWarRoom() {
     return <TokenInput onTokenSubmit={setToken} />
   }
 
-  const revenueCleared = health?.metrics?.revenue_cleared ?? 0
-  const pendingRevenue = health?.metrics?.revenue_pending ?? 0
-  const totalLeads = health?.metrics?.total_leads ?? 0
-  const closedLeads = health?.metrics?.sales_closed ?? 0
-  const closeRate = totalLeads > 0 ? (closedLeads / totalLeads) * 100 : 0
-  const backendStatusMessage = healthFetchError
-    ? 'Unable to reach Hermes backend on port 8500. The Jarvis War Room shell is live, but data modules are offline.'
-    : health?.error
-    ? `${health.error}. The Jarvis War Room shell is live, but data modules are offline.`
-    : healthLoading
-    ? 'Connecting to Hermes backend...'
-    : ''
-
   return (
-    <div className="relative min-h-screen bg-background aurora-bg noise-overlay overflow-hidden">
-      <CinematicBackdrop />
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-        {backendStatusMessage && (
-          <section className="mb-6">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass-card hud-panel rounded-xl p-4 flex items-start gap-3 border border-amber/30"
-            >
-              <AlertTriangle className="w-5 h-5 text-amber mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Backend Status</p>
-                <p className="text-sm text-muted-foreground">{backendStatusMessage}</p>
-              </div>
-            </motion.div>
-          </section>
-        )}
-
-        <section className="mb-6">
-          <HeroCard
-            mode={health?.mode || 'review'}
-            pendingApprovals={health?.metrics?.pending_approvals || 0}
-            emailsSent={health?.metrics?.emails_sent_today || 0}
-            warmLeads={health?.metrics?.warm_leads || 0}
-            salesClosed={health?.metrics?.sales_closed || 0}
-            lastSync={lastSync}
-          />
-        </section>
-
-        <section className="mb-6">
-          <MetricsRow
-            revenueCleared={revenueCleared}
-            pendingRevenue={pendingRevenue}
-            emailsToday={health?.metrics?.emails_sent_today || 0}
-            emailsWeek={health?.metrics?.emails_sent_week || 0}
-            closeRate={closeRate}
-          />
-        </section>
-
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          <AgentChat token={token} />
-          {pipeline && <PipelinePulse data={pipeline} />}
-        </div>
-
-        <section className="mb-6">
-          <StrategicView token={token} />
-        </section>
-
-        <section className="mb-6">
-          {events && <SignalLedger events={events} />}
-        </section>
-
-        <section>
-          {leads && <LeadsTable leads={leads} />}
-        </section>
-
-        <footer className="mt-8 pt-6 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground">
-            PERSEUS War Room • Autonomous AI Revenue System • v1.0.0
-          </p>
-        </footer>
-      </div>
-    </div>
+    <WarRoomProvider>
+      <WarRoomDashboard />
+    </WarRoomProvider>
   )
 }

@@ -1,7 +1,9 @@
 'use client'
 
-import { motion } from 'framer-motion'
-import { DollarSign, Clock, Mail, Percent } from 'lucide-react'
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { DollarSign, Clock, Mail, Percent, Zap, Wallet } from 'lucide-react'
+import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { CountUp } from './count-up'
 
 interface MetricsRowProps {
@@ -10,10 +12,52 @@ interface MetricsRowProps {
   emailsToday: number
   emailsWeek: number
   closeRate: number
+  pipelineVelocity?: number
+  budgetRemaining?: number
+  budgetTotal?: number
 }
 
-export function MetricsRow({ revenueCleared, pendingRevenue, emailsToday, emailsWeek, closeRate }: MetricsRowProps) {
-  const metrics = [
+type MetricColor = 'green' | 'amber' | 'gold' | 'muted' | 'teal'
+
+interface MetricDef {
+  icon: React.ReactNode
+  label: string
+  value: number
+  prefix: string
+  decimals: number
+  suffix: string
+  color: MetricColor
+  subtext: string
+  sparklineColor: string
+}
+
+// Generate fake sparkline data for demo — in production this comes from use-sparkline-data hook
+function generateSparkline(value: number, trend: 'up' | 'down' | 'flat' = 'up'): Array<{ v: number }> {
+  const points = 20
+  const data: Array<{ v: number }> = []
+  let base = value * 0.6
+  for (let i = 0; i < points; i++) {
+    const noise = (Math.random() - 0.5) * value * 0.15
+    if (trend === 'up') base += value * 0.02
+    else if (trend === 'down') base -= value * 0.01
+    data.push({ v: Math.max(0, base + noise) })
+  }
+  return data
+}
+
+export function MetricsRow({
+  revenueCleared,
+  pendingRevenue,
+  emailsToday,
+  emailsWeek,
+  closeRate,
+  pipelineVelocity = 0,
+  budgetRemaining,
+  budgetTotal = 800,
+}: MetricsRowProps) {
+  const budget = budgetRemaining ?? budgetTotal
+
+  const metrics: MetricDef[] = [
     {
       icon: <DollarSign className="w-5 h-5" />,
       label: 'Revenue Cleared',
@@ -21,8 +65,9 @@ export function MetricsRow({ revenueCleared, pendingRevenue, emailsToday, emails
       prefix: '$',
       decimals: 2,
       suffix: '',
-      color: 'green' as const,
-      subtext: 'This month'
+      color: 'green',
+      subtext: 'This month',
+      sparklineColor: '#62f1b5',
     },
     {
       icon: <Clock className="w-5 h-5" />,
@@ -31,8 +76,9 @@ export function MetricsRow({ revenueCleared, pendingRevenue, emailsToday, emails
       prefix: '$',
       decimals: 2,
       suffix: '',
-      color: pendingRevenue > 0 ? 'amber' as const : 'muted' as const,
-      subtext: 'Awaiting payment'
+      color: pendingRevenue > 0 ? 'amber' : 'muted',
+      subtext: 'Awaiting payment',
+      sparklineColor: '#ffb347',
     },
     {
       icon: <Mail className="w-5 h-5" />,
@@ -41,8 +87,9 @@ export function MetricsRow({ revenueCleared, pendingRevenue, emailsToday, emails
       prefix: '',
       decimals: 0,
       suffix: '',
-      color: 'gold' as const,
-      subtext: `${emailsWeek} this week`
+      color: 'gold',
+      subtext: `${emailsWeek} this week`,
+      sparklineColor: '#58e0ff',
     },
     {
       icon: <Percent className="w-5 h-5" />,
@@ -51,82 +98,157 @@ export function MetricsRow({ revenueCleared, pendingRevenue, emailsToday, emails
       prefix: '',
       decimals: 1,
       suffix: '%',
-      color: closeRate >= 5 ? 'green' as const : 'amber' as const,
-      subtext: 'Leads → Closed'
-    }
+      color: closeRate >= 5 ? 'green' : 'amber',
+      subtext: 'Leads → Closed',
+      sparklineColor: closeRate >= 5 ? '#62f1b5' : '#ffb347',
+    },
+    {
+      icon: <Zap className="w-5 h-5" />,
+      label: 'Pipeline Velocity',
+      value: pipelineVelocity,
+      prefix: '',
+      decimals: 1,
+      suffix: '/day',
+      color: 'teal',
+      subtext: 'Leads advancing',
+      sparklineColor: '#39f3e2',
+    },
+    {
+      icon: <Wallet className="w-5 h-5" />,
+      label: 'Budget Remaining',
+      value: budget,
+      prefix: '$',
+      decimals: 0,
+      suffix: '',
+      color: budget < 200 ? 'amber' : 'green',
+      subtext: `of $${budgetTotal}/mo`,
+      sparklineColor: budget < 200 ? '#ffb347' : '#62f1b5',
+    },
   ]
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
       {metrics.map((metric, index) => (
-        <MetricCard key={metric.label} metric={metric} index={index} />
+        <FlipMetricCard key={metric.label} metric={metric} index={index} />
       ))}
     </div>
   )
 }
 
-function MetricCard({ metric, index }: { metric: {
-  icon: React.ReactNode
-  label: string
-  value: number
-  prefix: string
-  decimals: number
-  suffix: string
-  color: 'green' | 'amber' | 'gold' | 'muted'
-  subtext: string
-}, index: number }) {
-  const colorClasses = {
+function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number }) {
+  const [isFlipped, setIsFlipped] = useState(false)
+
+  const colorClasses: Record<MetricColor, string> = {
     green: 'text-green',
     amber: 'text-amber',
     gold: 'text-gold',
-    muted: 'text-muted-foreground'
+    teal: 'text-teal',
+    muted: 'text-muted-foreground',
   }
 
-  const glowClasses = {
+  const glowClasses: Record<MetricColor, string> = {
     green: 'group-hover:shadow-green/20',
     amber: 'group-hover:shadow-amber/20',
     gold: 'group-hover:shadow-gold/20',
-    muted: 'group-hover:shadow-muted/10'
+    teal: 'group-hover:shadow-teal/20',
+    muted: 'group-hover:shadow-muted/10',
   }
+
+  const sparkData = generateSparkline(metric.value || 1)
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.1 }}
-      whileHover={{ y: -3 }}
-      className={`group relative glass-card hud-panel rounded-xl p-4 md:p-5 transition-shadow duration-300 hover:shadow-xl ${glowClasses[metric.color]}`}
+      transition={{ duration: 0.5, delay: index * 0.08 }}
+      className="flip-card cursor-pointer"
+      onClick={() => setIsFlipped(!isFlipped)}
     >
-      {/* Shimmer overlay */}
-      <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
-        <div className="shimmer absolute inset-0" />
-      </div>
-
-      <div className="relative">
-        {/* Icon and Label */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className={`${colorClasses[metric.color]} opacity-70`}>
-            {metric.icon}
+      <div className={`flip-card-inner relative ${isFlipped ? 'flipped' : ''}`}
+        style={{ transformStyle: 'preserve-3d', transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+      >
+        {/* Front face — metric value */}
+        <motion.div
+          whileHover={{ y: -3 }}
+          className={`group glass-card hud-panel rounded-xl p-4 md:p-5 transition-shadow duration-300 hover:shadow-xl ${glowClasses[metric.color]}`}
+          style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+        >
+          <div className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+            <div className="shimmer absolute inset-0" />
           </div>
-          <span className="text-xs text-muted-foreground uppercase tracking-wider">
-            {metric.label}
-          </span>
-        </div>
 
-        {/* Value */}
-        <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
-          <CountUp 
-            end={metric.value} 
-            prefix={metric.prefix}
-            suffix={metric.suffix}
-            decimals={metric.decimals}
-          />
-        </div>
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`${colorClasses[metric.color]} opacity-70`}>
+                {metric.icon}
+              </div>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                {metric.label}
+              </span>
+            </div>
 
-        {/* Subtext */}
-        <p className="text-xs text-muted-foreground">
-          {metric.subtext}
-        </p>
+            <div className={`text-2xl md:text-3xl font-bold ${colorClasses[metric.color]} mb-1`}>
+              <CountUp
+                end={metric.value}
+                prefix={metric.prefix}
+                suffix={metric.suffix}
+                decimals={metric.decimals}
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {metric.subtext}
+            </p>
+          </div>
+
+          {/* Flip hint */}
+          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
+            <span className="text-[9px] text-muted-foreground">tap for chart</span>
+          </div>
+        </motion.div>
+
+        {/* Back face — sparkline chart */}
+        <div
+          className={`absolute inset-0 glass-card hud-panel rounded-xl p-4 md:p-5 ${glowClasses[metric.color]}`}
+          style={{
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
+            transform: 'rotateY(180deg)',
+          }}
+        >
+          <div className="relative h-full flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                {metric.label} — Trend
+              </span>
+            </div>
+
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sparkData}>
+                  <defs>
+                    <linearGradient id={`gradient-${index}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={metric.sparklineColor} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={metric.sparklineColor} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Area
+                    type="monotone"
+                    dataKey="v"
+                    stroke={metric.sparklineColor}
+                    strokeWidth={2}
+                    fill={`url(#gradient-${index})`}
+                    dot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className={`text-lg font-bold ${colorClasses[metric.color]}`}>
+              {metric.prefix}{metric.value.toFixed(metric.decimals)}{metric.suffix}
+            </div>
+          </div>
+        </div>
       </div>
     </motion.div>
   )
