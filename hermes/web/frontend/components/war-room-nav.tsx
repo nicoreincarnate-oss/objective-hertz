@@ -51,22 +51,22 @@ export function WarRoomNav() {
 
       {/* Nav bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-12">
-          {/* Logo */}
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between h-14">
+          {/* Logo — slightly larger */}
+          <div className="flex items-center gap-2.5">
             <div className="relative">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  healthStatus === 'green' ? 'bg-green' :
-                  healthStatus === 'amber' ? 'bg-amber' : 'bg-red'
+                className={`w-2.5 h-2.5 rounded-full ${
+                  healthStatus === 'green' ? 'bg-green shadow-[0_0_6px_currentColor] text-green-400' :
+                  healthStatus === 'amber' ? 'bg-amber shadow-[0_0_6px_currentColor] text-amber-400' : 'bg-red shadow-[0_0_6px_currentColor] text-red-400'
                 }`}
               />
             </div>
-            <span className="text-sm font-bold tracking-[0.15em] text-gold">PERSEUS</span>
+            <span className="text-base font-bold tracking-[0.18em] text-gold">PERSEUS</span>
           </div>
 
           {/* Nav links */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href
               const Icon = item.icon
@@ -74,7 +74,7 @@ export function WarRoomNav() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors group ${
                     isActive
                       ? 'text-gold'
                       : 'text-muted-foreground hover:text-foreground'
@@ -87,20 +87,33 @@ export function WarRoomNav() {
                       transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
                     />
                   )}
+                  {/* Bottom glow line on active item */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-glow"
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full bg-gold/60"
+                      style={{ boxShadow: '0 0 6px 1px rgba(88,224,255,0.5)' }}
+                      transition={{ type: 'spring', duration: 0.4, bounce: 0.15 }}
+                    />
+                  )}
                   <Icon className="w-3.5 h-3.5 relative z-10" />
                   <span className="relative z-10 hidden sm:inline">{item.label}</span>
+                  {/* Keyboard shortcut hint */}
+                  <span className="relative z-10 hidden lg:inline text-[9px] text-muted-foreground/40 font-mono ml-0.5">
+                    {item.shortcut}
+                  </span>
                 </Link>
               )
             })}
           </div>
 
-          {/* Status */}
+          {/* Connection status */}
           <div className="flex items-center gap-2">
             <span className={`w-1.5 h-1.5 rounded-full ${
-              connectionStatus === 'connected' ? 'bg-green' :
+              connectionStatus === 'connected' ? 'bg-green animate-pulse' :
               connectionStatus === 'polling' ? 'bg-amber' : 'bg-red/50'
             }`} />
-            <span className="text-[10px] text-muted-foreground hidden sm:inline">
+            <span className="text-[10px] text-muted-foreground hidden sm:inline tracking-wide">
               {connectionStatus === 'connected' ? 'Live' : connectionStatus === 'polling' ? 'Polling' : 'Offline'}
             </span>
           </div>

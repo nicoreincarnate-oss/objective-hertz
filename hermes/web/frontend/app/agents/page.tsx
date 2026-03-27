@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useToken } from '@/hooks/use-token'
 import { useWarRoom } from '@/contexts/war-room-context'
 import { MessageDock } from '@/components/ui/message-dock'
@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 /**
  * Agents (/agents) — Daemon control
  * VerticalTabs pattern (adapted) for agent sidebar,
- * MessageDock for floating chat, CobeGlobe for ambient lead geography.
+ * MessageDock for floating chat, CobeGlobe as ambient background in detail card.
  *
  * VerticalTabs from vertical-tabs.tsx uses a hardcoded SERVICES array
  * with external Unsplash images — not usable directly with agent data.
@@ -119,21 +119,19 @@ export default function AgentsPage() {
     .slice(0, 5)
 
   return (
-    <div className="space-y-4 pb-24">
-      <div className="flex items-center gap-3">
+    <div className="space-y-6 pb-24">
+      {/* Page header */}
+      <div>
         <h1 className="text-2xl font-bold text-foreground">Agents</h1>
-        <span className="text-xs text-muted-foreground">Daemon control — communicate, monitor, review</span>
+        <p className="text-xs text-muted-foreground mt-1">Daemon control — communicate, monitor, review</p>
       </div>
 
       <div className="grid lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Vertical agent tabs (VerticalTabs pattern adapted for agents) */}
+        {/* Left (4 cols): Vertical agent tabs */}
         <div className="lg:col-span-4 flex flex-col">
-          <div className="space-y-1 mb-6">
-            <h2 className="text-lg font-medium text-foreground tracking-tight">Active Daemons</h2>
-            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-[0.3em]">
-              (4 RUNNING)
-            </span>
-          </div>
+          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-4">
+            Active Daemons
+          </p>
 
           <div className="flex flex-col space-y-0">
             {AGENTS.map((agent, index) => {
@@ -204,10 +202,34 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        {/* Right: Agent detail panel + Globe */}
-        <div className="lg:col-span-8 flex flex-col gap-4">
-          {/* Agent detail card with animated slide */}
-          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[320px]">
+        {/* Right (8 cols): Agent detail card with ambient globe background */}
+        <div className="lg:col-span-8 flex flex-col">
+          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-4">
+            Agent Detail
+          </p>
+
+          {/* Detail card — globe as ambient background */}
+          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[480px]">
+            {/* Ambient globe — behind all content */}
+            <div className="absolute inset-0 flex items-center justify-end pointer-events-none overflow-hidden">
+              <div className="opacity-15 translate-x-1/4">
+                <Globe
+                  className="w-[420px] h-[420px]"
+                  markers={GLOBE_MARKERS}
+                  dark={1}
+                  baseColor={[0.1, 0.1, 0.15]}
+                  markerColor={[0.35, 0.95, 0.8]}
+                  glowColor={[0.2, 0.8, 0.7]}
+                  mapBrightness={4}
+                  speed={0.003}
+                />
+              </div>
+            </div>
+
+            {/* Gradient fade over globe so text is readable */}
+            <div className="absolute inset-0 bg-gradient-to-r from-card via-card/80 to-transparent pointer-events-none" />
+
+            {/* Animated agent content */}
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
               <motion.div
                 key={activeIndex}
@@ -220,12 +242,12 @@ export default function AgentsPage() {
                   y: { type: 'spring', stiffness: 260, damping: 32 },
                   opacity: { duration: 0.3 },
                 }}
-                className="absolute inset-0 p-6"
+                className="relative z-10 p-6 h-full"
               >
                 {/* Agent header */}
-                <div className="flex items-center gap-4 mb-5">
+                <div className="flex items-center gap-4 mb-6">
                   <div
-                    className="w-14 h-14 rounded-xl flex items-center justify-center"
+                    className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0"
                     style={{ background: `linear-gradient(135deg, ${activeAgent.gradientColors})` }}
                   >
                     <img
@@ -239,7 +261,7 @@ export default function AgentsPage() {
                     />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-foreground">{activeAgent.name}</h3>
+                    <h3 className="text-2xl font-bold text-foreground">{activeAgent.name}</h3>
                     <p className="text-xs text-muted-foreground">{activeAgent.role}</p>
                   </div>
                   <div className="ml-auto flex items-center gap-1.5">
@@ -248,75 +270,68 @@ export default function AgentsPage() {
                   </div>
                 </div>
 
-                <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
+                <p className="text-sm text-muted-foreground mb-6 leading-relaxed max-w-lg">
                   {activeAgent.description}
                 </p>
 
                 {/* Task list */}
-                <div className="grid grid-cols-2 gap-2 mb-5">
-                  {activeAgent.tasks.map((task, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2"
-                    >
-                      <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: activeAgent.color }} />
-                      {task}
-                    </div>
-                  ))}
+                <div className="mb-6">
+                  <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+                    Responsibilities
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {activeAgent.tasks.map((task, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2.5 border border-border/30"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: activeAgent.color }} />
+                        {task}
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Recent events for this agent */}
                 {agentEvents.length > 0 && (
                   <div>
-                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-widest mb-2">Recent Activity</p>
-                    <div className="space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+                      Recent Activity
+                    </p>
+                    <div className="space-y-1.5">
                       {agentEvents.map((event: any, i) => (
-                        <div key={i} className="text-xs text-muted-foreground bg-white/5 rounded px-3 py-1.5 truncate">
+                        <div key={i} className="text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2 border border-border/20 truncate">
                           {event.message ?? event.type ?? JSON.stringify(event).slice(0, 80)}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Geography label — references the globe */}
+                <div className="absolute bottom-5 right-5 text-[10px] text-muted-foreground/40 font-mono uppercase tracking-widest">
+                  {GLOBE_MARKERS.length} lead regions
+                </div>
               </motion.div>
             </AnimatePresence>
-          </div>
-
-          {/* Lead geography globe */}
-          <div className="glass-card hud-panel rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">Lead Geography</p>
-                <p className="text-[10px] text-muted-foreground">Active prospect locations</p>
-              </div>
-              <span className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
-                {GLOBE_MARKERS.length} regions
-              </span>
-            </div>
-            <div className="flex justify-center">
-              <Globe
-                className="w-64 h-64"
-                markers={GLOBE_MARKERS}
-                dark={1}
-                baseColor={[0.1, 0.1, 0.15]}
-                markerColor={[0.35, 0.95, 0.8]}
-                glowColor={[0.2, 0.8, 0.7]}
-                mapBrightness={4}
-                speed={0.004}
-              />
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Floating MessageDock — agent chat */}
-      <MessageDock
-        characters={dockCharacters}
-        theme="dark"
-        onMessageSend={handleMessageSend}
-        placeholder={(name) => `Message ${name}...`}
-        closeOnSend={false}
-      />
+      {/* ── AGENT CHAT ────────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          Agent Chat
+        </p>
+        {/* MessageDock — full width, anchored to bottom of content */}
+        <MessageDock
+          characters={dockCharacters}
+          theme="dark"
+          onMessageSend={handleMessageSend}
+          placeholder={(name) => `Message ${name}...`}
+          closeOnSend={false}
+        />
+      </div>
     </div>
   )
 }

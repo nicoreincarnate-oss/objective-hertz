@@ -151,8 +151,8 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
   })
 
   return (
-    <div className="bg-card border border-border rounded-xl overflow-hidden h-full">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+    <div className="bg-card border border-border/50 rounded-xl overflow-hidden flex flex-col h-full">
+      <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between shrink-0">
         <div>
           <h2 className="text-sm font-semibold text-foreground">Pipeline Stages</h2>
           <p className="text-[10px] text-muted-foreground mt-0.5">13-stage Titan revenue engine</p>
@@ -161,7 +161,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
           {stages.filter(s => s.status === 'completed').length}/{stages.length} done
         </span>
       </div>
-      <div className="p-3 overflow-y-auto max-h-[calc(100vh-220px)]">
+      <div className="p-3 overflow-y-auto flex-1">
         <LayoutGroup>
           <ul className="space-y-0.5">
             {stages.map((stage, index) => {
@@ -240,24 +240,36 @@ export default function PipelinePage() {
   const { pipeline, leads } = useWarRoom()
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
+    <div className="space-y-6">
+      {/* Page header */}
+      <div>
         <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
-        <span className="text-xs text-muted-foreground">Revenue funnel — manage leads, track progression</span>
+        <p className="text-xs text-muted-foreground mt-1">Revenue funnel — manage leads, track progression</p>
       </div>
 
       {/*
-       * lightning-split (Component from lightning-split.tsx) uses h-screen w-screen
-       * and is designed as a standalone full-viewport page — embedding it inside
-       * DashboardShell would break the layout. Using CSS split instead.
+       * 5/7 grid split: pipeline stages need less width, leads table needs more.
+       * Both panes stretch to equal height (items-stretch) for visual balance.
        */}
-      <div className="grid lg:grid-cols-2 gap-4 min-h-[600px]">
-        {/* Left: AgentPlan-style pipeline stages */}
-        <PipelineAgentPlan pipeline={pipeline ?? {}} />
+      <div className="grid lg:grid-cols-12 gap-6 items-stretch min-h-[600px]">
+        {/* Left (5 cols): AgentPlan-style pipeline stages */}
+        <div className="lg:col-span-5 flex flex-col">
+          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+            Stage Progress
+          </p>
+          <div className="flex-1">
+            <PipelineAgentPlan pipeline={pipeline ?? {}} />
+          </div>
+        </div>
 
-        {/* Right: Leads table */}
-        <div className="min-h-0">
-          <LeadsTable leads={leads ?? []} />
+        {/* Right (7 cols): Leads table */}
+        <div className="lg:col-span-7 flex flex-col">
+          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+            Active Leads
+          </p>
+          <div className="flex-1">
+            <LeadsTable leads={leads ?? []} />
+          </div>
         </div>
       </div>
     </div>

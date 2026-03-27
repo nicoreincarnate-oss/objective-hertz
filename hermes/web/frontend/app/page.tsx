@@ -6,7 +6,7 @@ import { HeroCard } from '@/components/hero-card'
 import { MetricsRow } from '@/components/metrics-row'
 import { SignalLedger } from '@/components/signal-ledger'
 import { Status } from '@/components/ui/hud-status-1'
-import { GlowCard } from '@/components/ui/spotlight-card'
+import { useRouter } from 'next/navigation'
 
 /**
  * Command Center (/) — Operational HUD
@@ -14,64 +14,30 @@ import { GlowCard } from '@/components/ui/spotlight-card'
  * Agent Chat → /agents, Pipeline → /pipeline, Strategic View → /intel
  */
 
-function RainbowButton({
+function QuickActionButton({
   children,
   onClick,
-  className = '',
+  variant = 'default',
 }: {
   children: React.ReactNode
   onClick?: () => void
-  className?: string
+  variant?: 'default' | 'accent'
 }) {
   return (
-    <>
-      <style>{`
-        .rainbow-btn {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          padding: 0 1.25rem;
-          height: 2.5rem;
-          background: #0a0a0f;
-          border-radius: 0.75rem;
-          border: none;
-          color: white;
-          cursor: pointer;
-          font-weight: 700;
-          font-size: 0.8125rem;
-          letter-spacing: 0.04em;
-          transition: opacity 0.2s, transform 0.15s;
-          white-space: nowrap;
+    <button
+      onClick={onClick}
+      className={`
+        inline-flex items-center justify-center gap-2 px-4 h-10 rounded-xl
+        text-xs font-semibold tracking-wide transition-all duration-200
+        border hover:translate-y-[-1px] active:translate-y-0
+        ${variant === 'accent'
+          ? 'bg-gold/10 border-gold/30 text-gold hover:bg-gold/15 hover:border-gold/50'
+          : 'bg-white/5 border-border/60 text-muted-foreground hover:text-foreground hover:bg-white/8 hover:border-border'
         }
-        .rainbow-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-        .rainbow-btn:active { transform: translateY(0); }
-        .rainbow-btn::before,
-        .rainbow-btn::after {
-          content: '';
-          position: absolute;
-          left: -2px;
-          top: -2px;
-          border-radius: 14px;
-          background: linear-gradient(45deg,#fb0094,#0000ff,#00ff00,#ffff00,#ff0000,#fb0094,#0000ff,#00ff00,#ffff00,#ff0000);
-          background-size: 400%;
-          width: calc(100% + 4px);
-          height: calc(100% + 4px);
-          z-index: -1;
-          animation: rainbow-anim 20s linear infinite;
-        }
-        .rainbow-btn::after { filter: blur(8px); }
-        @keyframes rainbow-anim {
-          0%   { background-position: 0 0; }
-          50%  { background-position: 400% 0; }
-          100% { background-position: 0 0; }
-        }
-      `}</style>
-      <button className={`rainbow-btn ${className}`} onClick={onClick}>
-        {children}
-      </button>
-    </>
+      `}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -86,6 +52,7 @@ export default function CommandCenter() {
     connectionStatus,
     metricHistory,
   } = useWarRoom()
+  const router = useRouter()
 
   const revenueCleared = health?.metrics?.revenue_cleared ?? 0
   const pendingRevenue = health?.metrics?.revenue_pending ?? 0
@@ -98,47 +65,54 @@ export default function CommandCenter() {
 
   return (
     <div className="space-y-6">
-      {/* Status badges row */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Status
-          variant={isLive ? 'primary' : 'warning'}
-          text={isLive ? 'LIVE' : 'OFFLINE'}
-        />
-        <Status
-          variant={mode === 'autonomous' ? 'primary' : 'secondary'}
-          text={mode === 'autonomous' ? 'AUTONOMOUS' : 'REVIEW MODE'}
-        />
-        {(health?.metrics?.pending_approvals ?? 0) > 0 && (
-          <Status
-            variant="warning"
-            text={`${health?.metrics?.pending_approvals} PENDING`}
+      {/* ── SYSTEM STATUS ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          System Status
+        </p>
+        {/* Hero card — HUD status badges embedded as header row */}
+        <div className="relative">
+          {/* Status badges float above the hero card at top-left */}
+          <div className="absolute top-3 right-4 z-20 flex items-center gap-2 flex-wrap justify-end">
+            <Status
+              variant={isLive ? 'primary' : 'warning'}
+              text={isLive ? 'LIVE' : 'OFFLINE'}
+              scale={0.75}
+            />
+            <Status
+              variant={mode === 'autonomous' ? 'primary' : 'secondary'}
+              text={mode === 'autonomous' ? 'AUTONOMOUS' : 'REVIEW MODE'}
+              scale={0.75}
+            />
+            {(health?.metrics?.pending_approvals ?? 0) > 0 && (
+              <Status
+                variant="warning"
+                text={`${health?.metrics?.pending_approvals} PENDING`}
+                scale={0.75}
+              />
+            )}
+          </div>
+
+          <HeroCard
+            mode={mode}
+            pendingApprovals={health?.metrics?.pending_approvals || 0}
+            emailsSent={health?.metrics?.emails_sent_today || 0}
+            warmLeads={health?.metrics?.warm_leads || 0}
+            salesClosed={health?.metrics?.sales_closed || 0}
+            lastSync={
+              isLive
+                ? 'LIVE'
+                : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+            }
           />
-        )}
+        </div>
       </div>
 
-      {/* Hero */}
-      <HeroCard
-        mode={mode}
-        pendingApprovals={health?.metrics?.pending_approvals || 0}
-        emailsSent={health?.metrics?.emails_sent_today || 0}
-        warmLeads={health?.metrics?.warm_leads || 0}
-        salesClosed={health?.metrics?.sales_closed || 0}
-        lastSync={
-          isLive
-            ? 'LIVE'
-            : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-        }
-      />
-
-      {/* Quick actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <RainbowButton onClick={() => {}}>Approve All</RainbowButton>
-        <RainbowButton onClick={() => {}}>Run Pipeline</RainbowButton>
-        <RainbowButton onClick={() => {}}>Deploy Sites</RainbowButton>
-      </div>
-
-      {/* Metrics — each card wrapped in GlowCard spotlight */}
-      <GlowCard glowColor="blue" customSize className="w-full p-0 bg-transparent border-0 shadow-none">
+      {/* ── KEY METRICS ───────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          Key Metrics
+        </p>
         <MetricsRow
           revenueCleared={revenueCleared}
           pendingRevenue={pendingRevenue}
@@ -147,10 +121,39 @@ export default function CommandCenter() {
           closeRate={closeRate}
           metricHistory={metricHistory}
         />
-      </GlowCard>
+      </div>
 
-      {/* Signal Ledger — live events */}
-      <SignalLedger events={events ?? []} />
+      {/* ── LIVE EVENTS ───────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          Live Events
+        </p>
+        <SignalLedger events={events ?? []} />
+      </div>
+
+      {/* ── QUICK ACTIONS ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          Quick Actions
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <QuickActionButton variant="accent" onClick={() => {}}>
+            Approve All
+          </QuickActionButton>
+          <QuickActionButton onClick={() => {}}>
+            Run Pipeline
+          </QuickActionButton>
+          <QuickActionButton onClick={() => router.push('/pipeline')}>
+            Deploy Sites
+          </QuickActionButton>
+          <QuickActionButton onClick={() => router.push('/agents')}>
+            Message Agents
+          </QuickActionButton>
+          <QuickActionButton onClick={() => router.push('/intel')}>
+            Ask Intelligence
+          </QuickActionButton>
+        </div>
+      </div>
     </div>
   )
 }
