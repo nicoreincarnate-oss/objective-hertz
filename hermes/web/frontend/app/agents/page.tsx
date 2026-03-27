@@ -119,7 +119,7 @@ export default function AgentsPage() {
     .slice(0, 5)
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-8 pb-24">
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Agents</h1>
@@ -129,7 +129,7 @@ export default function AgentsPage() {
       <div className="grid lg:grid-cols-12 gap-6 items-start">
         {/* Left (4 cols): Vertical agent tabs */}
         <div className="lg:col-span-4 flex flex-col">
-          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-4">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Active Daemons
           </p>
 
@@ -141,7 +141,7 @@ export default function AgentsPage() {
                   key={agent.id}
                   onClick={() => handleTabClick(index)}
                   className={cn(
-                    'group relative flex items-start gap-4 py-5 text-left transition-all duration-300 border-t border-border/30 first:border-0',
+                    'group relative flex items-start gap-4 py-5 text-left cursor-pointer transition-all duration-200 border-t border-border/30 first:border-0',
                     isActive ? 'text-foreground' : 'text-muted-foreground/60 hover:text-foreground'
                   )}
                 >
@@ -204,7 +204,7 @@ export default function AgentsPage() {
 
         {/* Right (8 cols): Agent detail card */}
         <div className="lg:col-span-8 flex flex-col">
-          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-4">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Agent Detail
           </p>
 
@@ -257,14 +257,14 @@ export default function AgentsPage() {
 
                 {/* Task list */}
                 <div className="mb-6">
-                  <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+                  <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-3">
                     Responsibilities
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     {activeAgent.tasks.map((task, i) => (
                       <div
                         key={i}
-                        className="flex items-center gap-2 text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2.5 border border-border/30"
+                        className="flex items-center gap-2 text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2.5 border border-border/30 transition-all duration-200 hover:bg-white/10"
                       >
                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: activeAgent.color }} />
                         {task}
@@ -276,7 +276,7 @@ export default function AgentsPage() {
                 {/* Recent events for this agent */}
                 {agentEvents.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+                    <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-3">
                       Recent Activity
                     </p>
                     <div className="space-y-1.5">
@@ -295,8 +295,8 @@ export default function AgentsPage() {
       </div>
 
       {/* ── LEAD GEOGRAPHY ────────────────────────────────────────── */}
-      <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+      <div className="mt-8">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Lead Geography
         </p>
         <div className="rounded-2xl border border-border/50 bg-card p-6 flex flex-col items-center gap-4">
@@ -328,8 +328,8 @@ export default function AgentsPage() {
       </div>
 
       {/* ── AGENT CHAT ────────────────────────────────────────────── */}
-      <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+      <div className="mt-8">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Agent Chat
         </p>
         {/* MessageDock — full width, anchored to bottom of content */}

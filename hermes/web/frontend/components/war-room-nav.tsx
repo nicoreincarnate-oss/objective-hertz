@@ -45,7 +45,7 @@ export function WarRoomNav() {
   const { connectionStatus, healthStatus } = useWarRoom()
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+    <nav className="sticky top-0 z-30 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       {/* Alert ticker */}
       <AlertTicker />
 
@@ -74,7 +74,7 @@ export function WarRoomNav() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors group ${
+                  className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all duration-200 group ${
                     isActive
                       ? 'text-gold'
                       : 'text-muted-foreground hover:text-foreground'

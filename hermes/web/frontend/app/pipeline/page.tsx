@@ -152,7 +152,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
 
   return (
     <div className="bg-card border border-border/50 rounded-xl overflow-hidden flex flex-col h-full">
-      <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between shrink-0">
+      <div className="p-6 border-b border-border/50 flex items-center justify-between shrink-0">
         <div>
           <h2 className="text-sm font-semibold text-foreground">Pipeline Stages</h2>
           <p className="text-[10px] text-muted-foreground mt-0.5">13-stage Titan revenue engine</p>
@@ -161,7 +161,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
           {stages.filter(s => s.status === 'completed').length}/{stages.length} done
         </span>
       </div>
-      <div className="p-3 overflow-y-auto flex-1">
+      <div className="p-6 overflow-y-auto flex-1">
         <LayoutGroup>
           <ul className="space-y-0.5">
             {stages.map((stage, index) => {
@@ -176,7 +176,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
                 >
                   {/* Stage row */}
                   <div
-                    className="group flex items-center px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
+                    className="group flex items-center px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-all duration-200"
                     onClick={() => toggle(stage.id)}
                   >
                     <div className="mr-2.5 flex-shrink-0">{statusIcon(stage.status)}</div>
@@ -215,7 +215,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
                         <div className="absolute top-0 bottom-0 left-[20px] border-l border-dashed border-border/40" />
                         <ul className="mt-0.5 mb-1.5 ml-3 mr-2 space-y-0.5">
                           {stage.subtasks.map(sub => (
-                            <li key={sub.id} className="flex items-center gap-2 pl-6 py-1 rounded-md hover:bg-white/5 transition-colors">
+                            <li key={sub.id} className="flex items-center gap-2 pl-6 py-1 rounded-md hover:bg-white/5 cursor-pointer transition-all duration-200">
                               <div className="flex-shrink-0">{statusIcon(sub.status, 'h-3 w-3')}</div>
                               <span className={`text-xs ${sub.status === 'completed' ? 'line-through text-muted-foreground/50' : 'text-muted-foreground'}`}>
                                 {sub.title}
@@ -240,7 +240,7 @@ export default function PipelinePage() {
   const { pipeline, leads } = useWarRoom()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Pipeline</h1>
@@ -254,7 +254,7 @@ export default function PipelinePage() {
       <div className="grid lg:grid-cols-12 gap-6 items-stretch min-h-[600px]">
         {/* Left (5 cols): AgentPlan-style pipeline stages */}
         <div className="lg:col-span-5 flex flex-col">
-          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Stage Progress
           </p>
           <div className="flex-1">
@@ -264,7 +264,7 @@ export default function PipelinePage() {
 
         {/* Right (7 cols): Leads table */}
         <div className="lg:col-span-7 flex flex-col">
-          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Active Leads
           </p>
           <div className="flex-1">

@@ -36,14 +36,14 @@ export default function IntelPage() {
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
 
   return (
-    <div className="relative space-y-6">
+    <div className="relative space-y-8">
       {/* Spiral animation — full page ambient backdrop at 15% so particles are visible */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.15] z-0">
         <SpiralAnimation />
       </div>
 
       {/* All content sits above the spiral */}
-      <div className="relative z-10 space-y-6">
+      <div className="relative z-10 space-y-8">
         {/* ── PAGE HEADER ─────────────────────────────────────────── */}
         <div className="flex items-start justify-between">
           <div>
@@ -63,7 +63,7 @@ export default function IntelPage() {
 
         {/* ── SUGGESTED QUESTIONS ───────────────────────────────── */}
         <div>
-          <p className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-widest mb-3">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Suggested
           </p>
           {/* Single row of 4 cards on desktop, 2x2 on mobile */}
@@ -73,10 +73,10 @@ export default function IntelPage() {
                 key={i}
                 customSize
                 glowColor="blue"
-                className="w-full p-0 cursor-pointer"
+                className="w-full p-0 cursor-pointer transition-all duration-200"
               >
                 <button
-                  className="w-full text-left p-4 group"
+                  className="w-full text-left p-5 group cursor-pointer"
                   onClick={() => setPendingQuestion(text)}
                 >
                   <div className="flex items-start gap-2.5">
@@ -95,7 +95,7 @@ export default function IntelPage() {
 
         {/* ── STRATEGIC ADVISOR ─────────────────────────────────── */}
         <div>
-          <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
             Strategic Advisor
           </p>
 
@@ -108,7 +108,7 @@ export default function IntelPage() {
               <Zap className="w-3.5 h-3.5 text-gold shrink-0" />
               <span className="flex-1 truncate text-xs">{pendingQuestion}</span>
               <button
-                className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground shrink-0 ml-2"
+                className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground shrink-0 ml-2 cursor-pointer transition-all duration-200"
                 onClick={() => setPendingQuestion(null)}
               >
                 ✕

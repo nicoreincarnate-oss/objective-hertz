@@ -88,7 +88,7 @@ export function TokenInput({ onTokenSubmit }: TokenInputProps) {
             <Button
               type="submit"
               disabled={!inputToken.trim()}
-              className="w-full h-12 bg-gold hover:bg-gold/90 text-background font-semibold tracking-wide text-sm transition-all"
+              className="w-full h-12 bg-gold hover:bg-gold/90 text-background font-semibold tracking-wide text-sm cursor-pointer transition-all duration-200"
             >
               Access War Room
               <ArrowRight className="w-4 h-4 ml-2" />

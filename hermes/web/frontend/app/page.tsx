@@ -39,10 +39,10 @@ export default function CommandCenter() {
   const mode = (health?.mode as 'review' | 'autonomous') || 'review'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* ── SYSTEM STATUS ─────────────────────────────────────────── */}
       <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           System Status
         </p>
 
@@ -61,7 +61,7 @@ export default function CommandCenter() {
         />
 
         {/* HUD Status badges — system-level connection + mode status (different from HeroCard metrics) */}
-        <div className="flex items-center gap-2 flex-wrap mt-3">
+        <div className="flex items-center gap-2 flex-wrap mt-4">
           <Status
             variant={isLive ? 'primary' : 'warning'}
             text={isLive ? 'LIVE' : 'OFFLINE'}
@@ -84,7 +84,7 @@ export default function CommandCenter() {
 
       {/* ── KEY METRICS ───────────────────────────────────────────── */}
       <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Key Metrics
         </p>
         {/* GlowCard wraps MetricsRow for the spotlight hover effect */}
@@ -102,7 +102,7 @@ export default function CommandCenter() {
 
       {/* ── LIVE EVENTS ───────────────────────────────────────────── */}
       <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Live Events
         </p>
         <SignalLedger events={events ?? []} />
@@ -110,23 +110,23 @@ export default function CommandCenter() {
 
       {/* ── QUICK ACTIONS ─────────────────────────────────────────── */}
       <div>
-        <p className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest mb-3">
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Quick Actions
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <RainbowButton onClick={() => {}}>
+          <RainbowButton onClick={() => {}} className="cursor-pointer transition-all duration-200">
             Approve All
           </RainbowButton>
-          <RainbowButton onClick={() => {}}>
+          <RainbowButton onClick={() => {}} className="cursor-pointer transition-all duration-200">
             Run Pipeline
           </RainbowButton>
-          <RainbowButton onClick={() => router.push('/pipeline')}>
+          <RainbowButton onClick={() => router.push('/pipeline')} className="cursor-pointer transition-all duration-200">
             Deploy Sites
           </RainbowButton>
-          <RainbowButton onClick={() => router.push('/agents')}>
+          <RainbowButton onClick={() => router.push('/agents')} className="cursor-pointer transition-all duration-200">
             Message Agents
           </RainbowButton>
-          <RainbowButton onClick={() => router.push('/intel')}>
+          <RainbowButton onClick={() => router.push('/intel')} className="cursor-pointer transition-all duration-200">
             Ask Intelligence
           </RainbowButton>
         </div>
