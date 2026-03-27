@@ -32,6 +32,8 @@ KNOWN_BENCHMARKS = {
     "coding_assistant", "security_scanner", "daily_digest",
     "doc_qa", "browser_assistant",
     "deepplanning", "lifelong-agent", "loghub", "paperarena",
+    # Meta-suite names used by recipe eval_suites
+    "coding", "reasoning", "general",
 }
 
 
