@@ -1,24 +1,21 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { useToken } from '@/hooks/use-token'
+import { useState } from 'react'
+import { useToken, authHeaders } from '@/hooks/use-token'
 import { useWarRoom } from '@/contexts/war-room-context'
-import { MessageDock } from '@/components/ui/message-dock'
 import { Globe } from '@/components/ui/cobe-globe'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { GlowCard } from '@/components/ui/spotlight-card'
 import { HyperText } from '@/components/ui/hyper-text'
+import { Send } from 'lucide-react'
 
 /**
  * Agents (/agents) — Daemon control
- * VerticalTabs pattern (adapted) for agent sidebar,
- * MessageDock for floating chat, CobeGlobe as its own "Lead Geography" section.
- *
- * VerticalTabs from vertical-tabs.tsx uses a hardcoded SERVICES array
- * with external Unsplash images — not usable directly with agent data.
- * The tab animation pattern is reimplemented here for the 4 agents.
+ * Vertical tabs for agent selection, detail card, globe for lead geography,
+ * and inline agent chat (replaces broken MessageDock).
  */
+
 
 const AGENTS = [
   {
@@ -27,7 +24,6 @@ const AGENTS = [
     role: 'CEO / Scheduler',
     color: '#58e0ff',
     gradientColors: '#58e0ff, #0ea5e9',
-    backgroundColor: 'bg-cyan-400/20',
     description: 'Top-level orchestrator. Schedules all daemon tasks, monitors system health, triggers pipeline runs, and self-audits via MAGMA.',
     tasks: ['Schedule pipeline runs', 'Health monitoring', 'MAGMA self-audit', 'Agent coordination'],
   },
@@ -37,7 +33,6 @@ const AGENTS = [
     role: 'Revenue Engine',
     color: '#39f3e2',
     gradientColors: '#39f3e2, #10b981',
-    backgroundColor: 'bg-teal-400/20',
     description: '10-stage revenue pipeline. Ingests leads, enriches via Firecrawl, generates personalized outreach, and closes deals.',
     tasks: ['Lead ingestion', 'Data enrichment', 'Email generation', 'Response handling'],
   },
@@ -47,7 +42,6 @@ const AGENTS = [
     role: 'Site Builder',
     color: '#62f1b5',
     gradientColors: '#62f1b5, #22c55e',
-    backgroundColor: 'bg-green-400/20',
     description: 'Builds and deploys personalized demo sites for warm leads. Uses browser automation to capture screenshots and validate deployments.',
     tasks: ['Template selection', 'Content personalization', 'Netlify deployment', 'Screenshot capture'],
   },
@@ -57,27 +51,17 @@ const AGENTS = [
     role: 'Alerts / Comms',
     color: '#ffb347',
     gradientColors: '#ffb347, #f97316',
-    backgroundColor: 'bg-orange-400/20',
     description: 'Real-time event listener and alert dispatcher. Sends Telegram notifications, powers this War Room dashboard via WebSocket.',
     tasks: ['Event monitoring', 'Telegram alerts', 'WebSocket sync', 'A2A relay'],
   },
 ]
 
-// Lead geography markers for the globe
-const GLOBE_MARKERS = [
-  { id: 'us-east', location: [40.71, -74.01] as [number, number], label: 'New York' },
-  { id: 'us-west', location: [37.77, -122.42] as [number, number], label: 'San Francisco' },
-  { id: 'uk', location: [51.51, -0.13] as [number, number], label: 'London' },
-  { id: 'de', location: [52.52, 13.40] as [number, number], label: 'Berlin' },
-  { id: 'au', location: [-33.87, 151.21] as [number, number], label: 'Sydney' },
-  { id: 'ca', location: [43.65, -79.38] as [number, number], label: 'Toronto' },
-]
-
 export default function AgentsPage() {
   const { token } = useToken()
-  const { health, events } = useWarRoom()
+  const { health, events, daemons } = useWarRoom()
   const [activeIndex, setActiveIndex] = useState(0)
   const [direction, setDirection] = useState(0)
+  const [chatInput, setChatInput] = useState('')
 
   const handleTabClick = (index: number) => {
     if (index === activeIndex) return
@@ -85,25 +69,7 @@ export default function AgentsPage() {
     setActiveIndex(index)
   }
 
-  const handleMessageSend = useCallback(
-    (message: string, character: { name: string }, idx: number) => {
-      const agent = AGENTS[idx] ?? AGENTS[0]
-      console.info(`[MessageDock] → ${agent.name}: ${message}`)
-    },
-    []
-  )
-
   const activeAgent = AGENTS[activeIndex]
-
-  // Map agents to MessageDock characters
-  const dockCharacters = AGENTS.map(agent => ({
-    id: agent.id,
-    emoji: agent.id === 'perseus' ? '🏛️' : agent.id === 'titan' ? '⚡' : agent.id === 'clawdbot' ? '🤖' : '🪁',
-    name: agent.name,
-    online: true,
-    backgroundColor: agent.backgroundColor,
-    gradientColors: agent.gradientColors,
-  }))
 
   const variants = {
     enter: (dir: number) => ({ y: dir > 0 ? '-100%' : '100%', opacity: 0 }),
@@ -120,15 +86,44 @@ export default function AgentsPage() {
     })
     .slice(0, 5)
 
+  const [chatHistory, setChatHistory] = useState<Array<{ agent: string; message: string; time: Date }>>([])
+  const [chatSending, setChatSending] = useState(false)
+
+  const handleChatSend = async () => {
+    if (!chatInput.trim() || !token || chatSending) return
+    setChatSending(true)
+    const msg = chatInput.trim()
+    setChatInput('')
+
+    try {
+      const formData = new FormData()
+      formData.set('target_agent', activeAgent.id)
+      formData.set('priority', 'routine')
+      formData.set('message', msg)
+
+      const res = await fetch('/api/operator-chat', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+
+      if (res.ok) {
+        setChatHistory(prev => [...prev, { agent: activeAgent.id, message: msg, time: new Date() }])
+      }
+    } finally {
+      setChatSending(false)
+    }
+  }
+
   return (
-    <div className="space-y-8 pb-24">
+    <div className="space-y-8">
       {/* Page header */}
       <div>
         <HyperText text="Agents" className="text-2xl font-bold text-foreground" />
         <p className="text-xs text-muted-foreground mt-1">Daemon control — communicate, monitor, review</p>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-6 items-start">
+      <div className="grid lg:grid-cols-12 gap-6 lg:gap-8 items-start">
         {/* Left (4 cols): Vertical agent tabs */}
         <div className="lg:col-span-4 flex flex-col">
           <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
@@ -167,10 +162,9 @@ export default function AgentsPage() {
                   <div className="flex flex-col gap-1.5 flex-1">
                     <div className="flex items-center gap-2">
                       <img
-                        src={`/assets/generated/agents/${agent.id}.svg`}
+                        src={`/assets/generated/agents/${agent.id}.png`}
                         alt={agent.name}
-                        className="w-6 h-6 rounded-full shrink-0"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        className="w-7 h-7 rounded-full shrink-0"
                       />
                       <HyperText
                         text={agent.name}
@@ -179,8 +173,12 @@ export default function AgentsPage() {
                           isActive ? 'text-foreground' : ''
                         )}
                       />
-                      {/* Online dot */}
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      {(() => {
+                        const d = daemons[agent.id]
+                        const hb = d?.last_heartbeat ? Date.now() - new Date(d.last_heartbeat).getTime() : Infinity
+                        const color = d?.paused ? 'bg-amber-400' : hb < 60000 ? 'bg-green-400 animate-pulse' : hb < 300000 ? 'bg-amber-400' : 'bg-red-400'
+                        return <span className={`w-1.5 h-1.5 rounded-full ${color}`} />
+                      })()}
                     </div>
 
                     <AnimatePresence mode="wait">
@@ -206,148 +204,172 @@ export default function AgentsPage() {
         </div>
 
         {/* Right (8 cols): Agent detail card */}
-        <div className="lg:col-span-8 flex flex-col">
-          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+        <div className="lg:col-span-8 flex flex-col gap-8">
+          <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em]">
             Agent Detail
           </p>
 
-          {/* Detail card — clean, no globe background */}
           <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
-          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[380px]">
-            {/* Animated agent content */}
-            <AnimatePresence initial={false} custom={direction} mode="popLayout">
-              <motion.div
-                key={activeIndex}
-                custom={direction}
-                variants={variants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{
-                  y: { type: 'spring', stiffness: 260, damping: 32 },
-                  opacity: { duration: 0.3 },
-                }}
-                className="relative z-10 p-6 h-full"
-              >
-                {/* Agent header */}
-                <div className="flex items-center gap-4 mb-6">
-                  <div
-                    className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: `linear-gradient(135deg, ${activeAgent.gradientColors})` }}
-                  >
-                    <img
-                      src={`/assets/generated/agents/${activeAgent.id}.svg`}
-                      alt={activeAgent.name}
-                      className="w-10 h-10 rounded-lg"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement
-                        target.style.display = 'none'
-                      }}
-                    />
+            <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-card min-h-[380px]">
+              <AnimatePresence initial={false} custom={direction} mode="popLayout">
+                <motion.div
+                  key={activeIndex}
+                  custom={direction}
+                  variants={variants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{
+                    y: { type: 'spring', stiffness: 260, damping: 32 },
+                    opacity: { duration: 0.3 },
+                  }}
+                  className="relative z-10 p-4 lg:p-8 h-full"
+                >
+                  {/* Agent header */}
+                  <div className="flex items-center gap-4 mb-6">
+                    <div
+                      className="w-14 h-14 rounded-xl flex items-center justify-center shrink-0 overflow-hidden"
+                      style={{ background: `linear-gradient(135deg, ${activeAgent.gradientColors})` }}
+                    >
+                      <img src={`/assets/generated/agents/${activeAgent.id}.png`} alt={activeAgent.name} className="w-10 h-10 rounded-lg" />
+                    </div>
+                    <div>
+                      <HyperText text={activeAgent.name} className="text-2xl font-bold text-foreground" />
+                      <p className="text-xs text-muted-foreground mt-0.5">{activeAgent.role}</p>
+                    </div>
+                    {(() => {
+                      const d = daemons[activeAgent.id]
+                      const hb = d?.last_heartbeat ? Date.now() - new Date(d.last_heartbeat).getTime() : Infinity
+                      const isRunning = !d?.paused && hb < 60000
+                      const isPaused = d?.paused
+                      const color = isPaused ? 'text-amber-400' : isRunning ? 'text-green-400' : hb < 300000 ? 'text-amber-400' : 'text-red-400'
+                      const dotColor = isPaused ? 'bg-amber-400' : isRunning ? 'bg-green-400 animate-pulse' : hb < 300000 ? 'bg-amber-400' : 'bg-red-400'
+                      const label = isPaused ? 'paused' : isRunning ? 'running' : hb < 300000 ? 'slow' : 'offline'
+                      return (
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                          <span className={`text-xs font-mono ${color}`}>{label}</span>
+                        </div>
+                      )
+                    })()}
                   </div>
-                  <div>
-                    <HyperText text={activeAgent.name} className="text-2xl font-bold text-foreground" />
-                    <p className="text-xs text-muted-foreground">{activeAgent.role}</p>
-                  </div>
-                  <div className="ml-auto flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-xs text-green-400 font-mono">running</span>
-                  </div>
-                </div>
 
-                <p className="text-sm text-muted-foreground mb-6 leading-relaxed max-w-lg">
-                  {activeAgent.description}
-                </p>
-
-                {/* Task list */}
-                <div className="mb-6">
-                  <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-3">
-                    Responsibilities
+                  <p className="text-sm text-muted-foreground mb-6 leading-relaxed max-w-lg">
+                    {activeAgent.description}
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {activeAgent.tasks.map((task, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2.5 border border-border/30 transition-all duration-200 hover:bg-white/10"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: activeAgent.color }} />
-                        {task}
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
-                {/* Recent events for this agent */}
-                {agentEvents.length > 0 && (
-                  <div>
+                  {/* Task list */}
+                  <div className="mb-6">
                     <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-3">
-                      Recent Activity
+                      Responsibilities
                     </p>
-                    <div className="space-y-1.5">
-                      {agentEvents.map((event: any, i) => (
-                        <div key={i} className="text-xs text-muted-foreground bg-white/5 rounded-lg px-3 py-2 border border-border/20 truncate">
-                          {event.message ?? event.type ?? JSON.stringify(event).slice(0, 80)}
+                    <div className="grid grid-cols-2 gap-2">
+                      {activeAgent.tasks.map((task, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2.5 text-xs text-muted-foreground bg-white/5 rounded-lg px-4 py-3 border border-border/30 transition-all duration-200 hover:bg-white/10"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: activeAgent.color }} />
+                          {task}
                         </div>
                       ))}
                     </div>
                   </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </div>
+
+                  {/* Recent events for this agent */}
+                  {agentEvents.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-3">
+                        Recent Activity
+                      </p>
+                      <div className="space-y-1.5">
+                        {agentEvents.map((event: any, i) => (
+                          <div key={i} className="text-xs text-muted-foreground bg-white/5 rounded-lg px-4 py-2.5 border border-border/20 truncate">
+                            {event.message ?? event.type ?? JSON.stringify(event).slice(0, 80)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </GlowCard>
+
+          {/* Inline Agent Chat — replaces broken MessageDock */}
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+              Message {activeAgent.name}
+            </p>
+            <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
+              <div className="rounded-xl border border-border/50 bg-card p-4 space-y-3">
+                {/* Chat history */}
+                {chatHistory.filter(h => h.agent === activeAgent.id).length > 0 && (
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {chatHistory.filter(h => h.agent === activeAgent.id).map((h, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-[10px] text-muted-foreground/40 mt-0.5 shrink-0">
+                          {h.time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{h.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+                  style={{ background: `linear-gradient(135deg, ${activeAgent.gradientColors})` }}
+                >
+                  <img src={`/assets/generated/agents/${activeAgent.id}.png`} alt={activeAgent.name} className="w-6 h-6" />
+                </div>
+                <input
+                  type="text"
+                  className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/40 outline-none"
+                  placeholder={`Message ${activeAgent.name}...`}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                />
+                <button
+                  onClick={handleChatSend}
+                  disabled={!chatInput.trim()}
+                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all disabled:opacity-30 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+                </div>
+              </div>
+            </GlowCard>
+          </div>
         </div>
       </div>
 
       {/* ── LEAD GEOGRAPHY ────────────────────────────────────────── */}
-      <div className="mt-8">
+      <div>
         <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
           Lead Geography
         </p>
         <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
-        <div className="rounded-2xl border border-border/50 bg-card p-6 flex flex-col items-center gap-4">
-          <div>
-            <p className="text-sm font-semibold text-foreground text-center">Global Lead Distribution</p>
-            <p className="text-xs text-muted-foreground text-center mt-1">
-              {GLOBE_MARKERS.length} active regions tracked by the pipeline
-            </p>
+          <div className="rounded-2xl border border-border/50 bg-card p-4 lg:p-8 flex flex-col items-center gap-4">
+            <div>
+              <p className="text-sm font-semibold text-foreground text-center">Global Lead Distribution</p>
+              <p className="text-xs text-muted-foreground text-center mt-1">
+                Regions will populate as leads enter the pipeline
+              </p>
+            </div>
+            <Globe
+              className="w-[200px] h-[200px] lg:w-[300px] lg:h-[300px]"
+              markers={[]}
+              dark={1}
+              baseColor={[0.1, 0.1, 0.15]}
+              markerColor={[0.35, 0.95, 0.8]}
+              glowColor={[0.2, 0.8, 0.7]}
+              mapBrightness={4}
+              speed={0.003}
+            />
+            <p className="text-[10px] text-muted-foreground/40">No lead data yet — connect pipeline to populate</p>
           </div>
-          <Globe
-            className="w-[300px] h-[300px]"
-            markers={GLOBE_MARKERS}
-            dark={1}
-            baseColor={[0.1, 0.1, 0.15]}
-            markerColor={[0.35, 0.95, 0.8]}
-            glowColor={[0.2, 0.8, 0.7]}
-            mapBrightness={4}
-            speed={0.003}
-          />
-          {/* Region labels */}
-          <div className="flex flex-wrap gap-2 justify-center">
-            {GLOBE_MARKERS.map((m) => (
-              <span key={m.id} className="text-[10px] font-mono text-muted-foreground/60 bg-white/5 px-2 py-1 rounded-md border border-border/20">
-                {m.label}
-              </span>
-            ))}
-          </div>
-        </div>
-        </GlowCard>
-      </div>
-
-      {/* ── AGENT CHAT ────────────────────────────────────────────── */}
-      <div className="mt-8">
-        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
-          Agent Chat
-        </p>
-        {/* MessageDock — full width, anchored to bottom of content */}
-        <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
-          <MessageDock
-            characters={dockCharacters}
-            theme="dark"
-            onMessageSend={handleMessageSend}
-            placeholder={(name) => `Message ${name}...`}
-            closeOnSend={false}
-          />
         </GlowCard>
       </div>
     </div>

@@ -17,6 +17,9 @@ export interface WarRoomData {
   pipeline: Record<string, number>
   leads: SyncPayload["leads"]
   events: SyncPayload["events"]
+  taskQueue: Record<string, number>
+  daemons: NonNullable<SyncPayload["daemons"]>
+  budget: NonNullable<SyncPayload["budget"]>
   connectionStatus: ConnectionStatus
   lastSyncTime: Date | null
   healthStatus: HealthStatus
@@ -24,11 +27,16 @@ export interface WarRoomData {
   metricHistory: MetricHistory
 }
 
+const defaultBudget = { percent_used: 0, remaining: 800, total_spent: 0, exceeded: false }
+
 const defaultData: WarRoomData = {
   health: null,
   pipeline: {},
   leads: [],
   events: [],
+  taskQueue: {},
+  daemons: {},
+  budget: defaultBudget,
   connectionStatus: "disconnected",
   lastSyncTime: null,
   healthStatus: "green",
@@ -127,6 +135,9 @@ export function WarRoomProvider({ children }: { children: React.ReactNode }) {
         pipeline: ws.data.pipeline,
         leads: ws.data.leads,
         events: ws.data.events,
+        taskQueue: ws.data.task_queue || {},
+        daemons: ws.data.daemons || {},
+        budget: ws.data.budget || defaultBudget,
         connectionStatus: ws.status,
         lastSyncTime: ws.lastSyncTime,
         healthStatus: computeHealthStatus(ws.data.health),
@@ -156,6 +167,9 @@ export function WarRoomProvider({ children }: { children: React.ReactNode }) {
       pipeline: swrPipeline || {},
       leads: swrLeads || [],
       events: swrEvents || [],
+      taskQueue: {},
+      daemons: {},
+      budget: defaultBudget,
       connectionStatus: ws.status === "disconnected" ? (swrHealth ? "polling" : "disconnected") : ws.status,
       lastSyncTime: swrHealth ? new Date() : null,
       healthStatus: computeHealthStatus(health),

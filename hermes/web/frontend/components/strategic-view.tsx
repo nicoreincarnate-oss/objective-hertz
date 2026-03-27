@@ -160,7 +160,7 @@ export function StrategicView({ token }: { token: string | null }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.35 }}
-      className="glass-card-elevated hud-panel rounded-xl p-5 md:p-6 flex flex-col"
+      className="glass-card-elevated hud-panel rounded-xl p-8 flex flex-col"
       style={{ minHeight: 380 }}
     >
       <h2 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">

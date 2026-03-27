@@ -96,7 +96,7 @@ export function SignalLedger({ events }: SignalLedgerProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.5 }}
-      className="glass-card-elevated hud-panel rounded-xl p-5 md:p-6"
+      className="glass-card-elevated hud-panel rounded-xl p-8"
     >
       {/* Header with filter toggle */}
       <div className="flex items-center justify-between mb-4">

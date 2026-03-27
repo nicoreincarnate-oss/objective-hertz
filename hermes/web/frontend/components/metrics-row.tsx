@@ -106,9 +106,9 @@ export function MetricsRow({
       value: pipelineVelocity,
       prefix: '',
       decimals: 1,
-      suffix: '/d',
+      suffix: '',
       color: 'teal',
-      subtext: 'Leads/day',
+      subtext: 'Leads per day',
       sparklineColor: '#39f3e2',
     },
     {
@@ -169,18 +169,18 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
       >
         {/* ─── FRONT ─── */}
         <div
-          className="glass-card hud-panel rounded-xl p-3"
+          className="glass-card hud-panel rounded-xl p-4"
           style={{
             position: 'absolute',
             inset: 0,
             backfaceVisibility: 'hidden',
           }}
         >
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center gap-1.5 mb-3">
             <div className={`${colorClasses[metric.color]} opacity-60`}>{metric.icon}</div>
             <HyperText text={metric.label} className="text-[10px] text-muted-foreground uppercase tracking-wider truncate" />
           </div>
-          <div className={`text-xl font-bold ${colorClasses[metric.color]} leading-none mb-1`}>
+          <div className={`text-xl font-bold ${colorClasses[metric.color]} leading-none mb-1.5`}>
             {metric.prefix}
             <NumberTicker
               value={metric.value}
@@ -194,7 +194,7 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
 
         {/* ─── BACK ─── */}
         <div
-          className="glass-card hud-panel rounded-xl p-3 flex flex-col"
+          className="glass-card hud-panel rounded-xl p-4 flex flex-col"
           style={{
             position: 'absolute',
             inset: 0,

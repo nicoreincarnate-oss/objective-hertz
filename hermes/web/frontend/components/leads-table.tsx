@@ -251,7 +251,7 @@ export function LeadsTable({ leads }: LeadsTableProps) {
         className="glass-card-elevated hud-panel rounded-xl overflow-hidden"
       >
         {/* Header with search and filters */}
-        <div className="p-5 md:p-6 border-b border-border">
+        <div className="p-4 lg:p-8 border-b border-border">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Users className="w-5 h-5 text-gold" />
@@ -262,7 +262,7 @@ export function LeadsTable({ leads }: LeadsTableProps) {
 
           {/* Search + filter row */}
           <div className="flex gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
+            <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 value={globalFilter}

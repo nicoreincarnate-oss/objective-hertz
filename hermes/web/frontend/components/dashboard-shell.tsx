@@ -44,7 +44,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <CinematicBackdrop />
         <div className="relative z-10">
           <WarRoomNav />
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <main className="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10 py-8">
             {children}
           </main>
         </div>

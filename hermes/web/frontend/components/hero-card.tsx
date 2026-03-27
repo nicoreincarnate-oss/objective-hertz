@@ -39,7 +39,7 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
       {/* Hero banner background image */}
       <div className="absolute inset-0 overflow-hidden rounded-2xl">
         <img
-          src="/assets/generated/hero-banner.svg"
+          src="/assets/generated/hero-banner.png"
           alt=""
           className="absolute inset-0 w-full h-full object-cover opacity-40"
         />
@@ -92,7 +92,7 @@ export function HeroCard({ mode, pendingApprovals, emailsSent, warmLeads, salesC
 
       {/* Main card — elevated glass */}
       <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
-      <div className="relative glass-card-elevated hud-panel rounded-2xl p-6 breathing-glow">
+      <div className="relative glass-card-elevated hud-panel rounded-2xl p-8 breathing-glow">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

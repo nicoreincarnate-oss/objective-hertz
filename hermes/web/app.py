@@ -32,7 +32,7 @@ from starlette.responses import Response, StreamingResponse
 from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
-from shared.db import emit_event, fetch_all, fetch_val, get_config, insert_task
+from shared.db import emit_event, execute, fetch_all, fetch_val, get_config, insert_task, set_config
 from shared.observability import (
     configure_service_observability,
     prometheus_content_type,
@@ -564,12 +564,50 @@ async def _build_sync_payload() -> dict:
             },
         }
 
+        # Task queue summary
+        task_rows = await fetch_all(
+            "SELECT status, COUNT(*) as cnt FROM task_queue GROUP BY status"
+        )
+        task_summary = {r["status"]: int(r["cnt"]) for r in task_rows}
+
+        # Daemon heartbeats
+        daemon_rows = await fetch_all(
+            "SELECT agent_name, status, last_heartbeat FROM agent_registry"
+        )
+        daemons = {}
+        for r in daemon_rows:
+            name = r["agent_name"]
+            paused = await get_config(f"{name}_paused", False)
+            daemons[name] = {
+                "status": r.get("status", "unknown"),
+                "last_heartbeat": str(r["last_heartbeat"]) if r.get("last_heartbeat") else None,
+                "paused": bool(paused),
+            }
+
+        # Budget summary
+        try:
+            from tools.budget_guard import get_month_spending
+            from shared.config import config as _cfg
+            cap = getattr(_cfg, "monthly_cap", 800)
+            budget_data = await get_month_spending(cap)
+            budget = {
+                "percent_used": budget_data.get("percent_used", 0),
+                "remaining": budget_data.get("remaining", cap),
+                "total_spent": budget_data.get("total_spent", 0),
+                "exceeded": budget_data.get("exceeded", False),
+            }
+        except Exception:
+            budget = {"percent_used": 0, "remaining": 800, "total_spent": 0, "exceeded": False}
+
         return {
             "type": "sync",
             "health": health,
             "pipeline": pipeline,
             "leads": leads,
             "events": events,
+            "task_queue": task_summary,
+            "daemons": daemons,
+            "budget": budget,
         }
     except Exception as e:
         logger.error("WebSocket sync build failed: %s", e)
@@ -601,7 +639,7 @@ async def websocket_endpoint(ws: WebSocket):
         if not hmac.compare_digest(token, secret):
             await ws.close(code=4001, reason="Invalid token")
             return
-    except (asyncio.TimeoutError, json.JSONDecodeError):
+    except (TimeoutError, json.JSONDecodeError):
         await ws.close(code=4001, reason="Auth timeout or invalid format")
         return
 
@@ -609,17 +647,11 @@ async def websocket_endpoint(ws: WebSocket):
     _ws_connections.add(ws)
     logger.info("WebSocket client connected (%d total)", len(_ws_connections))
 
-    last_event_id = 0
     try:
         while True:
             # Build and send full sync
             payload = await _build_sync_payload()
             await ws.send_json(payload)
-
-            # Track latest event ID for incremental pushes
-            events = payload.get("events", [])
-            if events:
-                last_event_id = max(e.get("id", 0) for e in events)
 
             # Wait 5 seconds, but also listen for client messages (pings, etc.)
             try:
@@ -629,7 +661,7 @@ async def websocket_endpoint(ws: WebSocket):
                     data = json.loads(msg)
                     if data.get("type") == "ping":
                         await ws.send_json({"type": "pong"})
-            except (asyncio.TimeoutError, json.JSONDecodeError):
+            except (TimeoutError, json.JSONDecodeError):
                 pass  # Normal — 5-second sync interval elapsed, or malformed client ping
 
     except WebSocketDisconnect:
@@ -660,14 +692,12 @@ async def api_lead_action(lead_id: int, request: Request):
         return JSONResponse({"error": "Lead not found"}, status_code=404)
 
     if action == "approve":
-        from shared.db import execute
         await execute(
             "UPDATE review_queue SET status = 'approved' WHERE client_id = %s AND status = 'pending_review'",
             (lead_id,),
         )
         await emit_event("lead_approved", {"lead_id": lead_id, "source": "operator"})
     elif action == "reject":
-        from shared.db import execute
         await execute(
             "UPDATE review_queue SET status = 'rejected' WHERE client_id = %s AND status = 'pending_review'",
             (lead_id,),
@@ -678,6 +708,431 @@ async def api_lead_action(lead_id: int, request: Request):
         await emit_event("lead_escalated", {"lead_id": lead_id, "source": "operator"})
 
     return JSONResponse({"success": True, "action": action, "lead_id": lead_id})
+
+
+# ── War Room Control Plane ─────────────────────────────────────────────
+
+_CONFIG_ALLOWLIST = {
+    "review_mode", "sales_before_autonomy", "daily_email_cap",
+    "monthly_budget_cap", "pipeline_pause", "warm_up_phase",
+    "expansion_enabled", "auto_approve_threshold", "target_industries",
+    "email_daily_target",
+    # Model selection
+    "model_primary", "model_fast", "model_genius",
+}
+
+# API keys that can be managed from the dashboard
+_API_KEY_REGISTRY = {
+    # AI & Models
+    "anthropic": {"env": "ANTHROPIC_API_KEY", "label": "Claude / Anthropic", "required": True, "category": "ai"},
+    "kling_access": {"env": "KLING_ACCESS_KEY", "label": "Kling AI (Access Key)", "required": False, "category": "ai"},
+    "kling_secret": {"env": "KLING_SECRET_KEY", "label": "Kling AI (Secret Key)", "required": False, "category": "ai"},
+    "recraft": {"env": "RECRAFT_API_KEY", "label": "Recraft AI (Images)", "required": False, "category": "ai"},
+    "vast_ai": {"env": "VAST_AI_API_KEY", "label": "Vast.ai (Cloud GPU)", "required": False, "category": "ai"},
+    "v0": {"env": "V0_API_KEY", "label": "v0.dev (Vercel AI)", "required": False, "category": "ai"},
+    # Scraping & Research
+    "firecrawl": {"env": "FIRECRAWL_API_KEY", "label": "Firecrawl (Web Scraping)", "required": True, "category": "scraping"},
+    "firecrawl_self_host": {"env": "FIRECRAWL_SELF_HOST_URL", "label": "Firecrawl Self-Host URL", "required": False, "category": "scraping"},
+    # Outreach
+    "instantly": {"env": "INSTANTLY_API_KEY", "label": "Instantly (Email Campaigns)", "required": True, "category": "outreach"},
+    # Payments
+    "stripe": {"env": "STRIPE_API_KEY", "label": "Stripe (Payments)", "required": True, "category": "payments"},
+    "wise": {"env": "WISE_API_TOKEN", "label": "Wise (Payouts)", "required": False, "category": "payments"},
+    "wise_profile": {"env": "WISE_PROFILE_ID", "label": "Wise Profile ID", "required": False, "category": "payments"},
+    # Hosting & DNS
+    "netlify": {"env": "NETLIFY_AUTH_TOKEN", "label": "Netlify (Site Hosting)", "required": True, "category": "hosting"},
+    "cloudflare": {"env": "CLOUDFLARE_API_TOKEN", "label": "Cloudflare (DNS)", "required": False, "category": "hosting"},
+    "vercel": {"env": "VERCEL_TOKEN", "label": "Vercel Token", "required": False, "category": "hosting"},
+    # Communications
+    "telegram_bot": {"env": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token", "required": True, "category": "comms"},
+    "telegram_chat": {"env": "TELEGRAM_CHAT_ID", "label": "Telegram Chat ID", "required": True, "category": "comms"},
+    "telegram_admin": {"env": "TELEGRAM_ADMIN_SECRET", "label": "Telegram Admin Secret", "required": False, "category": "comms"},
+    "twilio_sid": {"env": "TWILIO_ACCOUNT_SID", "label": "Twilio Account SID", "required": False, "category": "comms"},
+    "twilio_auth": {"env": "TWILIO_AUTH_TOKEN", "label": "Twilio Auth Token", "required": False, "category": "comms"},
+    "telnyx": {"env": "TELNYX_API_KEY", "label": "Telnyx (Voice)", "required": False, "category": "comms"},
+    "telnyx_conn": {"env": "TELNYX_CONNECTION_ID", "label": "Telnyx Connection ID", "required": False, "category": "comms"},
+    "whatsapp": {"env": "WHATSAPP_ACCESS_TOKEN", "label": "WhatsApp Access Token", "required": False, "category": "comms"},
+    # Automation & Tools
+    "n8n_user": {"env": "N8N_USER", "label": "N8N Username", "required": False, "category": "tools"},
+    "n8n_password": {"env": "N8N_PASSWORD", "label": "N8N Password", "required": False, "category": "tools"},
+    "composio": {"env": "COMPOSIO_API_KEY", "label": "Composio (Gmail/Google)", "required": False, "category": "tools"},
+    # Observability
+    "sentry": {"env": "SENTRY_DSN", "label": "Sentry DSN", "required": False, "category": "observability"},
+    "dashboard_secret": {"env": "DASHBOARD_SECRET", "label": "War Room Dashboard Secret", "required": True, "category": "system"},
+    # Crypto / Conway
+    "conway_api": {"env": "CONWAY_API_KEY", "label": "Conway API Key", "required": False, "category": "crypto"},
+    "base_rpc": {"env": "BASE_RPC_URL", "label": "Base L2 RPC URL", "required": False, "category": "crypto"},
+}
+
+
+@app.get("/api/config")
+async def api_config_get():
+    """Read all runtime config keys from system_config table."""
+    result = {}
+    for key in _CONFIG_ALLOWLIST:
+        result[key] = await get_config(key, None)
+    return JSONResponse(result)
+
+
+@app.post("/api/config")
+async def api_config_set(request: Request):
+    """Update a runtime config key."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    key = body.get("key", "")
+    if key not in _CONFIG_ALLOWLIST:
+        return JSONResponse({"error": f"Unknown config key: {key}"}, status_code=400)
+
+    value = body.get("value")
+    await set_config(key, value)
+    await emit_event("config_changed", {"key": key, "value": value, "source": "war_room"})
+    return JSONResponse({"success": True, "key": key, "value": value})
+
+
+@app.get("/api/budget")
+async def api_budget():
+    """Budget breakdown from budget_guard."""
+    try:
+        from tools.budget_guard import get_month_spending
+        from shared.config import config
+        cap = getattr(config, "monthly_cap", 800)
+        budget = await get_month_spending(cap)
+        return JSONResponse(budget)
+    except Exception as e:
+        # Fallback if budget_guard not available
+        return JSONResponse({
+            "total_spent": 0, "remaining": 800, "percent_used": 0,
+            "exceeded": False, "categories": [], "error": str(e),
+        })
+
+
+@app.get("/api/tasks")
+async def api_tasks(request: Request):
+    """Task queue visibility — filter by status and agent."""
+    status = request.query_params.get("status")
+    agent = request.query_params.get("agent")
+    limit = int(request.query_params.get("limit", "50"))
+
+    conditions = []
+    params: list = []
+    if status:
+        conditions.append("status = %s")
+        params.append(status)
+    if agent:
+        conditions.append("task_type LIKE %s")
+        params.append(f"{agent}%")
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(min(limit, 200))
+
+    rows = await fetch_all(
+        f"SELECT id, task_type, payload, priority, status, created_at, updated_at "
+        f"FROM task_queue {where} ORDER BY created_at DESC LIMIT %s",
+        tuple(params),
+    )
+    tasks = []
+    for r in rows:
+        payload = r.get("payload", {})
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        tasks.append({
+            "id": r["id"],
+            "task_type": r["task_type"],
+            "payload": payload,
+            "priority": r.get("priority", 5),
+            "status": r["status"],
+            "created_at": str(r["created_at"]) if r.get("created_at") else None,
+            "updated_at": str(r["updated_at"]) if r.get("updated_at") else None,
+        })
+    return JSONResponse(tasks)
+
+
+@app.get("/api/daemons")
+async def api_daemons():
+    """Daemon status from agent_registry table."""
+    rows = await fetch_all(
+        "SELECT agent_name, status, last_heartbeat, metadata "
+        "FROM agent_registry ORDER BY agent_name"
+    )
+    daemons = {}
+    for r in rows:
+        name = r["agent_name"]
+        paused = await get_config(f"{name}_paused", False)
+        daemons[name] = {
+            "status": r.get("status", "unknown"),
+            "last_heartbeat": str(r["last_heartbeat"]) if r.get("last_heartbeat") else None,
+            "paused": bool(paused),
+        }
+    return JSONResponse(daemons)
+
+
+@app.post("/api/daemons/{name}/action")
+async def api_daemon_action(name: str, request: Request):
+    """Pause/resume a daemon via config flag."""
+    valid_daemons = {"perseus", "titan", "hermes", "clawdbot"}
+    if name not in valid_daemons:
+        return JSONResponse({"error": f"Unknown daemon: {name}"}, status_code=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    action = body.get("action", "")
+    if action == "pause":
+        await set_config(f"{name}_paused", True)
+        await emit_event("daemon_control", {"daemon": name, "action": "pause", "source": "war_room"})
+    elif action == "resume":
+        await set_config(f"{name}_paused", False)
+        await emit_event("daemon_control", {"daemon": name, "action": "resume", "source": "war_room"})
+    else:
+        return JSONResponse({"error": f"Unknown action: {action}"}, status_code=400)
+
+    return JSONResponse({"success": True, "daemon": name, "action": action})
+
+
+@app.post("/api/review/bulk")
+async def api_review_bulk(request: Request):
+    """Bulk approve/reject review queue items."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    action = body.get("action", "")
+    ids = body.get("ids")  # Optional: specific IDs
+
+    if action == "approve_all":
+        result = await fetch_val(
+            "UPDATE review_queue SET status = 'approved' "
+            "WHERE status = 'pending_review' RETURNING COUNT(*)"
+        )
+        # Also count for feedback
+        count = await fetch_val(
+            "SELECT COUNT(*) FROM review_queue WHERE status = 'approved' "
+            "AND updated_at > NOW() - INTERVAL '5 seconds'"
+        ) or 0
+        await emit_event("bulk_approve", {"count": int(count), "source": "war_room"})
+        return JSONResponse({"success": True, "action": "approve_all", "affected": int(count)})
+
+    elif action == "reject_all":
+        await execute(
+            "UPDATE review_queue SET status = 'rejected' WHERE status = 'pending_review'"
+        )
+        count = await fetch_val(
+            "SELECT COUNT(*) FROM review_queue WHERE status = 'rejected' "
+            "AND updated_at > NOW() - INTERVAL '5 seconds'"
+        ) or 0
+        await emit_event("bulk_reject", {"count": int(count), "source": "war_room"})
+        return JSONResponse({"success": True, "action": "reject_all", "affected": int(count)})
+
+    elif action in ("approve", "reject") and ids:
+        status_val = "approved" if action == "approve" else "rejected"
+        for rid in ids:
+            await execute(
+                "UPDATE review_queue SET status = %s WHERE id = %s AND status = 'pending_review'",
+                (status_val, rid),
+            )
+        await emit_event(f"bulk_{action}", {"ids": ids, "source": "war_room"})
+        return JSONResponse({"success": True, "action": action, "affected": len(ids)})
+
+    return JSONResponse({"error": f"Unknown action: {action}"}, status_code=400)
+
+
+@app.post("/api/pipeline/run")
+async def api_pipeline_run():
+    """Trigger a full pipeline run by inserting a task."""
+    task_id = await insert_task(
+        "titan_pipeline_run",
+        {"source": "war_room", "full_run": True},
+        priority=1,
+        dedupe=False,
+    )
+    await emit_event("pipeline_triggered", {"task_id": task_id, "source": "war_room"})
+    return JSONResponse({"success": True, "task_id": task_id, "status": "queued"})
+
+
+@app.get("/api/campaigns")
+async def api_campaigns():
+    """List email campaigns from Instantly."""
+    try:
+        from tools.instantly_client import InstantlyClient
+        client = InstantlyClient()
+        campaigns = await client.list_campaigns()
+        return JSONResponse(campaigns if isinstance(campaigns, list) else [])
+    except Exception as e:
+        return JSONResponse({"error": str(e), "campaigns": []})
+
+
+@app.post("/api/campaigns/{campaign_id}/action")
+async def api_campaign_action(campaign_id: str, request: Request):
+    """Activate or stop an email campaign."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    action = body.get("action", "")
+    try:
+        from tools.instantly_client import InstantlyClient
+        client = InstantlyClient()
+        if action == "activate":
+            result = await client.activate_campaign(campaign_id)
+        elif action == "stop":
+            result = await client.stop_campaign(campaign_id)
+        else:
+            return JSONResponse({"error": f"Unknown action: {action}"}, status_code=400)
+
+        await emit_event("campaign_control", {
+            "campaign_id": campaign_id, "action": action, "source": "war_room",
+        })
+        return JSONResponse({"success": True, "action": action, "result": result})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/campaigns/{campaign_id}/analytics")
+async def api_campaign_analytics(campaign_id: str):
+    """Campaign analytics from Instantly."""
+    try:
+        from tools.instantly_client import InstantlyClient
+        client = InstantlyClient()
+        analytics = await client.get_campaign_analytics(campaign_id)
+        return JSONResponse(analytics)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/learnings")
+async def api_learnings(request: Request):
+    """AI learnings from titan_learnings table."""
+    limit = int(request.query_params.get("limit", "50"))
+    rows = await fetch_all(
+        "SELECT id, category, insight, confidence, source_lead_id, created_at "
+        "FROM titan_learnings ORDER BY created_at DESC LIMIT %s",
+        (min(limit, 200),),
+    )
+    return JSONResponse([
+        {
+            "id": r["id"],
+            "category": r.get("category", ""),
+            "insight": r.get("insight", ""),
+            "confidence": float(r.get("confidence", 0)),
+            "source_lead_id": r.get("source_lead_id"),
+            "created_at": str(r["created_at"]) if r.get("created_at") else None,
+        }
+        for r in rows
+    ])
+
+
+@app.get("/api/decisions")
+async def api_decisions(request: Request):
+    """Decision audit trail from agent_decisions table."""
+    limit = int(request.query_params.get("limit", "50"))
+    rows = await fetch_all(
+        "SELECT id, agent, decision_type, context, decision, reasoning, outcome, created_at "
+        "FROM agent_decisions ORDER BY created_at DESC LIMIT %s",
+        (min(limit, 200),),
+    )
+    results = []
+    for r in rows:
+        ctx = r.get("context", {})
+        if isinstance(ctx, str):
+            try:
+                ctx = json.loads(ctx)
+            except (json.JSONDecodeError, TypeError):
+                ctx = {}
+        results.append({
+            "id": r["id"],
+            "agent": r.get("agent", ""),
+            "decision_type": r.get("decision_type", ""),
+            "context": ctx,
+            "decision": r.get("decision", ""),
+            "reasoning": r.get("reasoning", ""),
+            "outcome": r.get("outcome"),
+            "created_at": str(r["created_at"]) if r.get("created_at") else None,
+        })
+    return JSONResponse(results)
+
+
+# ── API Key Management ─────────────────────────────────────────────────
+
+
+def _mask_key(value: str) -> str:
+    """Mask an API key, showing only last 4 chars."""
+    if not value or len(value) <= 4:
+        return "****"
+    return "*" * (len(value) - 4) + value[-4:]
+
+
+@app.get("/api/keys")
+async def api_keys_list():
+    """List all API keys with masked values. Never returns full keys."""
+    result = {}
+    for key_id, meta in _API_KEY_REGISTRY.items():
+        # Check DB override first, then env var
+        db_val = await get_config(f"api_key_{key_id}", None)
+        env_val = os.environ.get(meta["env"], "")
+        raw = str(db_val) if db_val else env_val
+        result[key_id] = {
+            "label": meta["label"],
+            "env": meta["env"],
+            "required": meta["required"],
+            "configured": bool(raw),
+            "masked": _mask_key(raw) if raw else "",
+            "source": "dashboard" if db_val else ("env" if env_val else "none"),
+        }
+    return JSONResponse(result)
+
+
+@app.post("/api/keys")
+async def api_keys_update(request: Request):
+    """Update an API key. Stored in system_config (DB), also set in os.environ for current process."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    key_id = body.get("key_id", "")
+    value = body.get("value", "")
+
+    if key_id not in _API_KEY_REGISTRY:
+        return JSONResponse({"error": f"Unknown key: {key_id}"}, status_code=400)
+
+    if not value:
+        return JSONResponse({"error": "Value cannot be empty"}, status_code=400)
+
+    meta = _API_KEY_REGISTRY[key_id]
+
+    # Store in DB for persistence across restarts
+    await set_config(f"api_key_{key_id}", value)
+
+    # Also set in current process env so services pick it up immediately
+    os.environ[meta["env"]] = value
+
+    await emit_event("api_key_updated", {"key_id": key_id, "label": meta["label"], "source": "war_room"})
+
+    return JSONResponse({
+        "success": True,
+        "key_id": key_id,
+        "masked": _mask_key(value),
+    })
+
+
+@app.delete("/api/keys/{key_id}")
+async def api_keys_delete(key_id: str):
+    """Remove a dashboard-set API key override (reverts to .env value)."""
+    if key_id not in _API_KEY_REGISTRY:
+        return JSONResponse({"error": f"Unknown key: {key_id}"}, status_code=400)
+
+    await set_config(f"api_key_{key_id}", None)
+    return JSONResponse({"success": True, "key_id": key_id})
 
 
 # ── Phase 1: Streaming Insights (SSE) ──────────────────────────────────

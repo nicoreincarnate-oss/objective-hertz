@@ -49,6 +49,12 @@ class OllamaConfig:
     model: str = _env("OLLAMA_MODEL", "qwen2.5:14b-instruct-q4_K_M")
     secondary: str = _env("OLLAMA_SECONDARY", "llama3.2:3b")
     embed_model: str = _env("OLLAMA_EMBED", "nomic-embed-text")
+    # TurboQuant KV cache compression (requires Ollama >= 0.6.2)
+    # "turbo3" = 3.25 bits/val, 4.9x compression, ~1% PPL loss
+    # "turbo4" = 4.25 bits/val, 3.8x compression, near-zero PPL loss
+    # Set to "" to disable (uses default FP16 KV cache)
+    kv_cache_type: str = _env("OLLAMA_KV_CACHE_TYPE", "turbo4")
+    flash_attention: bool = _env("OLLAMA_FLASH_ATTENTION", "true").lower() == "true"
 
 
 @dataclass(frozen=True)

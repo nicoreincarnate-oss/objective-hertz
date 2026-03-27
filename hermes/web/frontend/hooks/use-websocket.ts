@@ -33,6 +33,19 @@ export interface SyncPayload {
     created_at: string | null
     acknowledged: boolean
   }>
+  // Extended sync fields (Phase 1 upgrade)
+  task_queue?: Record<string, number>
+  daemons?: Record<string, {
+    status: string
+    last_heartbeat: string | null
+    paused: boolean
+  }>
+  budget?: {
+    percent_used: number
+    remaining: number
+    total_spent: number
+    exceeded: boolean
+  }
 }
 
 export type ConnectionStatus = "connected" | "polling" | "disconnected"

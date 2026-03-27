@@ -154,16 +154,16 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
 
   return (
     <div className="bg-card border border-border/50 rounded-xl overflow-hidden flex flex-col h-full">
-      <div className="p-6 border-b border-border/50 flex items-center justify-between shrink-0">
+      <div className="px-4 lg:px-8 py-4 lg:py-6 border-b border-border/50 flex items-center justify-between shrink-0">
         <div>
           <h2 className="text-sm font-semibold text-foreground">Pipeline Stages</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">13-stage Titan revenue engine</p>
+          <p className="text-[10px] text-muted-foreground mt-1">7-stage Titan revenue engine</p>
         </div>
         <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
           {stages.filter(s => s.status === 'completed').length}/{stages.length} done
         </span>
       </div>
-      <div className="p-6 overflow-y-auto flex-1">
+      <div className="px-4 lg:px-8 py-4 lg:py-5 overflow-y-auto flex-1">
         <LayoutGroup>
           <ul className="space-y-0.5">
             {stages.map((stage, index) => {
@@ -217,7 +217,7 @@ function PipelineAgentPlan({ pipeline }: { pipeline: Record<string, number> }) {
                         <div className="absolute top-0 bottom-0 left-[20px] border-l border-dashed border-border/40" />
                         <ul className="mt-0.5 mb-1.5 ml-3 mr-2 space-y-0.5">
                           {stage.subtasks.map(sub => (
-                            <li key={sub.id} className="flex items-center gap-2 pl-6 py-1 rounded-md hover:bg-white/5 cursor-pointer transition-all duration-200">
+                            <li key={sub.id} className="flex items-center gap-2.5 pl-6 py-1.5 rounded-md hover:bg-white/5 cursor-pointer transition-all duration-200">
                               <div className="flex-shrink-0">{statusIcon(sub.status, 'h-3 w-3')}</div>
                               <span className={`text-xs ${sub.status === 'completed' ? 'line-through text-muted-foreground/50' : 'text-muted-foreground'}`}>
                                 {sub.title}
@@ -242,7 +242,7 @@ export default function PipelinePage() {
   const { pipeline, leads } = useWarRoom()
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 overflow-hidden">
       {/* Page header */}
       <div>
         <HyperText text="Pipeline" className="text-2xl font-bold text-foreground" />
@@ -254,29 +254,25 @@ export default function PipelinePage() {
        * Both panes stretch to equal height (items-stretch) for visual balance.
        * gap-6 ensures consistent space between the two panels.
        */}
-      <div className="grid lg:grid-cols-12 gap-6 items-stretch min-h-[600px]">
+      <div className="grid lg:grid-cols-12 gap-6 lg:gap-8 items-stretch lg:min-h-[600px] overflow-hidden">
         {/* Left (5 cols): AgentPlan-style pipeline stages */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
+        <div className="lg:col-span-5 flex flex-col gap-6 min-w-0 overflow-hidden">
           <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em]">
             Stage Progress
           </p>
-          <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none flex-1">
-            <div className="flex-1">
-              <PipelineAgentPlan pipeline={pipeline ?? {}} />
-            </div>
-          </GlowCard>
+          <div className="flex-1 min-w-0">
+            <PipelineAgentPlan pipeline={pipeline ?? {}} />
+          </div>
         </div>
 
         {/* Right (7 cols): Leads table */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
+        <div className="lg:col-span-7 flex flex-col gap-6 min-w-0 overflow-hidden">
           <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em]">
             Active Leads
           </p>
-          <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none flex-1">
-            <div className="flex-1">
-              <LeadsTable leads={leads ?? []} />
-            </div>
-          </GlowCard>
+          <div className="flex-1 min-w-0">
+            <LeadsTable leads={leads ?? []} />
+          </div>
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, GitBranch, Bot, Brain, LogOut,
+  LayoutDashboard, GitBranch, Bot, Brain, Key, LogOut,
 } from 'lucide-react'
 import { Marquee } from '@/components/ui/marquee'
 import { useWarRoom } from '@/contexts/war-room-context'
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/pipeline', label: 'Pipeline', icon: GitBranch, shortcut: '⌘2' },
   { href: '/agents', label: 'Agents', icon: Bot, shortcut: '⌘3' },
   { href: '/intel', label: 'Intel', icon: Brain, shortcut: '⌘4' },
+  { href: '/settings', label: 'Settings', icon: Key, shortcut: '⌘5' },
 ]
 
 function AlertTicker() {
@@ -52,17 +53,18 @@ export function WarRoomNav() {
       {/* Nav bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
-          {/* Logo — slightly larger */}
-          <div className="flex items-center gap-2.5">
-            <div className="relative">
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <img src="/assets/perseus-logo.png" alt="Perseus" className="w-7 h-7" />
+            <div className="flex items-center gap-2">
+              <span className="text-base font-bold tracking-[0.18em] text-gold">PERSEUS</span>
               <div
-                className={`w-2.5 h-2.5 rounded-full ${
+                className={`w-2 h-2 rounded-full ${
                   healthStatus === 'green' ? 'bg-green shadow-[0_0_6px_currentColor] text-green-400' :
                   healthStatus === 'amber' ? 'bg-amber shadow-[0_0_6px_currentColor] text-amber-400' : 'bg-red shadow-[0_0_6px_currentColor] text-red-400'
                 }`}
               />
             </div>
-            <span className="text-base font-bold tracking-[0.18em] text-gold">PERSEUS</span>
           </div>
 
           {/* Nav links */}
