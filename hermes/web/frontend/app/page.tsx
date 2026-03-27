@@ -57,7 +57,7 @@ function WarRoomDashboard() {
 
   const revenueCleared = health?.metrics?.revenue_cleared ?? 0
   const pendingRevenue = health?.metrics?.revenue_pending ?? 0
-  const totalLeads = (leads?.length ?? 0)
+  const totalLeads = leads?.length ?? 0
   const closedLeads = health?.metrics?.sales_closed ?? 0
   const closeRate = totalLeads > 0 ? (closedLeads / totalLeads) * 100 : 0
 
@@ -124,7 +124,7 @@ function WarRoomDashboard() {
 
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
           <AgentChat token={token!} />
-          {pipeline && Object.keys(pipeline).length > 0 && <PipelinePulse data={pipeline} leads={leads} />}
+          <PipelinePulse data={pipeline ?? {}} leads={leads ?? []} />
         </div>
 
         <section className="mb-6">
@@ -132,11 +132,11 @@ function WarRoomDashboard() {
         </section>
 
         <section className="mb-6">
-          {events && events.length > 0 && <SignalLedger events={events} />}
+          <SignalLedger events={events ?? []} />
         </section>
 
         <section>
-          {leads && leads.length > 0 && <LeadsTable leads={leads} />}
+          <LeadsTable leads={leads ?? []} />
         </section>
 
         <footer className="mt-8 pt-6 border-t border-border flex items-center justify-between">
