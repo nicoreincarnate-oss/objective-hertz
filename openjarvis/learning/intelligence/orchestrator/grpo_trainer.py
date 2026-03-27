@@ -17,7 +17,7 @@ import logging
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Optional imports -----------------------------------------------------------
 try:
@@ -74,7 +74,7 @@ class OrchestratorGRPOConfig:
     clip_ratio: float = 0.2
 
     # Environment
-    available_tools: List[str] = field(
+    available_tools: list[str] = field(
         default_factory=lambda: [
             "calculator",
             "think",
@@ -187,7 +187,7 @@ class OrchestratorGRPOTrainer:
             if (epoch + 1) % self.config.save_every_n_epochs == 0:
                 self._save_checkpoint(epoch)
 
-    def _train_epoch(self, epoch: int) -> Dict[str, float]:
+    def _train_epoch(self, epoch: int) -> dict[str, float]:
         if self.policy.model is None:
             return {"epoch": epoch, "loss": 0.0, "reward": 0.0}
 
@@ -196,20 +196,57 @@ class OrchestratorGRPOTrainer:
         total_reward = 0.0
         num_batches = 0
 
-        # In a real implementation, iterate over a task dataset.
-        # Here we provide the skeleton; actual data loading is
-        # trainer-specific.
-        self.global_step += 1
-        num_batches = max(num_batches, 1)
+        tasks = self._load_tasks()
+        if not tasks:
+            logger.warning("No training tasks available for GRPO epoch %d", epoch)
+            return {"epoch": epoch, "loss": 0.0, "reward": 0.0}
+
+        # Batch tasks and run _grpo_step on each batch
+        for i in range(0, len(tasks), self.config.batch_size):
+            batch = tasks[i : i + self.config.batch_size]
+            prompts = [t["prompt"] for t in batch]
+            ground_truths = [t.get("ground_truth", "") for t in batch]
+
+            loss, reward = self._grpo_step(prompts, ground_truths)
+            total_loss += loss
+            total_reward += reward
+            num_batches += 1
+            self.global_step += 1
 
         avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
         avg_reward = total_reward / num_batches if num_batches > 0 else 0.0
         return {"epoch": epoch, "loss": avg_loss, "reward": avg_reward}
 
+    def _load_tasks(self) -> list[dict[str, str]]:
+        """Load training tasks for GRPO.
+
+        Looks for a JSONL file at ``data/orchestrator_grpo_tasks.jsonl``.
+        Each line should have ``{"prompt": "...", "ground_truth": "..."}``.
+        Falls back to a small set of default tasks if no file exists.
+        """
+        task_path = Path("data/orchestrator_grpo_tasks.jsonl")
+        if task_path.exists():
+            tasks: list[dict[str, str]] = []
+            with open(task_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        tasks.append(json.loads(line))
+            if tasks:
+                return tasks
+
+        # Default tasks for bootstrapping
+        return [
+            {"prompt": "What is 25 * 17 + 300?", "ground_truth": "725"},
+            {"prompt": "What is the square root of 144?", "ground_truth": "12"},
+            {"prompt": "If a car travels 60 mph for 2.5 hours, how far does it go?", "ground_truth": "150 miles"},
+            {"prompt": "What is 2^10?", "ground_truth": "1024"},
+        ]
+
     def _grpo_step(
         self,
-        prompts: List[str],
-        ground_truths: List[str],
+        prompts: list[str],
+        ground_truths: list[str],
     ) -> tuple:
         """Perform one GRPO training step.
 
@@ -338,7 +375,7 @@ class OrchestratorGRPOTrainer:
 
     def _generate_with_log_probs(
         self, prompt: str
-    ) -> "tuple[str, Any]":
+    ) -> tuple[str, Any]:
         """Generate a response and return ``(text, log_probs)``."""
         inputs = self.policy.tokenizer(
             prompt,
@@ -385,7 +422,7 @@ class OrchestratorGRPOTrainer:
 
     def _compute_log_probs(
         self, prompt: str, response: str
-    ) -> "torch.Tensor":
+    ) -> torch.Tensor:
         """Log-probs of *response* given *prompt* under current policy."""
         full = prompt + response
         inputs = self.policy.tokenizer(
@@ -412,7 +449,7 @@ class OrchestratorGRPOTrainer:
 
     def _compute_log_probs_ref(
         self, prompt: str, response: str
-    ) -> "torch.Tensor":
+    ) -> torch.Tensor:
         """Log-probs under the frozen reference policy (no grad)."""
         full = prompt + response
         inputs = self.ref_policy.tokenizer(
@@ -492,7 +529,7 @@ def _ensure_registered() -> None:
 
         def update(
             self, trace_store: Any, **kwargs: object
-        ) -> Dict[str, Any]:
+        ) -> dict[str, Any]:
             config = OrchestratorGRPOConfig(**{
                 k: v for k, v in kwargs.items()
                 if k in OrchestratorGRPOConfig.__dataclass_fields__

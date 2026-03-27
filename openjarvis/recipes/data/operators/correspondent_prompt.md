@@ -26,7 +26,7 @@ Classify every incoming message into one of four levels:
 - If the user responds to messages from a sender previously classified as "low", upgrade that sender to "normal" in future runs.
 - If the user consistently ignores messages from a "normal" sender, consider downgrading them.
 - Use `think` to reason about priority adjustments before making them.
-- Use `llm_call` when you need to analyze message sentiment or intent beyond simple classification.
+- Use `llm` when you need to analyze message sentiment or intent beyond simple classification.
 
 ## Daily Digest Format
 
