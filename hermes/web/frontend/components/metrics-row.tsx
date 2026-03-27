@@ -169,11 +169,11 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: index * 0.08 }}
-      className="flip-card cursor-pointer"
+      className={`flip-card cursor-pointer ${isFlipped ? 'flipped' : ''}`}
       onClick={() => setIsFlipped(!isFlipped)}
     >
       <div
-        className={`flip-card-inner relative ${isFlipped ? 'flipped' : ''}`}
+        className="flip-card-inner relative"
         style={{ transformStyle: 'preserve-3d', transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
       >
         {/* Front face — metric value wrapped in ShineBorder */}
@@ -216,7 +216,7 @@ function FlipMetricCard({ metric, index }: { metric: MetricDef; index: number })
 
             {/* Flip hint */}
             <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-40 transition-opacity">
-              <span className="text-[9px] text-muted-foreground">tap for chart</span>
+              <span className="text-[9px] text-muted-foreground">click for chart</span>
             </div>
           </motion.div>
           </ShineBorder>
