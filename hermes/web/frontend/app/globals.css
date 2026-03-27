@@ -76,6 +76,18 @@
   /* Phase 0: Flip Card / 3D */
   --perspective: 1200px;
   --flip-duration: 0.6s;
+  --color-bg: #101214;
+  --color-surface: #161A1D;
+  --color-muted-surface: #1D2125;
+  --color-border: #2C333A;
+  --color-text-secondary: #596773;
+  --color-text-primary: #C7D1DB;
+  --color-heading: #DEE4EA;
+  --spacing-6: 1.5rem;
+  --rounded-lg: 0.5rem;
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  --color-text-primary-rgb: 199, 209, 219;
+  --color-bg-2: #C7D1DB;
 }
 
 @theme inline {
@@ -191,6 +203,18 @@
   }
   --animate-marquee: marquee var(--duration) linear infinite;
   --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  --color-color-bg-2: var(----color-bg-2);
+  --color-text-primary-rgb: var(----color-text-primary-rgb);
+  --shadow-xl: var(----shadow-xl);
+  --rounded-lg: var(----rounded-lg);
+  --spacing-6: var(----spacing-6);
+  --color-color-heading: var(----color-heading);
+  --color-color-text-primary: var(----color-text-primary);
+  --color-color-text-secondary: var(----color-text-secondary);
+  --color-color-border: var(----color-border);
+  --color-color-muted-surface: var(----color-muted-surface);
+  --color-color-surface: var(----color-surface);
+  --color-color-bg: var(----color-bg);
   @keyframes marquee {
   from {
     transform: translateX(0);
@@ -570,4 +594,16 @@
   .slide-in-right {
     animation: none;
   }
+}
+
+.dark {
+  --color-bg: #101214;
+  --color-surface: #161A1D;
+  --color-muted-surface: #1D2125;
+  --color-border: #2C333A;
+  --color-text-secondary: #596773;
+  --color-text-primary: #C7D1DB;
+  --color-heading: #DEE4EA;
+  --color-bg-2: #C7D1DB;
+  --color-text-primary-rgb: 199, 209, 219;
 }
