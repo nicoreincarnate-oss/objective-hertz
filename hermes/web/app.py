@@ -804,7 +804,7 @@ _CONFIG_ALLOWLIST = {
     "review_mode", "sales_before_autonomy", "daily_email_cap",
     "monthly_budget_cap", "pipeline_pause", "warm_up_phase",
     "expansion_enabled", "auto_approve_threshold", "target_industries",
-    "email_daily_target",
+    "email_daily_target", "shadow_mode",
     # Model selection
     "model_primary", "model_fast", "model_genius",
 }

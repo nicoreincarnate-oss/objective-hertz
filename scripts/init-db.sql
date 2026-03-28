@@ -473,7 +473,8 @@ INSERT INTO system_config (key, value, is_customized) VALUES
     ('warmup_day', '1', FALSE),
     ('paused_domains', '[]', FALSE),
     ('company_address', '"[SET YOUR PHYSICAL ADDRESS]"', FALSE),
-    ('unsubscribe_base_url', '"https://your-domain.com"', FALSE)
+    ('unsubscribe_base_url', '"https://your-domain.com"', FALSE),
+    ('shadow_mode', 'true', FALSE)
 ON CONFLICT (key) DO UPDATE
 SET value = EXCLUDED.value,
     is_customized = FALSE,

@@ -19,6 +19,9 @@ logger = logging.getLogger("perseus.titan.follow_up")
 
 async def process_follow_ups():
     """Check for replies and send follow-ups where needed."""
+    if await get_config("shadow_mode", False):
+        logger.info("SHADOW: follow-up stage skipped (no outbound sends in shadow mode)")
+        return
     await _check_replies()
     await _send_follow_ups()
 

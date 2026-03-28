@@ -15,6 +15,9 @@ logger = logging.getLogger("perseus.titan.invoice")
 
 async def process_invoices():
     """Send invoices for deployed sites and check for payments."""
+    if await get_config("shadow_mode", False):
+        logger.info("SHADOW: invoice stage skipped entirely")
+        return
     await _send_invoices()
     await _check_payments()
 

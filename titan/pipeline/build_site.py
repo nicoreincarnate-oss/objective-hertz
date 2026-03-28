@@ -6,7 +6,7 @@ competitive build process (parallel variants → Opus review → synthesis → v
 
 import logging
 
-from shared.db import emit_event, execute, fetch_all
+from shared.db import emit_event, execute, fetch_all, get_config
 from shared.pipeline_alerts import emit_pipeline_error
 from titan.state_machine import transition_lead
 
@@ -24,6 +24,9 @@ def _site_build_fail_open_when_qa_unavailable() -> bool:
 
 async def build_sites():
     """Build websites for all closed deals."""
+    # Shadow mode: build sites locally but skip Netlify deploy and QA verification
+    shadow = await get_config("shadow_mode", False)
+
     leads = await fetch_all(
         """SELECT id, business_name, contact_name, industry,
                   research_summary, research_facts, language, country, city, demo_site_url
@@ -35,6 +38,20 @@ async def build_sites():
         try:
             await transition_lead(lead["id"], "building")
             url = await _build_full_site(lead)
+
+            # Shadow mode: site was built locally, skip deploy/QA
+            if shadow and url:
+                logger.info(
+                    "SHADOW: built site for %s locally — skipping deploy. URL: %s",
+                    lead["business_name"], url,
+                )
+                await emit_event("shadow_site_built", {
+                    "client_id": lead["id"],
+                    "business_name": lead["business_name"],
+                    "local_url": url,
+                })
+                continue
+
             if url:
                 from shared.comms import request_task_result
 

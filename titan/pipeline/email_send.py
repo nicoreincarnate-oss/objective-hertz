@@ -237,6 +237,30 @@ async def _persist_micro_simulation(seq_id: int, simulation: dict):
 
 async def send_emails(batch_size: int = 50):
     """Add queued emails to Instantly campaign. Respects review mode and deliverability limits."""
+    # Shadow mode: log what would be sent but don't touch Instantly or transition state
+    if await get_config("shadow_mode", False):
+        leads = await fetch_all(
+            """SELECT c.id, c.business_name, c.email,
+                      es.subject
+               FROM clients c
+               JOIN email_sequences es ON es.client_id = c.id
+               WHERE c.status IN ('email_drafted', 'followed_up')
+                 AND es.status = 'pending'
+               ORDER BY c.lead_score DESC LIMIT %s""",
+            (batch_size,),
+        )
+        for lead in leads:
+            logger.info(
+                "SHADOW: would send to %s <%s> — subject: %s",
+                lead["business_name"], lead["email"], lead.get("subject", ""),
+            )
+            await emit_event("shadow_email_send", {
+                "client_id": lead["id"],
+                "email": lead["email"],
+                "subject": lead.get("subject", ""),
+            })
+        return
+
     # Check review mode
     review_mode = await get_config("review_mode", True)
     if review_mode:

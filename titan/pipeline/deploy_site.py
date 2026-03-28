@@ -6,7 +6,7 @@ Deploy built sites to hosting. AI picks best platform.
 import logging
 
 from shared.comms import request_task_result
-from shared.db import emit_event, fetch_all
+from shared.db import emit_event, fetch_all, get_config
 
 logger = logging.getLogger("perseus.titan.deploy")
 
@@ -18,6 +18,10 @@ async def deploy_sites():
     sites and takes real action when verification fails — dispatching a
     rebuild task and emitting a trackable event, not just logging a warning.
     """
+    if await get_config("shadow_mode", False):
+        logger.info("SHADOW: deploy verification skipped (nothing deployed in shadow mode)")
+        return
+
     leads = await fetch_all(
         """SELECT id, business_name, final_site_url
            FROM clients WHERE status = 'deployed' AND final_site_url IS NOT NULL
