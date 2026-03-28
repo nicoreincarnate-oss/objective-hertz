@@ -32,7 +32,16 @@ from starlette.responses import Response, StreamingResponse
 from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
-from shared.db import emit_event, execute, fetch_all, fetch_val, get_config, insert_task, set_config
+from shared.db import (
+    emit_event,
+    execute,
+    fetch_all,
+    fetch_one,
+    fetch_val,
+    get_config,
+    insert_task,
+    set_config,
+)
 from shared.observability import (
     configure_service_observability,
     prometheus_content_type,
@@ -40,7 +49,7 @@ from shared.observability import (
 )
 
 logger = logging.getLogger("hermes.web")
-_PUBLIC_PATHS = {"/api/liveness", "/metrics", "/login"}
+_PUBLIC_PATHS = {"/api/liveness", "/metrics", "/login", "/unsub"}
 _SESSION_COOKIE = "perseus_session"
 # HMAC key for signing session cookies — random per process, so a restart
 # invalidates all sessions (acceptable for a single-operator dashboard).
@@ -399,6 +408,85 @@ async def api_liveness():
     except Exception:
         db_ok = False
     return JSONResponse({"status": "ok" if db_ok else "degraded", "db_ok": db_ok})
+
+
+@app.get("/unsub", response_class=HTMLResponse)
+async def unsub_endpoint(request: Request):
+    """CAN-SPAM unsubscribe endpoint — public, no auth required.
+
+    Validates HMAC signature to prevent enumeration, then marks the
+    client as unsubscribed in the database and syncs to Instantly blocklist.
+    """
+    client_id_raw = request.query_params.get("id")
+    sig = request.query_params.get("sig", "")
+
+    if not client_id_raw or not sig:
+        return HTMLResponse(
+            "<html><body><h1>Invalid Request</h1>"
+            "<p>Missing required parameters.</p></body></html>",
+            status_code=400,
+        )
+
+    try:
+        client_id = int(client_id_raw)
+    except (ValueError, TypeError):
+        return HTMLResponse(
+            "<html><body><h1>Invalid Request</h1>"
+            "<p>Invalid client identifier.</p></body></html>",
+            status_code=400,
+        )
+
+    # Validate HMAC signature using the same algorithm as titan/compliance.py
+    unsub_secret = os.getenv("UNSUBSCRIBE_SECRET", "")
+    if not unsub_secret:
+        logger.error("UNSUBSCRIBE_SECRET not configured — cannot process unsubscribe")
+        return HTMLResponse(
+            "<html><body><h1>Server Error</h1>"
+            "<p>Unsubscribe is temporarily unavailable. Please try again later.</p></body></html>",
+            status_code=500,
+        )
+
+    expected = hmac.new(
+        unsub_secret.encode(), str(client_id).encode(), hashlib.sha256
+    ).hexdigest()[:32]
+
+    if not hmac.compare_digest(sig, expected):
+        return HTMLResponse(
+            "<html><body><h1>Invalid Link</h1>"
+            "<p>This unsubscribe link is invalid or has expired.</p></body></html>",
+            status_code=403,
+        )
+
+    # Mark client as unsubscribed
+    await execute(
+        "UPDATE clients SET status = 'unsubscribed', updated_at = NOW() WHERE id = %s",
+        (client_id,),
+    )
+
+    # Log the unsubscribe event
+    await emit_event("client_unsubscribed", {"client_id": client_id, "source": "unsub_link"})
+    logger.info("Client %s unsubscribed via /unsub link", client_id)
+
+    # Sync to Instantly suppression list (best-effort)
+    try:
+        client_row = await fetch_one("SELECT email FROM clients WHERE id = %s", (client_id,))
+        if client_row and client_row.get("email"):
+            from tools.instantly_client import InstantlyClient
+
+            ic = InstantlyClient()
+            await ic._post("/leads/delete", {"email": client_row["email"]})
+            await ic.close()
+    except Exception as e:
+        logger.warning("Failed to sync unsub to Instantly blocklist: %s", e)
+
+    return HTMLResponse(
+        "<html><head><title>Unsubscribed</title></head><body>"
+        "<h1>You have been unsubscribed</h1>"
+        "<p>You will no longer receive emails from us. "
+        "This change takes effect immediately.</p>"
+        "</body></html>",
+        status_code=200,
+    )
 
 
 @app.get("/api/health")
@@ -909,17 +997,32 @@ async def api_review_bulk(request: Request):
     ids = body.get("ids")  # Optional: specific IDs
 
     if action == "approve_all":
-        await fetch_val(
-            "UPDATE review_queue SET status = 'approved' "
-            "WHERE status = 'pending_review' RETURNING COUNT(*)"
+        from titan.review_mode import approve_review
+
+        pending = await fetch_all(
+            "SELECT id FROM review_queue WHERE status = 'pending_review' ORDER BY created_at ASC"
         )
-        # Also count for feedback
-        count = await fetch_val(
-            "SELECT COUNT(*) FROM review_queue WHERE status = 'approved' "
-            "AND updated_at > NOW() - INTERVAL '5 seconds'"
-        ) or 0
-        await emit_event("bulk_approve", {"count": int(count), "source": "war_room"})
-        return JSONResponse({"success": True, "action": "approve_all", "affected": int(count)})
+        succeeded = 0
+        failed = 0
+        for row in pending:
+            try:
+                result = await approve_review(row["id"], notes="Bulk approved from War Room")
+                if result:
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error("Bulk approve failed for review %s: %s", row["id"], e)
+                failed += 1
+        await emit_event("bulk_approve", {
+            "count": succeeded, "failed": failed, "source": "war_room",
+        })
+        return JSONResponse({
+            "success": True,
+            "action": "approve_all",
+            "affected": succeeded,
+            "failed": failed,
+        })
 
     elif action == "reject_all":
         await execute(
@@ -933,14 +1036,33 @@ async def api_review_bulk(request: Request):
         return JSONResponse({"success": True, "action": "reject_all", "affected": int(count)})
 
     elif action in ("approve", "reject") and ids:
-        status_val = "approved" if action == "approve" else "rejected"
-        for rid in ids:
-            await execute(
-                "UPDATE review_queue SET status = %s WHERE id = %s AND status = 'pending_review'",
-                (status_val, rid),
-            )
-        await emit_event(f"bulk_{action}", {"ids": ids, "source": "war_room"})
-        return JSONResponse({"success": True, "action": action, "affected": len(ids)})
+        if action == "approve":
+            from titan.review_mode import approve_review
+
+            succeeded = 0
+            failed = 0
+            for rid in ids:
+                try:
+                    result = await approve_review(rid, notes="Approved from War Room")
+                    if result:
+                        succeeded += 1
+                    else:
+                        failed += 1
+                except Exception as e:
+                    logger.error("Approve failed for review %s: %s", rid, e)
+                    failed += 1
+            await emit_event("bulk_approve", {"ids": ids, "source": "war_room"})
+            return JSONResponse({"success": True, "action": action, "affected": succeeded, "failed": failed})
+        else:
+            from titan.review_mode import reject_review
+
+            for rid in ids:
+                try:
+                    await reject_review(rid, notes="Rejected from War Room")
+                except Exception as e:
+                    logger.error("Reject failed for review %s: %s", rid, e)
+            await emit_event("bulk_reject", {"ids": ids, "source": "war_room"})
+            return JSONResponse({"success": True, "action": action, "affected": len(ids)})
 
     return JSONResponse({"error": f"Unknown action: {action}"}, status_code=400)
 

@@ -141,11 +141,10 @@ class TitanDaemon(AgentBase):
         """Start Titan's main loop — polls task_queue from Perseus."""
         logger.info("Titan starting up...")
         await db.init_pool()
-        try:
-            from titan.compliance import assert_compliance_ready
-            await assert_compliance_ready()
-        except Exception as e:
-            logger.warning("Compliance readiness check failed (non-fatal): %s", e)
+        # Compliance check is FATAL — if misconfigured, Titan must NOT start.
+        # Sending email without unsubscribe links is a CAN-SPAM violation ($50K/email).
+        from titan.compliance import assert_compliance_ready
+        await assert_compliance_ready()
         await self.requeue_stale_tasks()
         await self.register()
         self._stopped.clear()

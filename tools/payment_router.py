@@ -31,8 +31,8 @@ class PaymentRouter:
                                  summary="Stripe is configured and available.",
                                  provider="stripe")
         if self._wise_available:
-            return truth_payload("live", "wise_api", True,
-                                 summary="Wise is configured as payment fallback.",
+            return truth_payload("degraded", "wise_check_only", True,
+                                 summary="Wise is available for payment reconciliation only. Stripe required for invoicing.",
                                  provider="wise")
         if self._conway_available:
             return truth_payload("live", "conway_x402", True,
@@ -59,12 +59,16 @@ class PaymentRouter:
             return await self._create_stripe_invoice(
                 client_email, client_name, amount, description, currency, invoice_key
             )
-        if self._wise_available:
-            return await self._create_wise_invoice(
-                client_email, client_name, amount, description, currency, invoice_key
+        # Wise is CHECK-ONLY — never create invoices/transfers via Wise.
+        # Wise creates OUTBOUND transfers (sends our money out), not payment requests.
+        if not self._stripe_available:
+            logger.error(
+                "STRIPE_API_KEY is not configured. Cannot create invoice. "
+                "Wise is available for payment CHECKING only, not invoice creation."
             )
-        logger.warning("No payment provider available")
-        return {"reference": "", "url": "", "provider": "none"}
+        else:
+            logger.warning("No payment provider available")
+        return {"reference": "", "url": "", "provider": "none", "error": "Stripe not configured"}
 
     async def check_new_payments(self, since_timestamp: int = 0) -> dict[str, Any]:
         """Check for new completed payments across all providers.
@@ -291,12 +295,16 @@ class PaymentRouter:
         currency: str,
         idempotency_key: str,
     ) -> dict[str, Any]:
-        """Create a Wise quote and transfer with reconciliation key.
+        """DISABLED: Wise invoice creation sends money OUT (outbound transfers).
 
-        The transfer is created with ``customerTransactionId`` set to our
-        idempotency key so that ``_check_wise_payments`` can match the
-        completed transfer back to the deal.
+        This method is blocked in production. Use Stripe for invoice creation.
+        Wise is retained for payment CHECKING only (_check_wise_payments).
         """
+        raise RuntimeError(
+            "Wise invoice creation is disabled — Wise creates outbound transfers "
+            "(sends YOUR money out), not payment requests. Use Stripe instead."
+        )
+        # Original implementation preserved below for reference:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Step 1: Create a quote
