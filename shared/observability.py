@@ -425,3 +425,114 @@ def observe_db_query(operation: str, duration_seconds: float, *, success: bool) 
 def time_call_started() -> float:
     """Small helper to keep timing callsites consistent."""
     return time.perf_counter()
+
+
+# ------------------------------------------------------------------
+# LLM call metrics (Phase 0b — OBS-01)
+# ------------------------------------------------------------------
+
+# Prometheus metrics for LLM calls
+LLM_CALLS = _metric_counter(
+    "objective_hertz_llm_calls_total",
+    "Total LLM calls by daemon and model",
+    ("daemon", "model", "call_type", "success"),
+)
+LLM_LATENCY = _metric_histogram(
+    "objective_hertz_llm_latency_seconds",
+    "LLM call latency in seconds",
+    ("daemon", "model"),
+)
+LLM_COST = _metric_counter(
+    "objective_hertz_llm_cost_usd_total",
+    "Estimated LLM cost in USD",
+    ("daemon", "model"),
+)
+
+
+async def record_llm_call(
+    daemon: str,
+    model: str,
+    call_type: str,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: int,
+    cost_usd: float,
+    success: bool = True,
+    error_type: str | None = None,
+) -> None:
+    """Record an LLM call to the llm_metrics table (fire-and-forget).
+
+    Also updates Prometheus counters/histograms when available.
+    Handles DB unavailability gracefully — logs warning, never raises.
+    """
+    # Update Prometheus metrics regardless of DB availability
+    success_str = "true" if success else "false"
+    LLM_CALLS.labels(daemon=daemon, model=model, call_type=call_type, success=success_str).inc()
+    LLM_LATENCY.labels(daemon=daemon, model=model).observe(latency_ms / 1000.0)
+    if cost_usd > 0:
+        LLM_COST.labels(daemon=daemon, model=model).inc(cost_usd)
+
+    try:
+        from shared.db import execute
+
+        await execute(
+            """INSERT INTO llm_metrics
+               (daemon, model, call_type, input_tokens, output_tokens,
+                latency_ms, cost_usd, success, error_type)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                daemon,
+                model,
+                call_type,
+                input_tokens,
+                output_tokens,
+                latency_ms,
+                round(cost_usd, 6),
+                success,
+                error_type,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Failed to record LLM metrics (non-critical): %s", exc)
+
+
+async def get_metrics_summary(
+    daemon: str | None = None,
+    hours: int = 24,
+) -> dict:
+    """Aggregate LLM metrics summary: total calls, avg latency, error rate, total cost.
+
+    Optionally filtered by *daemon*. Covers the last *hours* hours.
+    Returns an empty summary dict if DB is unavailable.
+    """
+    try:
+        from shared.db import fetch_all
+
+        base_query = """
+            SELECT
+                daemon,
+                COUNT(*) AS total_calls,
+                ROUND(AVG(latency_ms)) AS avg_latency_ms,
+                ROUND(100.0 * SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS error_rate_pct,
+                ROUND(SUM(cost_usd)::numeric, 6) AS total_cost_usd,
+                SUM(input_tokens) AS total_input_tokens,
+                SUM(output_tokens) AS total_output_tokens
+            FROM llm_metrics
+            WHERE created_at >= NOW() - INTERVAL '%s hours'
+        """
+        params: list = [hours]
+
+        if daemon:
+            base_query += " AND daemon = %s"
+            params.append(daemon)
+
+        base_query += " GROUP BY daemon ORDER BY total_calls DESC"
+
+        rows = await fetch_all(base_query, tuple(params))
+        return {
+            "hours": hours,
+            "daemons": [dict(r) for r in rows],
+        }
+    except Exception as exc:
+        logger.warning("Failed to fetch LLM metrics summary: %s", exc)
+        return {"hours": hours, "daemons": [], "error": str(exc)}

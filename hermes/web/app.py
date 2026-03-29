@@ -13,6 +13,7 @@ browser history, Referer headers, and analytics).
 
 import asyncio
 import hashlib
+from decimal import Decimal
 import hmac
 import json
 import logging
@@ -44,6 +45,7 @@ from shared.db import (
 )
 from shared.observability import (
     configure_service_observability,
+    get_metrics_summary,
     prometheus_content_type,
     render_prometheus_metrics,
 )
@@ -399,6 +401,23 @@ async def api_events():
     return JSONResponse(content=[dict(e) for e in events])
 
 
+@app.get("/api/metrics")
+async def api_metrics(request: Request):
+    """LLM metrics summary — per-daemon calls, latency, errors, cost.
+
+    Query params:
+    - daemon: filter by daemon name (optional)
+    - hours: lookback window in hours (default 24)
+    """
+    daemon = request.query_params.get("daemon")
+    try:
+        hours = int(request.query_params.get("hours", "24"))
+    except (ValueError, TypeError):
+        hours = 24
+    summary = await get_metrics_summary(daemon=daemon, hours=hours)
+    return JSONResponse(content=summary)
+
+
 @app.get("/api/liveness")
 async def api_liveness():
     """Public liveness probe — returns only up/down status, no business data."""
@@ -677,7 +696,7 @@ async def _build_sync_payload() -> dict:
             from shared.config import config as _cfg
             from tools.budget_guard import get_month_spending
             cap = getattr(_cfg, "monthly_cap", 800)
-            budget_data = await get_month_spending(cap)
+            budget_data = await get_month_spending(Decimal(str(cap)))
             budget = {
                 "percent_used": budget_data.get("percent_used", 0),
                 "remaining": budget_data.get("remaining", cap),
@@ -887,7 +906,7 @@ async def api_budget():
         from shared.config import config
         from tools.budget_guard import get_month_spending
         cap = getattr(config, "monthly_cap", 800)
-        budget = await get_month_spending(cap)
+        budget = await get_month_spending(Decimal(str(cap)))
         return JSONResponse(budget)
     except Exception as e:
         # Fallback if budget_guard not available
@@ -1236,7 +1255,7 @@ async def api_keys_update(request: Request):
     await set_config(f"api_key_{key_id}", value)
 
     # Also set in current process env so services pick it up immediately
-    os.environ[meta["env"]] = value
+    os.environ[str(meta["env"])] = value
 
     await emit_event("api_key_updated", {"key_id": key_id, "label": meta["label"], "source": "war_room"})
 

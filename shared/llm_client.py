@@ -15,8 +15,10 @@ TurboQuant integration (March 2026):
   Requires Ollama >= 0.6.2. Controlled by OLLAMA_KV_CACHE_TYPE env var.
 """
 
+import asyncio
 import base64
 import logging
+import time
 from datetime import date
 
 import httpx
@@ -58,6 +60,46 @@ class LLMClient:
         self._http: httpx.AsyncClient | None = None
         self._last_usage = None
 
+    def _fire_metrics(
+        self,
+        daemon: str,
+        model: str,
+        call_type: str,
+        prompt: str,
+        result: str,
+        t0: float,
+        success: bool,
+        error_type: str | None,
+    ) -> None:
+        """Fire-and-forget LLM metrics recording via asyncio.create_task."""
+        from shared.observability import record_llm_call
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        # Rough token estimates: ~4 chars per token
+        input_tokens = max(1, len(prompt) // 4)
+        output_tokens = max(0, len(result) // 4)
+        # Cost estimation: input * $3/M + output * $15/M (sonnet rates as default)
+        cost_usd = input_tokens * 0.000003 + output_tokens * 0.000015
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                record_llm_call(
+                    daemon=daemon,
+                    model=model,
+                    call_type=call_type,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    latency_ms=latency_ms,
+                    cost_usd=cost_usd,
+                    success=success,
+                    error_type=error_type,
+                )
+            )
+        except RuntimeError:
+            # No running event loop — skip metrics (e.g. during testing)
+            pass
+
     def _get_http(self) -> httpx.AsyncClient:
         """Lazy-init the HTTP client so import alone never triggers network/SSL."""
         if self._http is None or self._http.is_closed:
@@ -92,35 +134,46 @@ class LLMClient:
         if model == "auto":
             model = "fast"
 
+        t0 = time.perf_counter()
+        resolved_model = model
+
         # "fast" and "smart" both use Claude (Haiku and Sonnet respectively)
         # Only "local" and "local-small" go directly to Ollama
         if model in ("local", "local-small"):
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            result = await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            self._fire_metrics(pipeline_stage or "unknown", model, "generate", prompt, result, t0, True, None)
+            return result
 
         # If no API key, fall back to Ollama for everything
         if not config.claude.api_key:
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+            result = await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+            self._fire_metrics(pipeline_stage or "unknown", "local", "generate", prompt, result, t0, True, None)
+            return result
 
         # Budget check — downgrade Claude to Ollama when needed
-        model = await self._budget_gate(model)
+        resolved_model = await self._budget_gate(model)
 
-        if model in ("local", "local-small"):
+        if resolved_model in ("local", "local-small"):
             # Budget gate downgraded us
-            return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            result = await self._ollama_generate(prompt, system, resolved_model, max_tokens, temperature, pipeline_stage)
+            self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
+            return result
 
         try:
-            result = await self._claude_generate(prompt, system, model, max_tokens, temperature)
+            result = await self._claude_generate(prompt, system, resolved_model, max_tokens, temperature)
             await self._record_claude_spend(
                 prompt,
                 result,
                 system,
-                model,
+                resolved_model,
                 client_id=client_id,
                 pipeline_stage=pipeline_stage,
             )
+            self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
             return result
         except Exception as e:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
+            self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, "", t0, False, type(e).__name__)
             return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
 
     async def generate_with_images(
