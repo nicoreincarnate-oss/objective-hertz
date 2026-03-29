@@ -8,7 +8,7 @@ progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -40,7 +40,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 |-------|------|--------|------|--------------|
 | 0a | P0 Fixes + Skill Hardening | ✅ Complete | phases/00A-p0-bug-fixes-skill-hardening/ | 9.2 |
 | 0b | Async + Contracts + Observability | ✅ Complete | phases/00B-async-engine-interface-contracts-observability/ | 9.2 |
-| 1 | Agent DNA | Executing (01-01 done) | phases/1/PLAN.md | 9.0 |
+| 1 | Agent DNA | Complete (01-01, 01-02 done) | phases/1/PLAN.md | 9.0 |
 | 2 | Anti-Slop Quality Gate | Planned | phases/2/PLAN.md | 9.2 |
 | 3 | DeerFlow Persistent Memory | Planned | phases/3/PLAN.md | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
@@ -105,6 +105,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **01-01:** Combined AgentDNA loader and DNACircuitBreaker in single module for cohesion
 - **01-01:** Injection scanner fails open in dev (Rust backend optional), logs warning
 - **01-01:** Circuit breaker needs minimum 10 samples before tripping (cold-start protection)
+- **01-02:** Conway has no LLM calls -- no DNA injection needed
+- **01-02:** Only main reasoning calls get DNA, not parsing/extraction calls
+- **01-02:** _inject_dna is static method for testability without network
 
 ## Performance Metrics
 
@@ -112,6 +115,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 |-----------|----------|-------|-------|
 | 00B-01 | 3min | 3 | 3 |
 | 01-01 | 7min | 4 | 10 |
+| 01-02 | 5min | 2 | 10 |
 
 ---
-*State updated: 2026-03-29 — 01-01 complete (DNA docs + loader + circuit breaker), 01-02 pending*
+*State updated: 2026-03-29 — Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*

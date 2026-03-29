@@ -47,8 +47,8 @@ Plans:
 - Behavioral boundary test: Titan with DNA refuses wallet modification prompt
 Plans:
 - [x] 01-01-PLAN.md -- DNA documents + loader + circuit breaker (DNA-01, DNA-02, DNA-03, DNA-04)
-- [ ] 01-02-PLAN.md -- Inject DNA into all 5 daemons (DNA-05)
-**Status:** Executing (Plan 01-01 complete, 01-02 pending)
+- [x] 01-02-PLAN.md -- Inject DNA into all 5 daemons (DNA-05)
+**Status:** Complete (2026-03-29) -- 36 tests passing, all daemons wired
 
 ## Phase 2: Anti-Slop Quality Gate
 **Goal:** Every outbound text (email, site copy, alert) scored for quality before dispatch. Slop detected and rewritten.
