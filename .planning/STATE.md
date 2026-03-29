@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T21:20:04.561Z"
+last_updated: "2026-03-29T21:33:03Z"
 progress:
   total_phases: 13
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 2 — Anti-Slop Quality Gate
-**Status:** Executing Phase 02
-**Next action:** Run `/gsd:execute-phase 2`
+**Status:** Executing Phase 02 (Plan 01 complete)
+**Next action:** Execute Plan 02-02 (pipeline integration)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -99,6 +99,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Decisions
 
+- **02-01:** Slop score uses density normalization (matches per 100 words / 10) for fair short/long content handling
+- **02-01:** LLM scoring defaults to 0.5 on failure (fail-open for non-blocking quality gate)
+- **02-01:** All anti-slop code in single module (shared/anti_slop.py) for cohesion
 - **00B-01:** Keep sync run() unchanged, add run_async() as new method for zero backward-compat risk
 - **00B-01:** Use inspect.isawaitable() for transparent sync/async system.ask() support
 - **00B-01:** All 7 Protocol contracts are @runtime_checkable for startup validation
@@ -116,6 +119,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 00B-01 | 3min | 3 | 3 |
 | 01-01 | 7min | 4 | 10 |
 | 01-02 | 5min | 2 | 10 |
+| 02-01 | 12min | 5 | 3 |
 
 ---
+*State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 — Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*

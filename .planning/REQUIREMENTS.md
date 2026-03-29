@@ -29,14 +29,14 @@
 
 ### Anti-Slop (Phase 2)
 
-- [ ] **SLOP-01**: 5-dimension quality scorer
+- [x] **SLOP-01**: 5-dimension quality scorer
 - [ ] **SLOP-02**: Email pipeline quality gate
-- [ ] **SLOP-03**: Best-of-N rewrite loop
-- [ ] **SLOP-04**: Good-enough threshold
+- [x] **SLOP-03**: Best-of-N rewrite loop
+- [x] **SLOP-04**: Good-enough threshold
 - [ ] **SLOP-05**: ClawdBot site copy gate
-- [ ] **SLOP-06**: Secret detection regex
-- [ ] **SLOP-07**: quality_scores table
-- [ ] **SLOP-08**: Per-context thresholds
+- [x] **SLOP-06**: Secret detection regex
+- [x] **SLOP-07**: quality_scores table
+- [x] **SLOP-08**: Per-context thresholds
 
 ### DeerFlow Memory (Phase 3)
 
@@ -123,7 +123,8 @@
 | ASYNC-01, ASYNC-02, CONTRACT-01, OBS-01 | Phase 0b | Pending |
 | DNA-01 through DNA-04 | Phase 1 | Complete (01-01) |
 | DNA-05 | Phase 1 | Complete (01-02) |
-| SLOP-01 through SLOP-08 | Phase 2 | Pending |
+| SLOP-01, 03, 04, 06, 07, 08 | Phase 2 Plan 01 | Complete |
+| SLOP-02, SLOP-05 | Phase 2 Plan 02 | Pending |
 | MEM-01 through MEM-08 | Phase 3 | Pending |
 | MW-01 through MW-08 | Phase 4 | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
