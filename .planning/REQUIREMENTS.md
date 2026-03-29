@@ -40,13 +40,13 @@
 
 ### DeerFlow Memory (Phase 3)
 
-- [ ] **MEM-01**: daemon_memory table with expiry + row cap
-- [ ] **MEM-02**: In-process working memory
-- [ ] **MEM-03**: Episodic memory with daily cleanup
-- [ ] **MEM-04**: Semantic memory with MAGMA compression
-- [ ] **MEM-05**: JSON cache write-through
+- [x] **MEM-01**: daemon_memory table with expiry + row cap
+- [x] **MEM-02**: In-process working memory
+- [x] **MEM-03**: Episodic memory with daily cleanup
+- [x] **MEM-04**: Semantic memory with MAGMA compression
+- [x] **MEM-05**: JSON cache write-through
 - [ ] **MEM-06**: Daemon startup memory injection
-- [ ] **MEM-07**: Per-daemon memory isolation
+- [x] **MEM-07**: Per-daemon memory isolation
 - [ ] **MEM-08**: Memory stats monitoring view
 
 ### DeerFlow Middleware (Phase 4)
