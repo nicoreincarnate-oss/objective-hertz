@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T21:49:00Z"
+last_updated: "2026-03-29T22:05:00Z"
 progress:
-  total_phases: 13
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_phases: 10
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 3 — DeerFlow Persistent Memory
-**Status:** Ready for planning + execution
-**Next action:** Run `/gsd:execute-phase 3`
+**Status:** Executing (Plan 03-01 complete, Plan 03-02 pending)
+**Next action:** Execute Plan 03-02 (lifecycle hooks + tests)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -42,7 +42,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 0b | Async + Contracts + Observability | ✅ Complete | phases/00B-async-engine-interface-contracts-observability/ | 9.2 |
 | 1 | Agent DNA | ✅ Complete | phases/01-agent-dna/ | 9.0 |
 | 2 | Anti-Slop Quality Gate | Complete | phases/02-anti-slop-quality-gate/ | 9.2 |
-| 3 | DeerFlow Persistent Memory | Planned | phases/3/PLAN.md | 9.0 |
+| 3 | DeerFlow Persistent Memory | In Progress (1/2 plans) | phases/03-deerflow-persistent-memory/ | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Planned | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Planned | phases/5/PLAN.md | 9.0 |
@@ -114,6 +114,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **01-02:** Conway has no LLM calls -- no DNA injection needed
 - **01-02:** Only main reasoning calls get DNA, not parsing/extraction calls
 - **01-02:** _inject_dna is static method for testability without network
+- **03-01:** WorkingMemory uses OrderedDict for true LRU eviction (not plain dict)
+- **03-01:** MAGMA compression falls back to simple JSON merge when import fails
+- **03-01:** IsolatedMemoryStore is a separate wrapper class (not mixed into DaemonMemoryStore)
+- **03-01:** Memory domain cache avoids repeated YAML file reads on every access
 
 ## Performance Metrics
 
@@ -124,8 +128,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 01-02 | 5min | 2 | 10 |
 | 02-01 | 12min | 5 | 3 |
 | 02-02 | 8min | 3 | 5 |
+| 03-01 | 3min | 5 | 2 |
 
 ---
+*State updated: 2026-03-29 -- Phase 03 Plan 01 complete (memory store, cache, migration, isolation)*
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
