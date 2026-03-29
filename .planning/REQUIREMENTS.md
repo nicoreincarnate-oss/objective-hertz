@@ -51,14 +51,14 @@
 
 ### DeerFlow Middleware (Phase 4)
 
-- [ ] **MW-01**: Async middleware protocol
-- [ ] **MW-02**: Per-pipeline middleware config
-- [ ] **MW-03**: MemoryMiddleware
-- [ ] **MW-04**: DNAGuardMiddleware
-- [ ] **MW-05**: AntiSlopMiddleware
-- [ ] **MW-06**: TelemetryMiddleware
-- [ ] **MW-07**: stage_metrics table
-- [ ] **MW-08**: Middleware ordering config
+- [x] **MW-01**: Async middleware protocol
+- [x] **MW-02**: Per-pipeline middleware config
+- [x] **MW-03**: MemoryMiddleware
+- [x] **MW-04**: DNAGuardMiddleware
+- [x] **MW-05**: AntiSlopMiddleware
+- [x] **MW-06**: TelemetryMiddleware
+- [x] **MW-07**: stage_metrics table
+- [x] **MW-08**: Middleware ordering config
 
 ### RLM Context (Phase 5)
 

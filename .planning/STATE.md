@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-03-29T22:18:52.236Z"
+status: planning
+last_updated: "2026-03-29T22:24:56.538Z"
 progress:
-  total_phases: 15
+  total_phases: 10
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 6
+  total_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -17,12 +17,12 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 04 — DeerFlow Async Middleware Chain
+**Current focus:** Phase 4 — DeerFlow Async Middleware Chain
 
 ## Current Phase
 
 **Phase:** 4 — DeerFlow Async Middleware Chain
-**Status:** Executing Phase 04
+**Status:** Ready for planning + execution
 **Next action:** Run `/gsd:execute-phase 4`
 
 ## Milestone: Intel Integration (Full Scope)
@@ -122,6 +122,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **03-02:** _save_memory persists all WorkingMemory entries as episodic (survives restarts)
 - **03-02:** Memory init failure is non-fatal -- daemon operates without memory
 - **03-02:** Cleanup job runs as non-skippable daily schedule in Perseus
+- [Phase 04]: All 5 middlewares in single module for cohesion
+- [Phase 04]: Budget check uses 720h window for monthly cap
+- [Phase 04]: Middleware failures non-fatal except secret detection (hard block)
 
 ## Performance Metrics
 
@@ -141,3 +144,4 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
+| Phase 04 P01 | 3min | 7 tasks | 2 files |
