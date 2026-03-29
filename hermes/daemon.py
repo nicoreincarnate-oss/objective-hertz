@@ -138,7 +138,8 @@ class HermesDaemon(AgentBase):
                         routing = await llm.generate(
                             f"Operator message: \"{text}\"\n\n"
                             f"Who needs this? Reply with ONLY one of: titan, clawdbot, both, neither",
-                            model="fast", max_tokens=10, temperature=0.1)
+                            model="fast", max_tokens=10, temperature=0.1,
+                            use_dna=True, daemon_name="hermes")
                         routing = routing.strip().lower()
                     except Exception as e:
                         logger.debug("LLM routing failed: %s", e)

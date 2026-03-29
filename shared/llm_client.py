@@ -106,6 +106,35 @@ class LLMClient:
             self._http = httpx.AsyncClient(timeout=120.0)
         return self._http
 
+    @staticmethod
+    def _inject_dna(system: str, daemon_name: str) -> str:
+        """Prepend daemon DNA to the system prompt when feature flag is enabled.
+
+        Respects the ENABLE_DNA_PROFILES env var and the circuit breaker.
+        When DNA is unavailable or disabled, returns the original system string
+        unchanged (zero behavior change).
+        """
+        try:
+            from shared.agent_dna import get_circuit_breaker, get_dna
+
+            dna_text = get_dna(daemon_name)
+            if not dna_text:
+                return system
+            # Record success on the circuit breaker (call completed without error)
+            get_circuit_breaker().record(True)
+            if system:
+                return f"{dna_text}\n\n---\n\n{system}"
+            return dna_text
+        except Exception as exc:
+            logger.debug("DNA injection skipped: %s", exc)
+            try:
+                from shared.agent_dna import get_circuit_breaker
+
+                get_circuit_breaker().record(False)
+            except Exception:
+                pass
+            return system
+
     async def generate(
         self,
         prompt: str,
@@ -116,6 +145,8 @@ class LLMClient:
         temperature: float = 0.7,
         client_id: int | None = None,
         pipeline_stage: str = "",
+        use_dna: bool = False,
+        daemon_name: str = "",
     ) -> str:
         """
         Generate text. Model choices:
@@ -130,9 +161,17 @@ class LLMClient:
         - Budget exceeded: all Claude calls downgrade to Ollama
         - "smart" downgrades only when budget is fully exceeded
         - If ANTHROPIC_API_KEY is not set, everything falls back to Ollama
+
+        DNA injection (Phase 1):
+        - use_dna=True + ENABLE_DNA_PROFILES env var truthy → prepend DNA to system
+        - Circuit breaker auto-disables DNA if LLM error rates spike
         """
         if model == "auto":
             model = "fast"
+
+        # DNA injection: prepend daemon DNA to system prompt when enabled
+        if use_dna and daemon_name:
+            system = self._inject_dna(system, daemon_name)
 
         t0 = time.perf_counter()
         resolved_model = model

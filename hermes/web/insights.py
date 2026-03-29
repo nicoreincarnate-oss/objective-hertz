@@ -68,6 +68,8 @@ Rules:
         model="smart",
         temperature=0.2,
         max_tokens=500,
+        use_dna=True,
+        daemon_name="hermes",
     )
 
     try:
