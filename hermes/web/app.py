@@ -572,7 +572,7 @@ async def api_health():
 
 
 @app.get("/metrics")
-async def api_metrics():
+async def prometheus_metrics():
     """Prometheus metrics for the Hermes dashboard process."""
     return PlainTextResponse(
         render_prometheus_metrics().decode("utf-8"),
