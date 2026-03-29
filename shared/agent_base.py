@@ -4,11 +4,23 @@ Every agent (Titan, Hermes, OpenClaw, future agents) implements this interface
 and registers with Perseus.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from shared import db
+
+if TYPE_CHECKING:
+    from shared.daemon_memory import DaemonMemoryStore, MemoryCache, WorkingMemory
+
+
+def _deerflow_memory_enabled() -> bool:
+    """Check ENABLE_DEERFLOW_MEMORY feature flag."""
+    return os.environ.get("ENABLE_DEERFLOW_MEMORY", "").lower() in ("true", "1")
 
 
 class AgentBase(ABC):
@@ -34,6 +46,11 @@ class AgentBase(ABC):
         except Exception:
             self._bus = None
 
+        # DeerFlow persistent memory (Phase 3)
+        self._memory: DaemonMemoryStore | None = None
+        self._memory_cache: MemoryCache | None = None
+        self._working_memory: WorkingMemory | None = None
+
     @abstractmethod
     async def start(self):
         """Start the agent's main loop."""
@@ -49,6 +66,82 @@ class AgentBase(ABC):
         """Return health status."""
         ...
 
+    async def _load_memory(self) -> None:
+        """Load persistent memory during registration (DeerFlow Phase 3).
+
+        Reads from JSON cache first (fast startup), then reconciles with
+        Postgres in the background. Gated behind ENABLE_DEERFLOW_MEMORY.
+        """
+        if not _deerflow_memory_enabled():
+            return
+
+        try:
+            from shared.daemon_memory import DaemonMemoryStore, MemoryCache, WorkingMemory
+
+            self._memory = DaemonMemoryStore()
+            self._memory_cache = MemoryCache(self._memory)
+            self._working_memory = WorkingMemory()
+
+            # Fast path: load from JSON cache
+            cached = await self._memory_cache.load_cache(self.name)
+            for key, value in cached.items():
+                self._working_memory.set(key, value)
+
+            self.logger.info(
+                "DeerFlow memory loaded for %s (%d cached entries)",
+                self.name, len(cached),
+            )
+
+            # Background reconciliation with Postgres
+            asyncio.create_task(self._reconcile_memory())
+        except Exception as exc:
+            self.logger.warning("DeerFlow memory load failed for %s: %s", self.name, exc)
+            # Non-fatal — daemon operates without memory
+            self._memory = None
+            self._memory_cache = None
+            self._working_memory = None
+
+    async def _reconcile_memory(self) -> None:
+        """Background task: rebuild cache from Postgres (authoritative source)."""
+        if self._memory_cache is None:
+            return
+        try:
+            fresh = await self._memory_cache.rebuild_cache(self.name)
+            if self._working_memory is not None:
+                for key, value in fresh.items():
+                    self._working_memory.set(key, value)
+        except Exception as exc:
+            self.logger.debug("Memory reconciliation skipped for %s: %s", self.name, exc)
+
+    async def _save_memory(self) -> None:
+        """Persist working memory to episodic store during deregistration.
+
+        Saves all current working memory entries as episodic memories
+        so they survive daemon restarts. Gated behind ENABLE_DEERFLOW_MEMORY.
+        """
+        if not _deerflow_memory_enabled():
+            return
+        if self._working_memory is None or self._memory is None:
+            return
+
+        try:
+            items = self._working_memory.items()
+            for key, value in items:
+                content = value if isinstance(value, dict) else {"value": value}
+                await self._memory.save_episodic(self.name, key, content)
+
+            # Update cache
+            if self._memory_cache is not None:
+                cache_data = {k: v for k, v in items}
+                await self._memory_cache.save_cache(self.name, cache_data)
+
+            self.logger.info(
+                "DeerFlow memory saved for %s (%d entries persisted)",
+                self.name, len(items),
+            )
+        except Exception as exc:
+            self.logger.warning("DeerFlow memory save failed for %s: %s", self.name, exc)
+
     async def register(self):
         """Register this agent with Perseus via DB, and optionally create a Conway wallet."""
         await db.execute(
@@ -58,6 +151,9 @@ class AgentBase(ABC):
             (self.name, self.description),
         )
         self.logger.info(f"Agent '{self.name}' registered")
+
+        # DeerFlow: load persistent memory
+        await self._load_memory()
 
         # Conway wallet provisioning
         try:
@@ -84,6 +180,9 @@ class AgentBase(ABC):
 
     async def deregister(self):
         """Mark agent as inactive."""
+        # DeerFlow: persist working memory before going inactive
+        await self._save_memory()
+
         await db.execute(
             "UPDATE agent_registry SET status = 'inactive', updated_at = NOW() WHERE name = %s",
             (self.name,),
