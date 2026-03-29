@@ -8,6 +8,15 @@ import logging
 import re
 from pathlib import Path
 
+from shared.anti_slop import (
+    AntiSlopScorer,
+    detect_secrets,
+    record_quality_score,
+    rewrite_loop,
+)
+from shared.anti_slop import (
+    is_enabled as anti_slop_enabled,
+)
 from shared.db import fetch_all, fetch_one
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
@@ -16,6 +25,82 @@ from titan.memory import compute_prompt_version, get_relevant_learnings
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.email_compose")
+
+# Anti-slop scorer singleton (created once, reused)
+_slop_scorer = AntiSlopScorer()
+
+
+async def _anti_slop_gate(
+    subject: str, body: str, lead_id: int | str, rewrite_count_out: list[int] | None = None,
+) -> tuple[str, str, bool]:
+    """Run anti-slop quality gate on email content.
+
+    Returns (subject, body, passed).
+    If anti-slop is disabled, returns original content with passed=True.
+    If secrets are detected, returns originals with passed=False (hard block).
+    If slop score is too high, runs rewrite loop on the body only.
+    Records quality scores to the DB.
+    """
+    if not anti_slop_enabled():
+        return subject, body, True
+
+    combined = f"{subject}\n\n{body}"
+
+    # Secret detection — hard block, never send
+    secrets = detect_secrets(combined)
+    if secrets:
+        logger.error(
+            "BLOCKED: secrets detected in email for lead %s: %s",
+            lead_id,
+            [s["pattern"] for s in secrets],
+        )
+        await emit_pipeline_error(
+            "email_compose.secret_detection",
+            ValueError(f"Secrets detected: {[s['pattern'] for s in secrets]}"),
+            lead_id=lead_id,
+        )
+        return subject, body, False
+
+    # Score the body (subject is short; body is the main content)
+    scores = await _slop_scorer.score(body, context="email")
+    rewrite_count = 0
+
+    # Check threshold — rewrite if needed
+    from shared.anti_slop import _composite_score, _is_good_enough
+
+    if not _is_good_enough(scores, "email"):
+        logger.info(
+            "Email for lead %s below quality threshold (composite=%.2f, slop=%.2f), rewriting",
+            lead_id,
+            _composite_score(scores),
+            scores.get("slop_score", 0),
+        )
+        body = await rewrite_loop(body, scores, context="email", max_iterations=3)
+        # Re-score after rewrite
+        scores = await _slop_scorer.score(body, context="email")
+        rewrite_count = 1  # At least 1 rewrite attempt
+
+    # Record quality score
+    await record_quality_score(
+        reference_id=str(lead_id),
+        content_type="email",
+        scores=scores,
+        rewrite_count=rewrite_count,
+    )
+
+    if rewrite_count_out is not None:
+        rewrite_count_out.append(rewrite_count)
+
+    logger.info(
+        "Anti-slop gate for lead %s: composite=%.2f, slop=%.2f, rewrites=%d",
+        lead_id,
+        _composite_score(scores),
+        scores.get("slop_score", 0),
+        rewrite_count,
+    )
+
+    return subject, body, True
+
 
 # Skills to try for email composition (in priority order)
 EMAIL_SKILLS = [
@@ -135,6 +220,11 @@ Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}"
         )
         return
 
+    # Anti-slop quality gate (behind ENABLE_ANTI_SLOP flag)
+    subject, body, slop_passed = await _anti_slop_gate(subject, body, lead_id)
+    if not slop_passed:
+        return
+
     row = await fetch_one(
         """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
            VALUES (%s, 1, %s, %s, 'pending', %s)
@@ -212,6 +302,11 @@ Return JSON:
             lead_id=lead_id,
         )
         return  # Don't store invalid content
+
+    # Anti-slop quality gate (behind ENABLE_ANTI_SLOP flag)
+    subject, body, slop_passed = await _anti_slop_gate(subject, body, lead_id)
+    if not slop_passed:
+        return
 
     # Store the email draft — ON CONFLICT prevents duplicate step 1
     row = await fetch_one(
