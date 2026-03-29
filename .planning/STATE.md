@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T22:05:00Z"
+last_updated: "2026-03-29T22:12:25Z"
 progress:
   total_phases: 10
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 4
+  total_plans: 7
+  completed_plans: 7
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 3 — DeerFlow Persistent Memory
-**Status:** Executing (Plan 03-01 complete, Plan 03-02 pending)
-**Next action:** Execute Plan 03-02 (lifecycle hooks + tests)
+**Status:** Complete (2/2 plans done)
+**Next action:** Buffer Week 1 integration checkpoint, then Phase 4
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -42,7 +42,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 0b | Async + Contracts + Observability | ✅ Complete | phases/00B-async-engine-interface-contracts-observability/ | 9.2 |
 | 1 | Agent DNA | ✅ Complete | phases/01-agent-dna/ | 9.0 |
 | 2 | Anti-Slop Quality Gate | Complete | phases/02-anti-slop-quality-gate/ | 9.2 |
-| 3 | DeerFlow Persistent Memory | In Progress (1/2 plans) | phases/03-deerflow-persistent-memory/ | 9.0 |
+| 3 | DeerFlow Persistent Memory | Complete | phases/03-deerflow-persistent-memory/ | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Planned | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Planned | phases/5/PLAN.md | 9.0 |
@@ -118,6 +118,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **03-01:** MAGMA compression falls back to simple JSON merge when import fails
 - **03-01:** IsolatedMemoryStore is a separate wrapper class (not mixed into DaemonMemoryStore)
 - **03-01:** Memory domain cache avoids repeated YAML file reads on every access
+- **03-02:** _load_memory uses cache-first startup with background Postgres reconciliation
+- **03-02:** _save_memory persists all WorkingMemory entries as episodic (survives restarts)
+- **03-02:** Memory init failure is non-fatal -- daemon operates without memory
+- **03-02:** Cleanup job runs as non-skippable daily schedule in Perseus
 
 ## Performance Metrics
 
@@ -129,8 +133,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 02-01 | 12min | 5 | 3 |
 | 02-02 | 8min | 3 | 5 |
 | 03-01 | 3min | 5 | 2 |
+| 03-02 | 4min | 3 | 4 |
 
 ---
+*State updated: 2026-03-29 -- Phase 03 complete (lifecycle hooks, scheduler cleanup, 41 tests)*
 *State updated: 2026-03-29 -- Phase 03 Plan 01 complete (memory store, cache, migration, isolation)*
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*

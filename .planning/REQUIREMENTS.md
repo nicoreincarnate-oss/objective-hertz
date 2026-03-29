@@ -45,9 +45,9 @@
 - [x] **MEM-03**: Episodic memory with daily cleanup
 - [x] **MEM-04**: Semantic memory with MAGMA compression
 - [x] **MEM-05**: JSON cache write-through
-- [ ] **MEM-06**: Daemon startup memory injection
+- [x] **MEM-06**: Daemon startup memory injection
 - [x] **MEM-07**: Per-daemon memory isolation
-- [ ] **MEM-08**: Memory stats monitoring view
+- [x] **MEM-08**: Memory stats monitoring view
 
 ### DeerFlow Middleware (Phase 4)
 
@@ -125,7 +125,7 @@
 | DNA-05 | Phase 1 | Complete (01-02) |
 | SLOP-01, 03, 04, 06, 07, 08 | Phase 2 Plan 01 | Complete |
 | SLOP-02, SLOP-05 | Phase 2 Plan 02 | Complete |
-| MEM-01 through MEM-08 | Phase 3 | Pending |
+| MEM-01 through MEM-08 | Phase 3 | Complete |
 | MW-01 through MW-08 | Phase 4 | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
 | PQC-01 through PQC-08 | Phase 6 | Pending |
