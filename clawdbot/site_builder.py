@@ -18,11 +18,113 @@ from typing import Any
 
 from clawdbot.design_sources import _extract_research_facts
 from clawdbot.site_quality import evaluate_site_experience
+from shared.anti_slop import (
+    AntiSlopScorer,
+    detect_secrets,
+    record_quality_score,
+    rewrite_loop,
+)
+from shared.anti_slop import (
+    is_enabled as anti_slop_enabled,
+)
 from shared.comms import record_decision
 from shared.db import emit_event
 from shared.llm_client import llm
 
 logger = logging.getLogger("perseus.clawdbot.site_builder")
+
+# Anti-slop scorer singleton
+_slop_scorer = AntiSlopScorer()
+
+
+def _extract_text_sections(html: str) -> list[str]:
+    """Extract visible text sections from HTML for quality scoring.
+
+    Strips tags, splits by blank lines, returns non-trivial sections (>20 chars).
+    """
+    import re as _re
+
+    # Remove script and style blocks
+    cleaned = _re.sub(r"<script[^>]*>[\s\S]*?</script>", "", html, flags=_re.IGNORECASE)
+    cleaned = _re.sub(r"<style[^>]*>[\s\S]*?</style>", "", cleaned, flags=_re.IGNORECASE)
+    # Remove HTML tags
+    text = _re.sub(r"<[^>]+>", "\n", cleaned)
+    # Decode common entities
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    text = text.replace("&nbsp;", " ").replace("&#39;", "'").replace("&quot;", '"')
+    # Split into sections
+    sections = []
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if len(block) > 20:
+            sections.append(block)
+    return sections
+
+
+async def _anti_slop_site_gate(html: str, lead_id: int | str) -> tuple[str, bool]:
+    """Run anti-slop quality gate on site HTML copy.
+
+    Returns (possibly_rewritten_html, passed).
+    If anti-slop is disabled, returns original HTML with passed=True.
+    If secrets are detected, returns original HTML with passed=False (hard block).
+    Scores each text section and rewrites those below threshold.
+    """
+    if not anti_slop_enabled():
+        return html, True
+
+    # Secret detection on full HTML — hard block
+    secrets = detect_secrets(html)
+    if secrets:
+        logger.error(
+            "BLOCKED: secrets detected in site HTML for lead %s: %s",
+            lead_id,
+            [s["pattern"] for s in secrets],
+        )
+        return html, False
+
+    sections = _extract_text_sections(html)
+    if not sections:
+        return html, True
+
+    from shared.anti_slop import _composite_score, _is_good_enough
+
+    total_rewrites = 0
+    all_scores: list[dict[str, float]] = []
+
+    for section in sections:
+        scores = await _slop_scorer.score(section, context="site_copy")
+        all_scores.append(scores)
+
+        if not _is_good_enough(scores, "site_copy"):
+            rewritten = await rewrite_loop(section, scores, context="site_copy", max_iterations=2)
+            if rewritten != section:
+                # Replace the section in the HTML (best-effort text replacement)
+                html = html.replace(section, rewritten, 1)
+                total_rewrites += 1
+
+    # Record aggregate quality score
+    if all_scores:
+        avg_scores = {
+            dim: sum(s.get(dim, 0.0) for s in all_scores) / len(all_scores)
+            for dim in ("clarity", "specificity", "authenticity", "value_density", "slop_score")
+        }
+        await record_quality_score(
+            reference_id=str(lead_id),
+            content_type="site_copy",
+            scores=avg_scores,
+            rewrite_count=total_rewrites,
+        )
+        logger.info(
+            "Anti-slop site gate for lead %s: composite=%.2f, slop=%.2f, sections=%d, rewrites=%d",
+            lead_id,
+            _composite_score(avg_scores),
+            avg_scores.get("slop_score", 0),
+            len(sections),
+            total_rewrites,
+        )
+
+    return html, True
+
 
 # Design directions for parallel agents
 DESIGN_DIRECTIONS = [
@@ -856,6 +958,12 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     if not final_html:
         # Last resort: direct v0.dev build
         return await _v0_build_and_deploy(brief, business_name, site_type)
+
+    # Anti-slop quality gate (behind ENABLE_ANTI_SLOP flag)
+    final_html, slop_passed = await _anti_slop_site_gate(final_html, lead.get("id", "unknown"))
+    if not slop_passed:
+        logger.error("Site build blocked by anti-slop gate for %s (secrets detected)", business_name)
+        return ""
 
     # Phase 4: Deploy
     # Track the actual deploy method — not just what we attempted.

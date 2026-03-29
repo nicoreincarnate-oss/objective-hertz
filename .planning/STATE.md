@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T21:33:03Z"
+last_updated: "2026-03-29T21:49:00Z"
 progress:
   total_phases: 13
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 2 — Anti-Slop Quality Gate
-**Status:** Executing Phase 02 (Plan 01 complete)
-**Next action:** Execute Plan 02-02 (pipeline integration)
+**Status:** Phase 02 Complete (Plan 01 + Plan 02 done)
+**Next action:** Phase 03 (DeerFlow Persistent Memory)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -41,7 +41,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 0a | P0 Fixes + Skill Hardening | ✅ Complete | phases/00A-p0-bug-fixes-skill-hardening/ | 9.2 |
 | 0b | Async + Contracts + Observability | ✅ Complete | phases/00B-async-engine-interface-contracts-observability/ | 9.2 |
 | 1 | Agent DNA | ✅ Complete | phases/01-agent-dna/ | 9.0 |
-| 2 | Anti-Slop Quality Gate | Planned | phases/2/PLAN.md | 9.2 |
+| 2 | Anti-Slop Quality Gate | Complete | phases/02-anti-slop-quality-gate/ | 9.2 |
 | 3 | DeerFlow Persistent Memory | Planned | phases/3/PLAN.md | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Planned | phases/4/PLAN.md | 9.2 |
@@ -102,6 +102,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **02-01:** Slop score uses density normalization (matches per 100 words / 10) for fair short/long content handling
 - **02-01:** LLM scoring defaults to 0.5 on failure (fail-open for non-blocking quality gate)
 - **02-01:** All anti-slop code in single module (shared/anti_slop.py) for cohesion
+- **02-02:** Secret detection is a hard block (never sends content with secrets)
+- **02-02:** Site copy gate scores each text section individually, records aggregate
+- **02-02:** Rewrite loop runs on body only for emails (subject is short)
 - **00B-01:** Keep sync run() unchanged, add run_async() as new method for zero backward-compat risk
 - **00B-01:** Use inspect.isawaitable() for transparent sync/async system.ask() support
 - **00B-01:** All 7 Protocol contracts are @runtime_checkable for startup validation
@@ -120,7 +123,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 01-01 | 7min | 4 | 10 |
 | 01-02 | 5min | 2 | 10 |
 | 02-01 | 12min | 5 | 3 |
+| 02-02 | 8min | 3 | 5 |
 
 ---
+*State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
-*State updated: 2026-03-29 — Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
+*State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
