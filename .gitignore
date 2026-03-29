@@ -45,3 +45,6 @@ logs/*
 # Secrets
 *.pem
 *.key
+
+# Allow skill verification public key (not a secret)
+!shared/skill_verify_key.pem

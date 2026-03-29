@@ -11,7 +11,11 @@ The loader reads the skill, sends it as a system prompt to the LLM, and executes
 """
 
 import logging
+import os
 from pathlib import Path
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
 
 from shared.config import config
 from shared.llm_client import llm
@@ -73,8 +77,61 @@ def find_skills_by_category(category: str) -> list[tuple[str, Path]]:
     return results
 
 
+# Path to the Ed25519 public key used for signature verification.
+# Override in tests via monkeypatch.
+VERIFY_KEY_PATH = Path(__file__).parent / "skill_verify_key.pem"
+
+
+def verify_skill(skill_path: Path) -> bool:
+    """
+    Verify the Ed25519 signature of a skill file.
+
+    Looks for a .sig file alongside the skill file and checks it
+    against the public key at VERIFY_KEY_PATH.
+
+    Returns True if the signature is valid, False otherwise.
+    """
+    if not VERIFY_KEY_PATH.exists():
+        logger.warning("No verify key found at %s", VERIFY_KEY_PATH)
+        return False
+
+    sig_path = Path(str(skill_path) + ".sig")
+    if not sig_path.exists():
+        logger.error("No signature file for %s", skill_path)
+        return False
+
+    try:
+        pub_pem_bytes = VERIFY_KEY_PATH.read_bytes()
+        public_key = serialization.load_pem_public_key(pub_pem_bytes)
+        content = skill_path.read_bytes()
+        signature = sig_path.read_bytes()
+        public_key.verify(signature, content)
+    except InvalidSignature:
+        logger.error("Signature verification failed for %s", skill_path)
+        return False
+    except Exception:
+        logger.exception("Error verifying skill %s", skill_path)
+        return False
+
+    return True
+
+
 def load_skill(path: Path) -> str:
-    """Load a skill's content from its SKILL.md file."""
+    """
+    Load a skill's content from its SKILL.md file.
+
+    Verifies Ed25519 signature before loading. Returns empty string
+    if verification fails. Set SKILL_LOADER_ALLOW_UNSIGNED=true to
+    bypass verification (development only).
+    """
+    if os.environ.get("SKILL_LOADER_ALLOW_UNSIGNED", "").lower() == "true":
+        logger.warning("Loading unsigned skill: %s (SKILL_LOADER_ALLOW_UNSIGNED=true)", path)
+        return path.read_text()
+
+    if not verify_skill(path):
+        logger.error("Refusing to load unverified skill: %s", path)
+        return ""
+
     return path.read_text()
 
 
