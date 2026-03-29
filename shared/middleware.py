@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time  # noqa: F401 — used by telemetry_middleware (Task 6)
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("perseus.middleware")
@@ -128,3 +130,54 @@ def build_chain(pipeline_name: str) -> MiddlewareChain:
 
 # Registry populated below after middleware functions are defined
 MIDDLEWARE_REGISTRY: dict[str, Callable[..., Awaitable[StageResult]]] = {}
+
+
+# ---------------------------------------------------------------------------
+# Task 3: MemoryMiddleware (MW-03)
+# ---------------------------------------------------------------------------
+
+
+async def memory_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Inject relevant memories before stage, save outcome after.
+
+    Feature-flag gated by ``ENABLE_DEERFLOW_MEMORY``.
+    """
+    if not _flag("ENABLE_DEERFLOW_MEMORY"):
+        return await next_fn(ctx)
+
+    daemon = ctx.get("daemon_name", "")
+    stage = ctx.get("stage_name", "")
+
+    # Pre-stage: inject episodic memories into context
+    try:
+        from shared.daemon_memory import DaemonMemoryStore
+
+        store = DaemonMemoryStore()
+        memories = await store.load(daemon, "episodic")
+        ctx["memories"] = memories
+    except Exception as exc:
+        logger.warning("Memory pre-load failed (non-fatal): %s", exc)
+        ctx["memories"] = []
+
+    # Execute stage
+    result = await next_fn(ctx)
+
+    # Post-stage: save outcome as episodic memory
+    if result.get("success"):
+        try:
+            from shared.daemon_memory import DaemonMemoryStore as _Store
+
+            post_store = _Store()
+            await post_store.save_episodic(
+                daemon,
+                f"{stage}_outcome",
+                {
+                    "stage": stage,
+                    "result_summary": str(result.get("output", ""))[:500],
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        except Exception as exc:
+            logger.warning("Memory post-save failed (non-fatal): %s", exc)
+
+    return result
