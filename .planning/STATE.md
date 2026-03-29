@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 4 — DeerFlow Async Middleware Chain
-**Status:** Ready for planning + execution
-**Next action:** Run `/gsd:execute-phase 4`
+**Status:** Complete
+**Next action:** Run `/gsd:execute-phase 5`
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -44,7 +44,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 2 | Anti-Slop Quality Gate | Complete | phases/02-anti-slop-quality-gate/ | 9.2 |
 | 3 | DeerFlow Persistent Memory | Complete | phases/03-deerflow-persistent-memory/ | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
-| 4 | DeerFlow Middleware Chain | Planned | phases/4/PLAN.md | 9.2 |
+| 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Planned | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Planned | phases/6/PLAN.md | 9.0 |
 | 7 | Adaptive Thresholds | Planned | phases/7/PLAN.md | 9.4 |
@@ -125,6 +125,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - [Phase 04]: All 5 middlewares in single module for cohesion
 - [Phase 04]: Budget check uses 720h window for monthly cap
 - [Phase 04]: Middleware failures non-fatal except secret detection (hard block)
+- **04-02:** Engine middleware gated by ENABLE_MIDDLEWARE env var (zero change when off)
+- **04-02:** Async middleware chain bridged to sync engine via asyncio.run() with event-loop detection
+- **04-02:** Fallback to direct execution if middleware import or chain fails
 
 ## Performance Metrics
 
@@ -137,11 +140,13 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 02-02 | 8min | 3 | 5 |
 | 03-01 | 3min | 5 | 2 |
 | 03-02 | 4min | 3 | 4 |
+| 04-01 | 3min | 7 | 2 |
+| 04-02 | 8min | 2 | 3 |
 
 ---
+*State updated: 2026-03-29 -- Phase 04 Plan 02 complete (engine integration + 42 tests)*
 *State updated: 2026-03-29 -- Phase 03 complete (lifecycle hooks, scheduler cleanup, 41 tests)*
 *State updated: 2026-03-29 -- Phase 03 Plan 01 complete (memory store, cache, migration, isolation)*
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
-| Phase 04 P01 | 3min | 7 tasks | 2 files |
