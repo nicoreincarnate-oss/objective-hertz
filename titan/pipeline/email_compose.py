@@ -190,7 +190,7 @@ Return JSON:
     "personalization_note": "why this email is unique to them"
 }}"""
 
-    result = await llm.generate(prompt, model=model, temperature=0.8)
+    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan")
 
     try:
         start = result.find("{")

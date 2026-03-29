@@ -76,6 +76,8 @@ Return JSON only:
         temperature=0.2,
         max_tokens=500,
         pipeline_stage="clawdbot_orchestration",
+        use_dna=True,
+        daemon_name="clawdbot",
     )
 
     try:

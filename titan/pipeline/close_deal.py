@@ -254,7 +254,7 @@ Return JSON:
     "estimated_close_probability": 0.5
 }}"""
 
-    result = await llm.generate(prompt, model="smart", temperature=0.6)
+    result = await llm.generate(prompt, model="smart", temperature=0.6, use_dna=True, daemon_name="titan")
     try:
         start = result.find("{")
         end = result.rfind("}") + 1

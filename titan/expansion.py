@@ -207,7 +207,7 @@ Return JSON list:
    "smallest_step":"...",
    "rollback_condition":"..."}}]"""
 
-    result = await llm.generate(prompt, model="smart", temperature=0.3)
+    result = await llm.generate(prompt, model="smart", temperature=0.3, use_dna=True, daemon_name="titan")
     try:
         start = result.find("[")
         end = result.rfind("]") + 1

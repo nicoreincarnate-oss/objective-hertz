@@ -286,6 +286,7 @@ Return ONLY JSON."""
         result = await llm.generate(
             prompt, model="smart", max_tokens=1500, temperature=0.1,
             pipeline_stage="self_audit",
+            use_dna=True, daemon_name="perseus",
         )
         start = result.find("{")
         end = result.rfind("}") + 1
