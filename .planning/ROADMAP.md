@@ -10,14 +10,14 @@
 **Feature flag:** N/A (prerequisite fixes)
 **Plans:** 2 plans
 Plans:
-- [ ] 00A-01-PLAN.md -- Conway wallet bug regression tests (FIX-01/02/03)
-- [ ] 00A-02-PLAN.md -- Skill signing implementation and tests (FIX-04)
+- [x] 00A-01-PLAN.md -- Conway wallet bug regression tests (FIX-01/02/03)
+- [x] 00A-02-PLAN.md -- Skill signing implementation and tests (FIX-04)
 **Success criteria:**
-- Wallet round-trip test: create, write, read back, verify column correctness
-- Keystore cannot be decrypted with agent name
-- Survival tier JSONB writes persist and read back correctly
-- Skill loader rejects unsigned files, accepts signed ones
-**Status:** Planning complete
+- [x] Wallet round-trip test: create, write, read back, verify column correctness
+- [x] Keystore cannot be decrypted with agent name
+- [x] Survival tier JSONB writes persist and read back correctly
+- [x] Skill loader rejects unsigned files, accepts signed ones
+**Status:** ✅ Complete (2026-03-29) — 25/25 tests passing
 
 ## Phase 0b: Async Engine + Interface Contracts + Observability
 **Goal:** Convert WorkflowEngine to async, define integration contracts, establish metrics baseline.
