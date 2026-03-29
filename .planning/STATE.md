@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T20:50:18.389Z"
+last_updated: "2026-03-29T21:00:57.681Z"
 progress:
-  total_phases: 12
+  total_phases: 10
   completed_phases: 0
-  total_plans: 2
-  completed_plans: 0
+  total_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -40,7 +40,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 |-------|------|--------|------|--------------|
 | 0a | P0 Fixes + Skill Hardening | ✅ Complete | phases/00A-p0-bug-fixes-skill-hardening/ | 9.2 |
 | 0b | Async + Contracts + Observability | ✅ Complete | phases/00B-async-engine-interface-contracts-observability/ | 9.2 |
-| 1 | Agent DNA | Planned | phases/1/PLAN.md | 9.0 |
+| 1 | Agent DNA | Executing (01-01 done) | phases/1/PLAN.md | 9.0 |
 | 2 | Anti-Slop Quality Gate | Planned | phases/2/PLAN.md | 9.2 |
 | 3 | DeerFlow Persistent Memory | Planned | phases/3/PLAN.md | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
@@ -102,12 +102,16 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **00B-01:** Keep sync run() unchanged, add run_async() as new method for zero backward-compat risk
 - **00B-01:** Use inspect.isawaitable() for transparent sync/async system.ask() support
 - **00B-01:** All 7 Protocol contracts are @runtime_checkable for startup validation
+- **01-01:** Combined AgentDNA loader and DNACircuitBreaker in single module for cohesion
+- **01-01:** Injection scanner fails open in dev (Rust backend optional), logs warning
+- **01-01:** Circuit breaker needs minimum 10 samples before tripping (cold-start protection)
 
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
 |-----------|----------|-------|-------|
 | 00B-01 | 3min | 3 | 3 |
+| 01-01 | 7min | 4 | 10 |
 
 ---
-*State updated: 2026-03-29 — 00B-01 complete, 00B-02 pending*
+*State updated: 2026-03-29 — 01-01 complete (DNA docs + loader + circuit breaker), 01-02 pending*

@@ -21,10 +21,10 @@
 
 ### Agent DNA (Phase 1)
 
-- [ ] **DNA-01**: Universal engineering DNA document
-- [ ] **DNA-02**: Per-daemon DNA profiles
-- [ ] **DNA-03**: Opt-in DNA loader with 500-token cap
-- [ ] **DNA-04**: Circuit breaker on elevated error rates
+- [x] **DNA-01**: Universal engineering DNA document
+- [x] **DNA-02**: Per-daemon DNA profiles
+- [x] **DNA-03**: Opt-in DNA loader with 500-token cap
+- [x] **DNA-04**: Circuit breaker on elevated error rates
 - [ ] **DNA-05**: All 5 daemons DNA-injected
 
 ### Anti-Slop (Phase 2)
@@ -121,7 +121,8 @@
 |-------------|-------|--------|
 | FIX-01 through FIX-04 | Phase 0a | Pending |
 | ASYNC-01, ASYNC-02, CONTRACT-01, OBS-01 | Phase 0b | Pending |
-| DNA-01 through DNA-05 | Phase 1 | Pending |
+| DNA-01 through DNA-04 | Phase 1 | Complete (01-01) |
+| DNA-05 | Phase 1 | Pending (01-02) |
 | SLOP-01 through SLOP-08 | Phase 2 | Pending |
 | MEM-01 through MEM-08 | Phase 3 | Pending |
 | MW-01 through MW-08 | Phase 4 | Pending |
