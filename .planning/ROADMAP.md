@@ -79,8 +79,8 @@ Plans:
 - daemon_memory_stats view shows per-daemon row counts
 Plans:
 - [x] 03-01-PLAN.md -- Memory Store + Cache + Migration (MEM-01, MEM-02, MEM-03, MEM-04, MEM-05, MEM-07)
-- [ ] 03-02-PLAN.md -- Lifecycle hooks + tests (MEM-06, MEM-08)
-**Status:** In Progress (1/2 plans complete)
+- [x] 03-02-PLAN.md -- Lifecycle hooks + tests (MEM-06, MEM-08)
+**Status:** Complete (2026-03-29) -- 41 memory tests passing, lifecycle hooks wired
 
 ## Buffer Week 1: Integration Checkpoint
 **Goal:** Fix any cross-phase integration issues from Phases 0-3 before building on them.

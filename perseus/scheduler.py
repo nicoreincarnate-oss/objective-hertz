@@ -42,6 +42,8 @@ SCHEDULES = [
     Schedule("deliverability_check", 1800, "Monitor deliverability and domain health", skippable=False),
     Schedule("sleep_cycle", 86400, "Nightly contrarian review — Opus debates system changes", skippable=False),
     Schedule("morning_briefing", 86400, "Morning briefing to Nico", skippable=False),
+    # Memory maintenance (DeerFlow Phase 3)
+    Schedule("memory_cleanup", 86400, "Clean up expired daemon memories", skippable=False),
     # ClawdBot tasks
     Schedule("site_verify", 3600, "Verify deployed sites are live", skippable=True, pipeline_stage="delivery"),
     Schedule("enrich_leads", 1800, "Enrich leads missing data", skippable=True, pipeline_stage="top_of_funnel"),
