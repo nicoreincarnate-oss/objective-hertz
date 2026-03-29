@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -164,7 +164,7 @@ class DaemonMemoryStore:
         ttl_days: int = 30,
     ) -> None:
         """Save episodic memory with expiry."""
-        expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
+        expires_at = datetime.now(UTC) + timedelta(days=ttl_days)
         await db.execute(
             """INSERT INTO daemon_memory
                    (daemon_name, memory_type, key, content, importance, expires_at)
@@ -263,7 +263,7 @@ class DaemonMemoryStore:
 
         # Try MAGMA compression first, fall back to simple merge
         merged_content = await self._merge_contents(rows)
-        merged_key = f"compressed_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        merged_key = f"compressed_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
         # Delete originals
         ids = [r["id"] for r in rows]
@@ -295,7 +295,7 @@ class DaemonMemoryStore:
             merged: dict[str, Any] = {
                 "_compressed": True,
                 "_source_count": len(rows),
-                "_compressed_at": datetime.now(timezone.utc).isoformat(),
+                "_compressed_at": datetime.now(UTC).isoformat(),
                 "entries": [],
             }
             for row in rows:
@@ -381,3 +381,81 @@ class MemoryCache:
         if cache_file.exists():
             cache_file.unlink()
             logger.info("Cache invalidated for %s", daemon_name)
+
+
+# ---------------------------------------------------------------------------
+# Memory isolation via DNA profiles
+# ---------------------------------------------------------------------------
+
+_DNA_DIR = Path(__file__).resolve().parent.parent / "soul" / "dna"
+_domain_cache: dict[str, list[str]] = {}
+
+
+def _load_allowed_domains(daemon_name: str) -> list[str]:
+    """Read ``memory_domains`` from the daemon's DNA profile.
+
+    Returns a list of domain prefixes the daemon is allowed to access.
+    The daemon's own name is always implicitly allowed.
+    Results are cached in-process for performance.
+    """
+    if daemon_name in _domain_cache:
+        return _domain_cache[daemon_name]
+
+    dna_file = _DNA_DIR / f"{daemon_name}.yaml"
+    domains: list[str] = [daemon_name]  # always allowed to access own memories
+
+    if dna_file.exists():
+        try:
+            profile = yaml.safe_load(dna_file.read_text()) or {}
+            raw_domains = profile.get("memory_domains", [])
+            if isinstance(raw_domains, list):
+                domains = list(set(domains + raw_domains))
+        except (yaml.YAMLError, OSError) as exc:
+            logger.warning("Failed to read DNA for %s: %s", daemon_name, exc)
+
+    _domain_cache[daemon_name] = domains
+    return domains
+
+
+def check_memory_access(requesting_daemon: str, target_daemon: str) -> None:
+    """Raise ``PermissionError`` if *requesting_daemon* may not access
+    *target_daemon*'s memories.
+
+    Access rules:
+    - A daemon can always access its own memories.
+    - A daemon can access memories whose daemon_name appears in its
+      ``memory_domains`` list from its DNA profile.
+    """
+    if requesting_daemon == target_daemon:
+        return  # always allowed
+
+    allowed = _load_allowed_domains(requesting_daemon)
+    if target_daemon not in allowed:
+        raise PermissionError(
+            f"{requesting_daemon} cannot access {target_daemon} memories. "
+            f"Allowed domains: {allowed}"
+        )
+
+
+class IsolatedMemoryStore:
+    """Wrapper around ``DaemonMemoryStore`` that enforces per-daemon isolation.
+
+    Every call validates that the requesting daemon is allowed to access
+    the target daemon's memories via its DNA profile ``memory_domains``.
+    """
+
+    def __init__(self, requesting_daemon: str, store: DaemonMemoryStore | None = None) -> None:
+        self._requester = requesting_daemon
+        self._store = store or DaemonMemoryStore()
+
+    async def load(self, daemon_name: str, memory_type: str) -> list[dict]:
+        check_memory_access(self._requester, daemon_name)
+        return await self._store.load(daemon_name, memory_type)
+
+    async def save(self, daemon_name: str, memory_type: str, entry: dict) -> None:
+        check_memory_access(self._requester, daemon_name)
+        await self._store.save(daemon_name, memory_type, entry)
+
+    async def cleanup(self, daemon_name: str) -> int:
+        check_memory_access(self._requester, daemon_name)
+        return await self._store.cleanup(daemon_name)
