@@ -261,11 +261,12 @@ class TestDNAGuardMiddleware:
     def test_dna_load_failure_allows_execution(self):
         """If DNA profile can't load, guard fails open."""
         with patch.dict(os.environ, {"ENABLE_DNA_PROFILES": "true"}):
-            # AgentDNA import will fail since the module doesn't exist in test env
-            result = _run(dna_guard_middleware(
-                {"daemon_name": "titan", "stage_name": "test", "tools": ["http"]},
-                _identity_handler,
-            ))
+            with patch("shared.agent_dna.AgentDNA") as mock_dna_cls:
+                mock_dna_cls.side_effect = RuntimeError("DNA load failed")
+                result = _run(dna_guard_middleware(
+                    {"daemon_name": "titan", "stage_name": "test", "tools": ["http"]},
+                    _identity_handler,
+                ))
         assert result["success"] is True
 
 
