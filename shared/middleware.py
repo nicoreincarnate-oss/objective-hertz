@@ -322,3 +322,75 @@ async def telemetry_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
         logger.warning("Telemetry insert failed (non-fatal): %s", exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Task 7: BudgetCheckMiddleware
+# ---------------------------------------------------------------------------
+
+# Monthly budget cap in USD
+_BUDGET_CAP_USD = 800.0
+
+
+async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Reject stage execution if monthly LLM spend exceeds $800.
+
+    Uses ``shared.observability.get_metrics_summary`` to check current cost.
+    """
+    try:
+        from shared.observability import get_metrics_summary
+
+        summary = await get_metrics_summary(hours=720)  # ~30 days
+        daemons = summary.get("daemons", [])
+        total_cost = sum(float(d.get("total_cost_usd", 0) or 0) for d in daemons)
+
+        if total_cost >= _BUDGET_CAP_USD:
+            logger.warning(
+                "BUDGET EXCEEDED: $%.2f / $%.2f — blocking stage '%s'",
+                total_cost,
+                _BUDGET_CAP_USD,
+                ctx.get("stage_name", ""),
+            )
+            return {
+                "success": False,
+                "output": f"Budget cap exceeded: ${total_cost:.2f} / ${_BUDGET_CAP_USD:.2f}",
+            }
+    except Exception as exc:
+        # Budget check failure should not block the pipeline
+        logger.warning("Budget check failed (allowing): %s", exc)
+
+    return await next_fn(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Populate MIDDLEWARE_REGISTRY
+# ---------------------------------------------------------------------------
+
+MIDDLEWARE_REGISTRY.update(
+    {
+        "budget_check": budget_check_middleware,
+        "dna_guard": dna_guard_middleware,
+        "anti_slop": anti_slop_middleware,
+        "memory": memory_middleware,
+        "telemetry": telemetry_middleware,
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "MIDDLEWARE_REGISTRY",
+    "PIPELINE_CONFIGS",
+    "MiddlewareChain",
+    "NextFn",
+    "StageResult",
+    "anti_slop_middleware",
+    "budget_check_middleware",
+    "build_chain",
+    "dna_guard_middleware",
+    "memory_middleware",
+    "telemetry_middleware",
+]
