@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
+import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +17,8 @@ from openjarvis.workflow.types import (
     WorkflowResult,
     WorkflowStepResult,
 )
+
+logger = logging.getLogger("openjarvis.workflow.engine")
 
 
 class WorkflowEngine:
@@ -136,6 +141,11 @@ class WorkflowEngine:
             total_duration_seconds=total,
         )
 
+    @staticmethod
+    def _middleware_enabled() -> bool:
+        """Check if the ENABLE_MIDDLEWARE feature flag is active."""
+        return os.environ.get("ENABLE_MIDDLEWARE", "").lower() in ("true", "1", "yes")
+
     def _execute_node(
         self,
         node: WorkflowNode,
@@ -144,7 +154,11 @@ class WorkflowEngine:
         system: Any,
         graph: WorkflowGraph,
     ) -> WorkflowStepResult:
-        """Execute a single workflow node."""
+        """Execute a single workflow node.
+
+        When the ``ENABLE_MIDDLEWARE`` feature flag is active, wraps node
+        execution with the middleware chain built for the current pipeline.
+        """
         if self._bus:
             self._bus.publish(
                 EventType.WORKFLOW_NODE_START,
@@ -152,6 +166,100 @@ class WorkflowEngine:
             )
 
         t0 = time.time()
+
+        if self._middleware_enabled():
+            result = self._execute_node_with_middleware(
+                node, outputs, ctx, system, graph,
+            )
+        else:
+            result = self._execute_node_core(node, outputs, ctx, system, graph)
+
+        result.duration_seconds = time.time() - t0
+
+        if self._bus:
+            self._bus.publish(
+                EventType.WORKFLOW_NODE_END,
+                {
+                    "node": node.id,
+                    "success": result.success,
+                    "duration": result.duration_seconds,
+                },
+            )
+
+        return result
+
+    def _execute_node_with_middleware(
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        ctx: Dict[str, Any],
+        system: Any,
+        graph: WorkflowGraph,
+    ) -> WorkflowStepResult:
+        """Wrap node execution with the async middleware chain."""
+        try:
+            from shared.middleware import build_chain
+        except ImportError:
+            logger.warning("shared.middleware not available — running without middleware")
+            return self._execute_node_core(node, outputs, ctx, system, graph)
+
+        pipeline_name = ctx.get("pipeline", "titan")
+        chain = build_chain(pipeline_name)
+
+        # Build stage context for middleware
+        stage_ctx: Dict[str, Any] = {
+            "daemon_name": ctx.get("daemon_name", ""),
+            "stage_name": node.id,
+            "pipeline": pipeline_name,
+            "tools": node.tools or [],
+        }
+
+        async def _node_handler(c: Dict[str, Any]) -> Dict[str, Any]:
+            """Async wrapper around the sync node core execution."""
+            step = self._execute_node_core(node, outputs, ctx, system, graph)
+            return {
+                "success": step.success,
+                "output": step.output,
+                "node_id": step.node_id,
+                "metadata": step.metadata,
+            }
+
+        try:
+            # Run the async middleware chain from sync context
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # Already in an async context — use a new thread to avoid deadlock
+                import concurrent.futures as _cf
+                with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                    mw_result = pool.submit(
+                        lambda: asyncio.run(chain.execute(stage_ctx, _node_handler)),
+                    ).result(timeout=self._default_node_timeout)
+            else:
+                mw_result = asyncio.run(chain.execute(stage_ctx, _node_handler))
+
+            return WorkflowStepResult(
+                node_id=node.id,
+                success=mw_result.get("success", False),
+                output=mw_result.get("output", ""),
+                metadata=mw_result.get("metadata", {}),
+            )
+        except Exception as exc:
+            logger.warning("Middleware chain error (falling back to direct): %s", exc)
+            return self._execute_node_core(node, outputs, ctx, system, graph)
+
+    def _execute_node_core(
+        self,
+        node: WorkflowNode,
+        outputs: Dict[str, str],
+        ctx: Dict[str, Any],
+        system: Any,
+        graph: WorkflowGraph,
+    ) -> WorkflowStepResult:
+        """Core node execution logic (without middleware)."""
         try:
             if node.node_type == NodeType.AGENT:
                 result = self._run_agent_node(node, outputs, system, graph)
@@ -175,19 +283,6 @@ class WorkflowEngine:
                 success=False,
                 output=f"Node error: {exc}",
             )
-
-        result.duration_seconds = time.time() - t0
-
-        if self._bus:
-            self._bus.publish(
-                EventType.WORKFLOW_NODE_END,
-                {
-                    "node": node.id,
-                    "success": result.success,
-                    "duration": result.duration_seconds,
-                },
-            )
-
         return result
 
     def _get_node_input(
