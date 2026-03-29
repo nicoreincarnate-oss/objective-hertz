@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from openjarvis.a2a.client import A2AClient
-from openjarvis.a2a.protocol import AgentCard, A2ATask
+from openjarvis.a2a.protocol import AgentCard
 from openjarvis.core.events import EventBus, EventType
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class VassalInfo:
     url: str
     healthy: bool = True
     last_error: str = ""
-    capabilities: List[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
 
 
 class VassalDiscovery:
@@ -50,24 +50,24 @@ class VassalDiscovery:
     def __init__(
         self,
         bus: EventBus,
-        tool_registry: Optional[Any] = None,
-        config: Optional[Dict[str, Dict[str, Any]]] = None,
+        tool_registry: Any | None = None,
+        config: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._bus = bus
         self._tool_registry = tool_registry
         self._config = config or {}
-        self._vassals: Dict[str, VassalInfo] = {}
+        self._vassals: dict[str, VassalInfo] = {}
 
     @property
-    def vassals(self) -> Dict[str, VassalInfo]:
+    def vassals(self) -> dict[str, VassalInfo]:
         return self._vassals
 
-    def get(self, name: str) -> Optional[VassalInfo]:
+    def get(self, name: str) -> VassalInfo | None:
         return self._vassals.get(name)
 
     # ── Discovery ─────────────────────────────────────────────────────
 
-    def discover_all(self) -> Dict[str, VassalInfo]:
+    def discover_all(self) -> dict[str, VassalInfo]:
         """Discover all configured vassals. Returns map of name → VassalInfo."""
         for name, cfg in self._config.items():
             url = cfg.get("url", "")
@@ -77,7 +77,7 @@ class VassalDiscovery:
             self.discover_one(name, url)
         return self._vassals
 
-    def discover_one(self, name: str, url: str) -> Optional[VassalInfo]:
+    def discover_one(self, name: str, url: str) -> VassalInfo | None:
         """Discover a single vassal by URL."""
         client = A2AClient(url, timeout=10.0)
         try:
@@ -200,7 +200,7 @@ class VassalDiscovery:
 
     # ── Health ────────────────────────────────────────────────────────
 
-    def health_check_all(self) -> Dict[str, Dict[str, Any]]:
+    def health_check_all(self) -> dict[str, dict[str, Any]]:
         """Check health of all vassals. Returns name → status dict."""
         results = {}
         for name, vassal in self._vassals.items():
@@ -226,7 +226,7 @@ class VassalDiscovery:
                 }
         return results
 
-    def rediscover_unhealthy(self) -> List[str]:
+    def rediscover_unhealthy(self) -> list[str]:
         """Try to rediscover vassals that were previously unreachable."""
         recovered = []
         for name, vassal in self._vassals.items():
@@ -260,7 +260,7 @@ class VassalDiscovery:
             vassal.last_error = str(exc)
             return json.dumps({"error": str(exc)})
 
-    def list_all_tools(self) -> List[str]:
+    def list_all_tools(self) -> list[str]:
         """List all registered vassal tools."""
         tools = []
         for name, vassal in self._vassals.items():
@@ -269,7 +269,7 @@ class VassalDiscovery:
             tools.append(f"{name}.ask")
         return tools
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Return a summary of all vassals for display."""
         return {
             name: {

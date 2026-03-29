@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.types import Message, Role
@@ -25,7 +24,7 @@ def _count_tokens(text: str) -> int:
     return len(text.split())
 
 
-def format_context(results: List[RetrievalResult]) -> str:
+def format_context(results: list[RetrievalResult]) -> str:
     """Format retrieval results into a context block.
 
     Each result is prefixed with its source attribution.
@@ -45,7 +44,7 @@ def format_context(results: List[RetrievalResult]) -> str:
 
 
 def build_context_message(
-    results: List[RetrievalResult],
+    results: list[RetrievalResult],
 ) -> Message:
     """Create a system message with formatted context."""
     context_text = format_context(results)
@@ -60,11 +59,11 @@ def build_context_message(
 
 def inject_context(
     query: str,
-    messages: List[Message],
+    messages: list[Message],
     backend: MemoryBackend,
     *,
-    config: Optional[ContextConfig] = None,
-) -> List[Message]:
+    config: ContextConfig | None = None,
+) -> list[Message]:
     """Retrieve relevant context and prepend it to *messages*.
 
     Returns a **new** list — the original list is not mutated.
@@ -95,7 +94,7 @@ def inject_context(
         return messages
 
     # Truncate to max_context_tokens
-    truncated: List[RetrievalResult] = []
+    truncated: list[RetrievalResult] = []
     total_tokens = 0
     for r in results:
         tokens = _count_tokens(r.content)

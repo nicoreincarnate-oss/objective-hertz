@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from openjarvis.evals.core.types import MetricStats, RunSummary
 from openjarvis.optimize.optimizer import compute_pareto_frontier
@@ -50,7 +50,7 @@ def _make_trial_with_summary(
     ``avg_power_watts``, etc.
     """
     # Provide required RunSummary fields with sensible defaults.
-    defaults: Dict[str, Any] = dict(
+    defaults: dict[str, Any] = dict(
         benchmark="test",
         category="reasoning",
         backend="jarvis-direct",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus
 from openjarvis.security._stubs import BaseScanner
@@ -41,7 +41,7 @@ class SecurityContext:
 def setup_security(
     config: Any,
     engine: Any,
-    bus: Optional[EventBus] = None,
+    bus: EventBus | None = None,
 ) -> SecurityContext:
     """Apply security guardrails to an engine based on config.
 

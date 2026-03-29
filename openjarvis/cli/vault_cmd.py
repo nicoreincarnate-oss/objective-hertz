@@ -19,11 +19,11 @@ def _get_or_create_key() -> bytes:
     """Get or create a Fernet encryption key."""
     try:
         from cryptography.fernet import Fernet
-    except ImportError:
+    except ImportError as err:
         raise ImportError(
             "cryptography not installed. Install with: "
             "uv sync --extra security-signing"
-        )
+        ) from err
 
     if _VAULT_KEY_FILE.exists():
         return _VAULT_KEY_FILE.read_bytes().strip()

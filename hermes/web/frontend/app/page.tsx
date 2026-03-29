@@ -1,231 +1,193 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import useSWR from 'swr'
-import { motion } from 'framer-motion'
-import { useToken } from '@/hooks/use-token'
+import { useState } from 'react'
+import { useToken, authHeaders } from '@/hooks/use-token'
+import { useWarRoom } from '@/contexts/war-room-context'
 import { HeroCard } from '@/components/hero-card'
 import { MetricsRow } from '@/components/metrics-row'
-import { AgentChat } from '@/components/agent-chat'
-import { CinematicBackdrop } from '@/components/cinematic-backdrop'
-import { StrategicView } from '@/components/strategic-view'
-import { PipelinePulse } from '@/components/pipeline-pulse'
 import { SignalLedger } from '@/components/signal-ledger'
-import { LeadsTable } from '@/components/leads-table'
-import { AlertTriangle, Loader2 } from 'lucide-react'
-import { TokenInput } from '@/components/token-input'
+import { DaemonStatusPanel } from '@/components/daemon-status-panel'
+import { ConfigPanel } from '@/components/config-panel'
+import { BudgetCard } from '@/components/budget-card'
+import { GlowCard } from '@/components/ui/spotlight-card'
+import { HyperText } from '@/components/ui/hyper-text'
+import { useRouter } from 'next/navigation'
 
-const fetcher = (url: string) => fetch(url).then(res => res.json())
+/**
+ * Command Center (/) — Operational HUD + Control Plane
+ * Status, metrics, daemon control, config, budget, events.
+ */
 
-interface HealthData {
-  error?: string
-  status: string
-  db_ok: boolean
-  mode: 'review' | 'autonomous'
-  agents: Record<string, { status: string; last_heartbeat: string }>
-  metrics: {
-    emails_sent_today: number
-    emails_sent_week: number
-    warm_leads: number
-    sales_closed: number
-    pending_approvals: number
-    revenue_cleared: number
-    revenue_pending: number
-    total_leads: number
-  }
-}
+export default function CommandCenter() {
+  const { token } = useToken()
+  const {
+    health,
+    pipeline,
+    leads,
+    events,
+    healthStatus,
+    connectionStatus,
+    metricHistory,
+    budget,
+  } = useWarRoom()
+  const router = useRouter()
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null)
 
-interface PipelineData {
-  discovered: number
-  researched: number
-  email_sent: number
-  followed_up: number
-  replied: number
-  interested: number
-  demo_built: number
-  proposal_sent: number
-  closed: number
-  building: number
-  deployed: number
-  invoiced: number
-  paid: number
-}
-
-interface Lead {
-  id: string
-  business_name: string
-  email: string
-  industry: string
-  status: string
-  lead_score: number
-  created_at: string
-}
-
-interface Event {
-  id: string
-  event_type: string
-  payload: Record<string, unknown>
-  created_at: string
-  acknowledged: boolean
-}
-
-export default function PerseusWarRoom() {
-  const { token, isLoading: tokenLoading } = useToken()
-  const [lastSync, setLastSync] = useState('--:--')
-
-  // Auto-refresh every 30 seconds
-  const refreshInterval = 30000
-
-  const { data: health, error: healthFetchError, isLoading: healthLoading } = useSWR<HealthData>(
-    token ? `/api/health?token=${token}` : null,
-    fetcher,
-    { refreshInterval }
-  )
-
-  const { data: pipeline } = useSWR<PipelineData>(
-    token ? `/api/pipeline?token=${token}` : null,
-    fetcher,
-    { refreshInterval }
-  )
-
-  const { data: leads } = useSWR<Lead[]>(
-    token ? `/api/leads?token=${token}` : null,
-    fetcher,
-    { refreshInterval }
-  )
-
-  const { data: events } = useSWR<Event[]>(
-    token ? `/api/events?token=${token}` : null,
-    fetcher,
-    { refreshInterval }
-  )
-
-  // Update last sync time
-  useEffect(() => {
-    const updateSync = () => {
-      const now = new Date()
-      setLastSync(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }))
-    }
-    
-    if (health) {
-      updateSync()
-    }
-    
-    const interval = setInterval(updateSync, refreshInterval)
-    return () => clearInterval(interval)
-  }, [health])
-
-  // Show loading while checking for token
-  if (tokenLoading) {
-    return (
-      <div className="relative min-h-screen bg-background aurora-bg noise-overlay flex items-center justify-center overflow-hidden">
-        <CinematicBackdrop priority />
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="relative z-10 flex flex-col items-center gap-4"
-        >
-          <div className="relative">
-            <div className="absolute inset-0 bg-gold/30 blur-xl rounded-full" />
-            <Loader2 className="w-12 h-12 text-gold animate-spin relative" />
-          </div>
-          <p className="text-muted-foreground text-sm">Initializing PERSEUS...</p>
-        </motion.div>
-      </div>
-    )
-  }
-
-  // Token required screen with input form
-  if (!token) {
-    return <TokenInput />
-  }
-
-  // Real metrics from backend — no invented numbers
   const revenueCleared = health?.metrics?.revenue_cleared ?? 0
   const pendingRevenue = health?.metrics?.revenue_pending ?? 0
-  const totalLeads = health?.metrics?.total_leads ?? 0
+  const totalLeads = leads?.length ?? 0
   const closedLeads = health?.metrics?.sales_closed ?? 0
   const closeRate = totalLeads > 0 ? (closedLeads / totalLeads) * 100 : 0
-  const backendStatusMessage = healthFetchError
-    ? 'Unable to reach Hermes backend on port 8500. The Jarvis War Room shell is live, but data modules are offline.'
-    : health?.error
-    ? `${health.error}. The Jarvis War Room shell is live, but data modules are offline.`
-    : healthLoading
-    ? 'Connecting to Hermes backend...'
-    : ''
+
+  const isLive = connectionStatus === 'connected'
+  const mode = (health?.mode as 'review' | 'autonomous') || 'review'
+
+  const showFeedback = (msg: string) => {
+    setActionFeedback(msg)
+    setTimeout(() => setActionFeedback(null), 3000)
+  }
+
+  const handleApproveAll = async () => {
+    if (!token) return
+    try {
+      const res = await fetch('/api/review/bulk', {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_all' }),
+      })
+      const data = await res.json()
+      showFeedback(`Approved ${data.affected ?? 0} items`)
+    } catch {
+      showFeedback('Approve failed')
+    }
+  }
+
+  const handleRunPipeline = async () => {
+    if (!token) return
+    try {
+      const res = await fetch('/api/pipeline/run', {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const data = await res.json()
+      showFeedback(data.task_id ? `Pipeline queued (#${data.task_id})` : 'Pipeline triggered')
+    } catch {
+      showFeedback('Pipeline trigger failed')
+    }
+  }
+
+  const quickActions = [
+    { label: 'Approve All', onClick: handleApproveAll },
+    { label: 'Run Pipeline', onClick: handleRunPipeline },
+    { label: 'Deploy Sites', onClick: () => router.push('/pipeline') },
+    { label: 'Message Agents', onClick: () => router.push('/agents') },
+    { label: 'Ask Intelligence', onClick: () => router.push('/intel') },
+  ]
 
   return (
-    <div className="relative min-h-screen bg-background aurora-bg noise-overlay overflow-hidden">
-      <CinematicBackdrop />
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-        {backendStatusMessage && (
-          <section className="mb-6">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass-card hud-panel rounded-xl p-4 flex items-start gap-3 border border-amber/30"
-            >
-              <AlertTriangle className="w-5 h-5 text-amber mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Backend Status</p>
-                <p className="text-sm text-muted-foreground">{backendStatusMessage}</p>
-              </div>
-            </motion.div>
-          </section>
-        )}
+    <div className="space-y-10">
+      {/* Action feedback toast */}
+      {actionFeedback && (
+        <div className="fixed top-20 right-6 z-50 bg-gold/90 text-background px-4 py-2 rounded-lg text-sm font-medium shadow-lg animate-in fade-in slide-in-from-top-2">
+          {actionFeedback}
+        </div>
+      )}
 
-        {/* Hero Card */}
-        <section className="mb-6">
-          <HeroCard
-            mode={health?.mode || 'review'}
-            pendingApprovals={health?.metrics?.pending_approvals || 0}
-            emailsSent={health?.metrics?.emails_sent_today || 0}
-            warmLeads={health?.metrics?.warm_leads || 0}
-            salesClosed={health?.metrics?.sales_closed || 0}
-            lastSync={lastSync}
-          />
-        </section>
+      {/* ── SYSTEM STATUS ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          System Status
+        </p>
+        <HeroCard
+          mode={mode}
+          pendingApprovals={health?.metrics?.pending_approvals || 0}
+          emailsSent={health?.metrics?.emails_sent_today || 0}
+          warmLeads={health?.metrics?.warm_leads || 0}
+          salesClosed={health?.metrics?.sales_closed || 0}
+          lastSync={
+            isLive
+              ? 'LIVE'
+              : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          }
+        />
+      </div>
 
-        {/* Metrics Row */}
-        <section className="mb-6">
+      {/* ── KEY METRICS ───────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Key Metrics
+        </p>
+        <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
           <MetricsRow
             revenueCleared={revenueCleared}
             pendingRevenue={pendingRevenue}
             emailsToday={health?.metrics?.emails_sent_today || 0}
-            emailsWeek={health?.metrics?.emails_sent_week || 0}
+            emailsWeek={0}
             closeRate={closeRate}
+            budgetRemaining={budget.remaining}
+            budgetTotal={budget.remaining + budget.total_spent || 800}
+            metricHistory={metricHistory}
           />
-        </section>
+        </GlowCard>
+      </div>
 
-        {/* Two Column Layout */}
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {/* Agent Chat */}
-          <AgentChat token={token} />
-
-          {/* Pipeline Pulse */}
-          {pipeline && <PipelinePulse data={pipeline} />}
+      {/* ── QUICK ACTIONS ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Quick Actions
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          {quickActions.map(({ label, onClick }) => (
+            <GlowCard
+              key={label}
+              customSize
+              glowColor="blue"
+              className="p-0 bg-transparent border-0 shadow-none"
+            >
+              <button
+                onClick={onClick}
+                className="glass-card hud-panel rounded-xl px-5 py-3 cursor-pointer transition-all duration-200 hover:bg-white/10 border border-border/50 text-sm font-medium text-foreground"
+              >
+                <HyperText text={label} className="text-sm font-medium" />
+              </button>
+            </GlowCard>
+          ))}
         </div>
+      </div>
 
-        <section className="mb-6">
-          <StrategicView token={token} />
-        </section>
+      {/* ── DAEMON CONTROL ────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Daemon Control
+        </p>
+        <DaemonStatusPanel />
+      </div>
 
-        {/* Signal Ledger */}
-        <section className="mb-6">
-          {events && <SignalLedger events={events} />}
-        </section>
+      {/* ── CONFIGURATION ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Configuration
+        </p>
+        <ConfigPanel />
+      </div>
 
-        {/* Leads Table */}
-        <section>
-          {leads && <LeadsTable leads={leads} />}
-        </section>
+      {/* ── BUDGET ────────────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Budget
+        </p>
+        <BudgetCard />
+      </div>
 
-        {/* Footer */}
-        <footer className="mt-8 pt-6 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground">
-            PERSEUS War Room • Autonomous AI Revenue System • v1.0.0
-          </p>
-        </footer>
+      {/* ── LIVE EVENTS ───────────────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-[0.2em] mb-4">
+          Live Events
+        </p>
+        <GlowCard customSize glowColor="blue" className="w-full p-0 bg-transparent border-0 shadow-none">
+          <SignalLedger events={events ?? []} />
+        </GlowCard>
       </div>
     </div>
   )

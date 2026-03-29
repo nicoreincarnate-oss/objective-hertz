@@ -8,7 +8,7 @@ fall within the chunk window.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -28,7 +28,7 @@ class Chunk:
     source: str = ""
     offset: int = 0
     index: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def _count_tokens(text: str) -> int:
@@ -40,8 +40,8 @@ def chunk_text(
     text: str,
     *,
     source: str = "",
-    config: Optional[ChunkConfig] = None,
-) -> List[Chunk]:
+    config: ChunkConfig | None = None,
+) -> list[Chunk]:
     """Split *text* into chunks respecting paragraph boundaries.
 
     Parameters
@@ -65,8 +65,8 @@ def chunk_text(
     # Split into paragraphs (double newline)
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
 
-    chunks: List[Chunk] = []
-    current_tokens: List[str] = []
+    chunks: list[Chunk] = []
+    current_tokens: list[str] = []
     current_offset = 0
     chunk_start_offset = 0
 

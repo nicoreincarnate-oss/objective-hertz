@@ -49,6 +49,12 @@ class OllamaConfig:
     model: str = _env("OLLAMA_MODEL", "qwen2.5:14b-instruct-q4_K_M")
     secondary: str = _env("OLLAMA_SECONDARY", "llama3.2:3b")
     embed_model: str = _env("OLLAMA_EMBED", "nomic-embed-text")
+    # TurboQuant KV cache compression (requires Ollama >= 0.6.2)
+    # "turbo3" = 3.25 bits/val, 4.9x compression, ~1% PPL loss
+    # "turbo4" = 4.25 bits/val, 3.8x compression, near-zero PPL loss
+    # Set to "" to disable (uses default FP16 KV cache)
+    kv_cache_type: str = _env("OLLAMA_KV_CACHE_TYPE", "turbo4")
+    flash_attention: bool = _env("OLLAMA_FLASH_ATTENTION", "true").lower() == "true"
 
 
 @dataclass(frozen=True)
@@ -92,6 +98,12 @@ class MemoryConfig:
     qdrant_host: str = _env("QDRANT_HOST", "http://localhost:6333")
     qdrant_collection: str = _env("QDRANT_COLLECTION", "perseus")
     mem0_host: str = _env("MEM0_HOST", "http://localhost:8888")
+    zep_url: str = _env("ZEP_URL", "http://localhost:8000")
+    zep_enabled: bool = _env_bool("ZEP_ENABLED", False)
+    neo4j_uri: str = _env("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_user: str = _env("NEO4J_USER", "neo4j")
+    neo4j_password: str = _env("NEO4J_PASSWORD")
+    magma_enabled: bool = _env_bool("MAGMA_ENABLED", False)
 
 
 @dataclass(frozen=True)
@@ -127,6 +139,48 @@ class ConwayConfig:
 
 
 @dataclass(frozen=True)
+class ObservabilityConfig:
+    environment: str = _env("ENVIRONMENT", "development")
+    release: str = _env("RELEASE_VERSION", "0.1.0")
+    metrics_enabled: bool = _env_bool("METRICS_ENABLED", True)
+    metrics_host: str = _env("METRICS_HOST", "0.0.0.0")
+    metrics_port_base: int = _env_int("METRICS_PORT_BASE", 9100)
+    sentry_dsn: str = _env("SENTRY_DSN")
+    sentry_traces_sample_rate: float = _env_float("SENTRY_TRACES_SAMPLE_RATE", 0.0)
+    sentry_profiles_sample_rate: float = _env_float("SENTRY_PROFILES_SAMPLE_RATE", 0.0)
+
+
+@dataclass(frozen=True)
+class SiteBuildConfig:
+    demo_variants: int = _env_int("SITE_BUILD_DEMO_VARIANTS", 3)
+    full_variants: int = _env_int("SITE_BUILD_FULL_VARIANTS", 5)
+    fail_open_when_qa_unavailable: bool = _env_bool("SITE_BUILD_FAIL_OPEN_WHEN_QA_UNAVAILABLE", False)
+    monthly_paid_asset_cap: float = _env_float("SITE_BUILD_MONTHLY_PAID_ASSET_CAP", 30.0)
+    per_demo_asset_cap: float = _env_float("SITE_BUILD_PER_DEMO_ASSET_CAP", 0.03)
+    per_full_asset_cap: float = _env_float("SITE_BUILD_PER_FULL_ASSET_CAP", 0.08)
+    max_demo_assets: int = _env_int("SITE_BUILD_MAX_DEMO_ASSETS", 2)
+    max_full_assets: int = _env_int("SITE_BUILD_MAX_FULL_ASSETS", 4)
+
+
+@dataclass(frozen=True)
+class RufloConfig:
+    """Ruflo engineering agent — multi-agent swarm for code fixes."""
+    enabled: bool = _env_bool("RUFLO_ENABLED", False)
+    a2a_url: str = _env("RUFLO_A2A_URL", "http://localhost:9004")
+    a2a_port: int = _env_int("RUFLO_A2A_PORT", 9004)
+    claude_monthly_cap: float = _env_float("RUFLO_CLAUDE_MONTHLY_CAP", 50)
+    max_concurrent_swarms: int = _env_int("RUFLO_MAX_SWARMS", 1)
+    swarm_timeout_seconds: int = _env_int("RUFLO_SWARM_TIMEOUT", 900)
+    auto_apply_fixes: bool = _env_bool("RUFLO_AUTO_APPLY", False)
+
+
+@dataclass(frozen=True)
+class TrainingConfig:
+    """LoRA training and weight directive settings."""
+    seal_directives: bool = _env_bool("SEAL_DIRECTIVES", False)
+
+
+@dataclass(frozen=True)
 class PerseusConfig:
     root_dir: Path = _ROOT
     log_level: str = _env("LOG_LEVEL", "INFO")
@@ -150,6 +204,10 @@ class PerseusConfig:
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     pricing: PricingConfig = field(default_factory=PricingConfig)
     conway: ConwayConfig = field(default_factory=ConwayConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    site_build: SiteBuildConfig = field(default_factory=SiteBuildConfig)
+    ruflo: RufloConfig = field(default_factory=RufloConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
 
 
 # Singleton

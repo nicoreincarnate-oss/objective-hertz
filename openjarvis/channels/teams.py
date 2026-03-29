@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -42,7 +42,7 @@ class TeamsChannel(BaseChannel):
         *,
         app_password: str = "",
         service_url: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._app_id = app_id or os.environ.get("TEAMS_APP_ID", "")
         self._app_password = app_password or os.environ.get("TEAMS_APP_PASSWORD", "")
@@ -51,7 +51,7 @@ class TeamsChannel(BaseChannel):
             or os.environ.get("TEAMS_SERVICE_URL", "https://smba.trafficmanager.net/teams")
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -76,7 +76,7 @@ class TeamsChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Teams conversation via the Bot Framework API."""
         if not self._app_id or not self._app_password:
@@ -91,7 +91,7 @@ class TeamsChannel(BaseChannel):
                 "Authorization": f"Bearer {self._app_password}",
                 "Content-Type": "application/json",
             }
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "type": "message",
                 "text": content,
             }
@@ -116,7 +116,7 @@ class TeamsChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["teams"]
 

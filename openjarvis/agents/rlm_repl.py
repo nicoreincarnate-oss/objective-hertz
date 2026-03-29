@@ -9,8 +9,9 @@ sub-LM calls.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 # Safe stdlib modules pre-injected into the REPL namespace
 _SAFE_MODULES = [
@@ -56,8 +57,8 @@ class RLMRepl:
 
     def __init__(
         self,
-        llm_query_fn: Optional[Callable[[str], str]] = None,
-        llm_batch_fn: Optional[Callable[[List[str]], List[str]]] = None,
+        llm_query_fn: Callable[[str], str] | None = None,
+        llm_batch_fn: Callable[[list[str]], list[str]] | None = None,
         *,
         max_output_chars: int = 10000,
     ) -> None:
@@ -66,7 +67,7 @@ class RLMRepl:
         self._final_value: Any = None
 
         # Build namespace
-        self._namespace: Dict[str, Any] = {}
+        self._namespace: dict[str, Any] = {}
 
         # Inject safe stdlib modules
         for mod_name in _SAFE_MODULES:
@@ -129,7 +130,7 @@ class RLMRepl:
     # Execution
     # ------------------------------------------------------------------
 
-    def security_check(self, code: str) -> Optional[str]:
+    def security_check(self, code: str) -> str | None:
         """Check code for dangerous patterns. Returns error message or None."""
         for pattern in _BLOCKED_PATTERNS:
             if pattern in code:

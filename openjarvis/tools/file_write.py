@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -21,7 +21,7 @@ class FileWriteTool(BaseTool):
 
     def __init__(
         self,
-        allowed_dirs: Optional[List[str]] = None,
+        allowed_dirs: list[str] | None = None,
     ) -> None:
         self._allowed_dirs = [Path(d).resolve() for d in (allowed_dirs or [])]
 
@@ -158,23 +158,24 @@ class FileWriteTool(BaseTool):
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
         if mode == "write":
-            try:
-                _rust.FileWriteTool().execute(str(path), content)
-            except Exception as exc:
-                return ToolResult(
-                    tool_name="file_write",
-                    content=f"Write error: {exc}",
-                    success=False,
-                )
-        elif False:  # dead code — all write modes go through Rust
-            try:
-                path.write_text(content, encoding="utf-8")
-            except OSError as exc:
-                return ToolResult(
-                    tool_name="file_write",
-                    content=f"Write error: {exc}",
-                    success=False,
-                )
+            if _rust is not None:
+                try:
+                    _rust.FileWriteTool().execute(str(path), content)
+                except Exception as exc:
+                    return ToolResult(
+                        tool_name="file_write",
+                        content=f"Write error: {exc}",
+                        success=False,
+                    )
+            else:
+                try:
+                    path.write_text(content, encoding="utf-8")
+                except OSError as exc:
+                    return ToolResult(
+                        tool_name="file_write",
+                        content=f"Write error: {exc}",
+                        success=False,
+                    )
         else:
             # append mode — always Python
             try:

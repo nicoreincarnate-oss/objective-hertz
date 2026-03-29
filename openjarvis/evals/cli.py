@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -136,10 +135,10 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-def _build_backend(backend_name: str, engine_key: Optional[str],
+def _build_backend(backend_name: str, engine_key: str | None,
                     agent_name: str, tools: list[str],
                     telemetry: bool = False, gpu_metrics: bool = False,
-                    model: Optional[str] = None):
+                    model: str | None = None):
     """Construct the appropriate backend."""
     if backend_name == "jarvis-agent":
         from openjarvis.evals.backends.jarvis_agent import JarvisAgentBackend
@@ -388,9 +387,9 @@ def _build_judge_backend(judge_model: str, engine_key: str = "cloud"):
 
 def _print_summary(
     summary,
-    console: Optional[Console] = None,
-    output_path: Optional[Path] = None,
-    traces_dir: Optional[Path] = None,
+    console: Console | None = None,
+    output_path: Path | None = None,
+    traces_dir: Path | None = None,
     *,
     compact: bool = False,
     trace_detail: bool = False,
@@ -438,7 +437,7 @@ def _build_trackers(config) -> list:
     return trackers
 
 
-def _run_single(config, console: Optional[Console] = None) -> object:
+def _run_single(config, console: Console | None = None) -> object:
     """Run a single eval from a RunConfig and return the summary."""
     from openjarvis.evals.core.runner import EvalRunner
 
@@ -491,10 +490,10 @@ def _run_single(config, console: Optional[Console] = None) -> object:
 
 def _run_agentic(
     config,
-    console: Optional[Console] = None,
+    console: Console | None = None,
     *,
     concurrency: int = 1,
-    query_timeout: Optional[float] = None,
+    query_timeout: float | None = None,
 ) -> None:
     """Run an agentic evaluation using AgenticRunner with trace + energy capture."""
     import asyncio
@@ -1052,8 +1051,8 @@ def run_all(model, engine_key, max_samples, max_workers, judge_model,
                         f"Evaluating {bench_name}...", total=max_samples,
                     )
                     summary = runner.run(
-                        progress_callback=lambda done, total: progress.update(
-                            task, completed=done,
+                        progress_callback=lambda done, total, _task=task: progress.update(
+                            _task, completed=done,
                         ),
                     )
             else:

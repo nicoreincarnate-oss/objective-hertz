@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -41,14 +41,14 @@ class SlackChannel(BaseChannel):
         bot_token: str = "",
         *,
         app_token: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._token = bot_token or os.environ.get("SLACK_BOT_TOKEN", "")
         self._app_token = app_token or os.environ.get("SLACK_APP_TOKEN", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
-        self._listener_thread: Optional[threading.Thread] = None
+        self._listener_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     # -- connection lifecycle ---------------------------------------------------
@@ -97,7 +97,7 @@ class SlackChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Slack channel via the Web API."""
         if not self._token:
@@ -112,7 +112,7 @@ class SlackChannel(BaseChannel):
                 "Authorization": f"Bearer {self._token}",
                 "Content-Type": "application/json",
             }
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "channel": channel,
                 "text": content,
             }
@@ -141,7 +141,7 @@ class SlackChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["slack"]
 

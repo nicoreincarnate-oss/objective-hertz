@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import string
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import LLMJudgeScorer
 from openjarvis.evals.core.types import EvalRecord
@@ -68,7 +68,7 @@ def exact_match(model_answer: str, ground_truth: str) -> bool:
         if len(gt_elems) != len(ma_elems):
             return False
         comparisons = []
-        for ma_elem, gt_elem in zip(ma_elems, gt_elems):
+        for ma_elem, gt_elem in zip(ma_elems, gt_elems, strict=False):
             if _is_float(gt_elem):
                 comparisons.append(
                     _normalize_number_str(ma_elem) == float(gt_elem)
@@ -111,7 +111,7 @@ class GAIAScorer(LLMJudgeScorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -142,7 +142,7 @@ class GAIAScorer(LLMJudgeScorer):
                     "CORRECT" in raw.upper() and "INCORRECT" not in raw.upper()
                 )
 
-            meta: Dict[str, Any] = {
+            meta: dict[str, Any] = {
                 "match_type": "llm_fallback",
                 "raw_judge_output": raw,
             }

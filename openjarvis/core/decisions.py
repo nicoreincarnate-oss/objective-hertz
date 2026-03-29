@@ -12,7 +12,7 @@ import logging
 import sqlite3
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -57,7 +57,7 @@ class DecisionAudit:
     def __init__(
         self,
         db_path: str,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._db_path = db_path
         self._bus = bus
@@ -70,8 +70,8 @@ class DecisionAudit:
         self,
         agent: str,
         decision_type: str,
-        context: Dict[str, Any],
-        decision: Dict[str, Any],
+        context: dict[str, Any],
+        decision: dict[str, Any],
         reasoning: str = "",
     ) -> int:
         """Record an autonomous decision. Returns decision ID."""
@@ -110,7 +110,7 @@ class DecisionAudit:
     def record_outcome(
         self,
         decision_id: int,
-        outcome: Dict[str, Any],
+        outcome: dict[str, Any],
     ) -> None:
         """Update a decision with its observed outcome."""
         now = time.time()
@@ -126,7 +126,7 @@ class DecisionAudit:
         agent: str = "",
         decision_type: str = "",
         limit: int = 20,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get recent decisions, optionally filtered."""
         conditions = []
         params: list = []
@@ -161,7 +161,7 @@ class DecisionAudit:
             for r in rows
         ]
 
-    def get_by_id(self, decision_id: int) -> Optional[Dict[str, Any]]:
+    def get_by_id(self, decision_id: int) -> dict[str, Any] | None:
         """Get a specific decision by ID."""
         row = self._conn.execute(
             "SELECT * FROM agent_decisions WHERE id = ?", (decision_id,),

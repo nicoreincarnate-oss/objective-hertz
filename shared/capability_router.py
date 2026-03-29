@@ -114,7 +114,7 @@ class CapabilityRouter:
             return None
 
         # Return agent with highest score
-        return max(scores, key=scores.get)
+        return max(scores, key=lambda k: scores[k])
 
     def invalidate_cache(self, agent_name: str = "") -> None:
         """Force re-discovery on next route call."""

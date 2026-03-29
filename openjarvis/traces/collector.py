@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus, EventType
@@ -31,8 +31,8 @@ class TraceCollector:
         self,
         agent: BaseAgent,
         *,
-        store: Optional[TraceStore] = None,
-        bus: Optional[EventBus] = None,
+        store: TraceStore | None = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._agent = agent
         self._store = store
@@ -40,11 +40,12 @@ class TraceCollector:
         self._current_steps: list[TraceStep] = []
         self._current_model: str = ""
         self._current_engine: str = ""
+        self._last_trace: Trace | None = None
 
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Execute the wrapped agent and record a trace."""
@@ -89,6 +90,8 @@ class TraceCollector:
             trace.total_latency_seconds += step.duration_seconds
             trace.total_tokens += step.output.get("tokens", 0)
 
+        self._last_trace = trace
+
         if self._store is not None:
             self._store.save(trace)
 
@@ -98,12 +101,9 @@ class TraceCollector:
         return result
 
     @property
-    def last_trace(self) -> Optional[Trace]:
+    def last_trace(self) -> Trace | None:
         """Return the trace from the most recent ``run()``, if available."""
-        if not self._current_steps:
-            return None
-        # Reconstruct from saved steps (steps cleared on next run)
-        return None  # Use TraceStore.get() for retrieval after run
+        return self._last_trace
 
     # -- event handlers --------------------------------------------------------
 

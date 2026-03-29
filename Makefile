@@ -41,7 +41,7 @@ status: ## System status
 	@echo "======================================"
 	@echo ""
 	@echo "=== Local Processes ==="
-	@for agent in perseus titan clawdbot dashboard frontend; do \
+	@for agent in orchestrator titan clawdbot hermes dashboard frontend; do \
 		if [ -f logs/pids/$$agent.pid ] && kill -0 $$(cat logs/pids/$$agent.pid) 2>/dev/null; then \
 			echo "  $$agent: RUNNING (PID: $$(cat logs/pids/$$agent.pid))"; \
 		else \
@@ -67,7 +67,7 @@ logs: ## Tail daemon logs
 health: ## Quick health check
 	@echo "Postgres:  $$(docker exec perseus-postgres pg_isready 2>/dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Qdrant:    $$(curl -sf http://localhost:6333/collections > /dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "Mem0:      $$(curl -sf http://localhost:8888/api/v1/health > /dev/null && echo 'OK' || echo 'DOWN')"
+	@echo "Mem0:      $$(curl -sf http://localhost:8888/health > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "N8N:       $$(curl -sf http://localhost:5678/healthz > /dev/null && echo 'OK' || echo 'DOWN')"
 	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
 
@@ -104,3 +104,6 @@ clean: ## Remove all Docker volumes (DESTRUCTIVE)
 	else \
 		echo "Cancelled."; \
 	fi
+
+# NOTE: explorer and watch-explorer targets removed — scripts/scan_architecture.py and
+# scripts/watch_and_update.sh were never implemented. See docs/EXPLORER.md for context.

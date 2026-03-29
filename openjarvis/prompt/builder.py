@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from openjarvis.core.config import MemoryFilesConfig, SystemPromptConfig
 
@@ -12,11 +11,11 @@ class SystemPromptBuilder:
     def __init__(
         self,
         agent_template: str,
-        memory_files_config: Optional[MemoryFilesConfig] = None,
-        system_prompt_config: Optional[SystemPromptConfig] = None,
-        skill_index: Optional[List[Tuple[str, str]]] = None,
-        session_context: Optional[str] = None,
-        previous_state: Optional[str] = None,
+        memory_files_config: MemoryFilesConfig | None = None,
+        system_prompt_config: SystemPromptConfig | None = None,
+        skill_index: list[tuple[str, str]] | None = None,
+        session_context: str | None = None,
+        previous_state: str | None = None,
     ) -> None:
         self._agent_template = agent_template
         self._mf_config = memory_files_config or MemoryFilesConfig()
@@ -24,7 +23,7 @@ class SystemPromptBuilder:
         self._skill_index = skill_index or []
         self._session_context = session_context
         self._previous_state = previous_state
-        self._frozen_prefix: Optional[str] = None
+        self._frozen_prefix: str | None = None
 
     def build(self) -> str:
         if self._frozen_prefix is None:

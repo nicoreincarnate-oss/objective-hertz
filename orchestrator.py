@@ -21,16 +21,18 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import logging
 import os
 import re
 import signal
 import sys
 import threading
-import time
 from pathlib import Path
 
-logger = logging.getLogger("openjarvis.orchestrator")
+from shared.config import config
+from shared.logging_config import setup_logging
+from shared.observability import capture_exception, install_asyncio_exception_handler
+
+logger = setup_logging("orchestrator")
 
 # Vassal A2A endpoints
 VASSAL_CONFIG = {
@@ -223,10 +225,10 @@ class Orchestrator:
 
         # 1. Boot OJ runtime
         from shared.oj_bridge import (
-            get_bus,
-            get_trace_store,
             get_agent_manager,
             get_audit_logger,
+            get_bus,
+            get_trace_store,
         )
         bus = get_bus()
         get_trace_store()
@@ -266,11 +268,11 @@ class Orchestrator:
         logger.info("EventRelay wired")
 
         # 5. Start PerseusScheduler — THE strategic brain
-        from openjarvis.vassals.perseus_scheduler import PerseusScheduler, PerseusConfig
+        from openjarvis.vassals.perseus_scheduler import PerseusConfig, PerseusScheduler
 
         sched_config = PerseusConfig(
             tick_interval=int(os.environ.get("SCHEDULER_TICK_INTERVAL", "60")),
-            budget_monthly_cap=float(os.environ.get("BUDGET_MONTHLY_CAP", "800")),
+            budget_monthly_cap=float(os.environ.get("MONTHLY_BUDGET_CAP", "800")),
         )
 
         budget_guard = None
@@ -298,13 +300,20 @@ class Orchestrator:
         logger.info("=" * 60)
 
         try:
-            await asyncio.gather(
+            loops = [
                 self._scheduler.start(),       # Strategic brain
                 self._relay.start_polling(),   # Event bridge
                 self._command_loop(),          # Operator commands
                 self._followup_loop(),         # Stale task monitoring
                 self._sleep_cycle_loop(),      # Nightly optimization
-            )
+                self._scout_loop(),            # External intelligence
+                self._self_audit_loop(),       # Codebase self-audit
+            ]
+            if config.ruflo.enabled:
+                loops.append(self._ruflo_validation_loop())  # Ruflo fix validation
+                loops.append(self._ruflo_maintenance_loop())  # Weekly maintenance
+                logger.info("Ruflo validation + maintenance loops enabled")
+            await asyncio.gather(*loops)
         finally:
             await self._cleanup()
 
@@ -464,7 +473,8 @@ class Orchestrator:
         """Listen for operator commands and decompose into agent work."""
         while self._running:
             try:
-                from shared.db import fetch_all, execute as db_execute
+                from shared.db import execute as db_execute
+                from shared.db import fetch_all
 
                 commands = await fetch_all(
                     """SELECT id, payload FROM task_queue
@@ -501,30 +511,33 @@ class Orchestrator:
 
     async def _handle_command(self, command: str):
         """Decompose a high-level operator command into agent tasks via LLM."""
-        from shared.llm_client import llm
         from shared.comms import delegate_task
         from shared.db import execute as db_execute
+        from shared.llm_client import llm
 
         logger.info("Boss received command: %s", command[:100])
 
         try:
             plan = await llm.generate(
-                f"You are OpenJarvis, the boss of a 3-agent business team:\n"
+                f"You are OpenJarvis, the boss of a 4-agent business team:\n"
                 f"- Titan: revenue pipeline (lead discovery, email outreach, deals, invoicing, payments)\n"
                 f"- ClawdBot: skills executor (browser automation, web scraping, site building, research, image gen)\n"
-                f"- Hermes: operator comms (Telegram alerts, dashboard, briefings)\n\n"
+                f"- Hermes: operator comms (Telegram alerts, dashboard, briefings)\n"
+                f"- Ruflo: engineering (code fixes, code review, security scans, dependency audits, refactoring)\n\n"
                 f"The operator commands: \"{command}\"\n\n"
                 f"Decompose this into specific, actionable tasks for your agents.\n"
                 f"Available task_types for Titan: lead_discovery, lead_research, email_compose, email_send, "
                 f"follow_up_check, close_interested, build_sites, process_invoices, sync_analytics\n"
                 f"Available task_types for ClawdBot: skill_execute, web_scrape, browser_task, enrich_lead, "
                 f"site_verify, image_generation, capability_resolve\n"
-                f"Available task_types for Hermes: send_alert, morning_briefing\n\n"
+                f"Available task_types for Hermes: send_alert, morning_briefing\n"
+                f"Available task_types for Ruflo: code_fix, code_review, code_refactor, "
+                f"security_scan, dependency_audit, implement_tool, test_generate\n\n"
                 f"Return ONLY valid JSON:\n"
-                f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes\", \"task_type\": \"...\", "
+                f"{{\"tasks\": [{{\"agent\": \"titan|clawdbot|hermes|ruflo\", \"task_type\": \"...\", "
                 f"\"description\": \"...\", \"priority\": 1}}], "
                 f"\"reasoning\": \"why this plan\"}}",
-                tier="genius", max_tokens=800, temperature=0.3,
+                model="genius", max_tokens=800, temperature=0.3,
             )
 
             match = re.search(r'\{[\s\S]*\}', plan)
@@ -575,8 +588,8 @@ class Orchestrator:
         """Monitor team progress and intervene when needed."""
         while self._running:
             try:
-                from shared.db import fetch_all, fetch_val
                 from shared.comms import ask_agent, send_alert
+                from shared.db import fetch_all, fetch_val
 
                 stale = await fetch_all(
                     """SELECT id, task_type, assigned_agent, created_at FROM task_queue
@@ -662,6 +675,209 @@ class Orchestrator:
         except Exception as exc:
             logger.error("Sleep cycle error: %s", exc, exc_info=True)
 
+    # ── Codebase Self-Audit ────────────────────────────────────────────
+
+    async def _self_audit_loop(self):
+        """Run codebase self-audit every 3 hours with multi-agent consensus."""
+        # Initial delay: wait 30 min after startup for system to stabilize
+        await asyncio.sleep(1800)
+
+        while self._running:
+            try:
+                from perseus.self_audit import run_self_audit
+                result = await run_self_audit()
+                logger.info(
+                    "Self-audit: %d findings, %d approved, %d applied",
+                    result.get("total_findings", 0),
+                    result.get("approved", 0),
+                    result.get("applied", 0),
+                )
+            except Exception as exc:
+                logger.warning("Self-audit failed: %s", exc)
+
+            # Wait 3 hours until next cycle
+            wait = 10800  # 3 hours
+            while self._running and wait > 0:
+                chunk = min(wait, 60)
+                await asyncio.sleep(chunk)
+                wait -= chunk
+
+    # ── Ruflo Validation Loop ───────────────────────────────────────────
+
+    async def _ruflo_validation_loop(self):
+        """Poll completed Ruflo tasks and validate fixes via targeted self-audit."""
+        from shared.db import execute, fetch_all
+
+        # Initial delay: let Ruflo come online
+        await asyncio.sleep(120)
+
+        while self._running:
+            try:
+                pending = await fetch_all(
+                    "SELECT * FROM ruflo_tasks "
+                    "WHERE status = 'completed' AND validation_status IS NULL "
+                    "ORDER BY completed_at ASC LIMIT 5"
+                )
+                for task in pending:
+                    task_id = task["id"]
+                    task_type = task.get("task_type", "")
+                    result = task.get("result", {})
+                    changed_files = result.get("changed_files", []) if isinstance(result, dict) else []
+
+                    if not changed_files:
+                        # No files changed — mark as skipped
+                        await execute(
+                            "UPDATE ruflo_tasks SET validation_status = 'skipped', validated_at = NOW() "
+                            "WHERE id = %s", (task_id,)
+                        )
+                        continue
+
+                    # Run targeted self-audit on changed files
+                    validation_passed = True
+                    validation_details = {}
+                    try:
+                        from perseus.self_audit import _analyze_file
+                        for fpath in changed_files[:10]:  # cap at 10 files
+                            full = Path(config.root_dir) / fpath if hasattr(config, "root_dir") else Path(fpath)
+                            if full.exists():
+                                findings = await _analyze_file(str(fpath), full.read_text())
+                                if findings:
+                                    validation_details[fpath] = [f.get("issue", "") for f in findings]
+                                    validation_passed = False
+                    except Exception as e:
+                        logger.debug("Ruflo validation analysis failed: %s", e)
+                        validation_details["error"] = str(e)
+
+                    status = "passed" if validation_passed else "failed"
+                    await execute(
+                        "UPDATE ruflo_tasks SET validation_status = %s, "
+                        "validation_details = %s, validated_at = NOW() WHERE id = %s",
+                        (status, json.dumps(validation_details), task_id),
+                    )
+
+                    # Emit learning event
+                    from shared.db import emit_event
+                    event_type = "ruflo_fix_validated" if validation_passed else "ruflo_fix_rejected"
+                    await emit_event(event_type, {
+                        "task_id": task_id,
+                        "task_type": task_type,
+                        "changed_files": changed_files,
+                        "validation_status": status,
+                    })
+
+                    # Store learning
+                    from shared.comms import store_learning
+                    if validation_passed:
+                        await store_learning(
+                            category="ruflo_code_pattern",
+                            insight=f"Ruflo successfully fixed {task_type} in {', '.join(changed_files[:3])}",
+                            confidence=0.7,
+                            source_agent="ruflo",
+                            source_event="ruflo_fix_validated",
+                        )
+                    else:
+                        await store_learning(
+                            category="ruflo_code_pattern",
+                            insight=f"Ruflo fix rejected for {task_type}: {json.dumps(validation_details)[:200]}",
+                            confidence=0.3,
+                            source_agent="ruflo",
+                            source_event="ruflo_fix_rejected",
+                        )
+
+                    logger.info("Ruflo task %d validation: %s (%s)", task_id, status, task_type)
+
+            except Exception as exc:
+                logger.debug("Ruflo validation loop error: %s", exc)
+
+            # Check every 60 seconds
+            await asyncio.sleep(60)
+
+    # ── External Intelligence Scout ────────────────────────────────────
+
+    async def _scout_loop(self):
+        """Run external intelligence scout 2x daily (8 AM and 6 PM)."""
+        while self._running:
+            now = datetime.datetime.now()
+            # Next target: 8:17 AM or 6:43 PM (off-minute to avoid fleet collisions)
+            targets = [
+                now.replace(hour=8, minute=17, second=0, microsecond=0),
+                now.replace(hour=18, minute=43, second=0, microsecond=0),
+            ]
+            # Find next future target
+            future_targets = [t for t in targets if t > now]
+            if not future_targets:
+                # Both passed today — schedule first one tomorrow
+                target = targets[0] + datetime.timedelta(days=1)
+            else:
+                target = future_targets[0]
+
+            wait_seconds = (target - now).total_seconds()
+            is_morning = target.hour < 12
+
+            logger.info("Scout cycle scheduled in %.1f hours (%s)", wait_seconds / 3600,
+                         "morning" if is_morning else "evening")
+
+            while self._running and wait_seconds > 0:
+                sleep_chunk = min(wait_seconds, 60)
+                await asyncio.sleep(sleep_chunk)
+                wait_seconds -= sleep_chunk
+
+            if not self._running:
+                break
+
+            try:
+                from perseus.scout import run_scout_cycle
+                result = await run_scout_cycle(include_tier2=is_morning)
+                logger.info("Scout cycle: %d found, %d new, %d actionable",
+                            result.get("total", 0), result.get("new", 0), result.get("actionable", 0))
+            except Exception as exc:
+                logger.warning("Scout cycle failed: %s", exc)
+
+    # ── Weekly Maintenance (Ruflo) ─────────────────────────────────────
+
+    async def _ruflo_maintenance_loop(self):
+        """Weekly scheduled maintenance tasks dispatched to Ruflo.
+
+        Monday 3 AM: dependency_audit
+        Wednesday 3 AM: security_scan
+        Friday 3 AM: code_refactor (complexity analysis)
+        """
+        import datetime as _dt
+
+        from shared.comms import request_task
+
+        # Wait for system to stabilize
+        await asyncio.sleep(3600)
+
+        # Map: weekday (0=Mon) → task type
+        schedule = {
+            0: "dependency_audit",   # Monday
+            2: "security_scan",      # Wednesday
+            4: "code_refactor",      # Friday
+        }
+
+        while self._running:
+            now = _dt.datetime.now()
+            weekday = now.weekday()
+            task_type = schedule.get(weekday)
+
+            if task_type and now.hour == 3 and now.minute < 5:
+                try:
+                    task_id = await request_task(task_type, {
+                        "capability": task_type,
+                        "source": "maintenance",
+                        "source_id": f"maint-{now.strftime('%Y%m%d')}-{task_type}",
+                        "scope": "full_codebase",
+                    }, dedupe=True)
+                    if task_id:
+                        logger.info("Weekly maintenance: dispatched %s to Ruflo (task %s)",
+                                   task_type, task_id)
+                except Exception as e:
+                    logger.debug("Weekly maintenance dispatch failed: %s", e)
+
+            # Check every 5 minutes
+            await asyncio.sleep(300)
+
     # ── Shutdown ──────────────────────────────────────────────────────
 
     def _request_shutdown(self):
@@ -683,7 +899,7 @@ class Orchestrator:
             try:
                 await asyncio.wait_for(self._supervisor.stop_all(), timeout=15.0)
                 logger.info("All vassals stopped")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Vassal shutdown timed out")
 
         # Close DB pool
@@ -714,10 +930,6 @@ class Orchestrator:
 # ── Entry Points ──────────────────────────────────────────────────────
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     orchestrator = Orchestrator()
@@ -725,20 +937,22 @@ def main():
         asyncio.run(orchestrator.start())
     except KeyboardInterrupt:
         logger.info("OpenJarvis stopped")
+    except Exception as exc:
+        capture_exception(exc, service_name="orchestrator", category="main")
+        logger.exception("OpenJarvis crashed")
+        raise
 
 
 async def main_with_a2a():
     """Entry point for Orchestrator + A2A server."""
     import uvicorn
+
     from shared.a2a_wrapper import AgentCard, create_a2a_app
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     orchestrator = Orchestrator()
+    install_asyncio_exception_handler(asyncio.get_running_loop(), "orchestrator")
 
     card = AgentCard(
         name="openjarvis",
@@ -768,7 +982,12 @@ async def main_with_a2a():
     for sig in (signal.SIGTERM, signal.SIGINT):
         asyncio.get_running_loop().add_signal_handler(sig, orchestrator._request_shutdown)
 
-    await asyncio.gather(orchestrator.start(), server.serve())
+    try:
+        await asyncio.gather(orchestrator.start(), server.serve())
+    except Exception as exc:
+        capture_exception(exc, service_name="orchestrator", category="a2a")
+        logger.exception("OpenJarvis A2A runtime crashed")
+        raise
 
 
 if __name__ == "__main__":

@@ -11,10 +11,17 @@ CREATE TABLE IF NOT EXISTS clients (
     website_url VARCHAR(500),
     status VARCHAR(50) DEFAULT 'discovered',
     source_campaign VARCHAR(255),
+    source VARCHAR(255),
     notes TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+-- Dedupe: one lead per email address (when email is set)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email_unique
+    ON clients (email) WHERE email IS NOT NULL AND email != '';
+-- Dedupe: one lead per (name, source) when email is missing
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_name_source_unique
+    ON clients (business_name, source) WHERE email IS NULL OR email = '';
 
 CREATE TABLE IF NOT EXISTS deals (
     id SERIAL PRIMARY KEY,
@@ -25,6 +32,10 @@ CREATE TABLE IF NOT EXISTS deals (
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'refunded', 'cancelled')),
     paid_at TIMESTAMP,
     wise_reference VARCHAR(255),
+    payment_url VARCHAR(500),
+    payment_provider VARCHAR(50),
+    payment_link_id VARCHAR(255),
+    payment_instructions TEXT,
     notes TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -34,12 +45,16 @@ CREATE TABLE IF NOT EXISTS hosting_subscriptions (
     client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
     domain VARCHAR(255),
     netlify_site_id VARCHAR(255),
+    deploy_url VARCHAR(500),
     monthly_price DECIMAL(10,2) DEFAULT 52.00,
     status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'paused', 'cancelled')),
     next_billing_date DATE,
     cancelled_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
+-- One hosting subscription per client — required for ON CONFLICT (client_id) upserts
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hosting_sub_client_unique
+    ON hosting_subscriptions (client_id);
 
 CREATE TABLE IF NOT EXISTS receptionist_subscriptions (
     id SERIAL PRIMARY KEY,
@@ -115,6 +130,13 @@ CREATE TABLE IF NOT EXISTS activity_log (
 CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
 CREATE INDEX IF NOT EXISTS idx_clients_industry ON clients(industry);
 CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
+-- Payment artifact persistence: store provider-specific details needed to
+-- resend, recover, or reconcile invoices across Stripe/Wise/Conway.
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS payment_url VARCHAR(500);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS payment_provider VARCHAR(50);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS payment_link_id VARCHAR(255);
+ALTER TABLE deals ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_deals_client ON deals(client_id);
 CREATE INDEX IF NOT EXISTS idx_deals_status ON deals(status);
 CREATE INDEX IF NOT EXISTS idx_deals_paid ON deals(paid_at);
@@ -246,10 +268,14 @@ CREATE TABLE IF NOT EXISTS titan_learnings (
     confidence FLOAT DEFAULT 0.5,
     source_lead_id INTEGER REFERENCES clients(id),
     source_event VARCHAR(100),
+    client_id INTEGER REFERENCES clients(id),
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_learnings_category ON titan_learnings(category);
 CREATE INDEX IF NOT EXISTS idx_learnings_confidence ON titan_learnings(confidence);
+-- Client-scoped retrieval: get_relevant_learnings filters on client_id
+ALTER TABLE titan_learnings ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id);
+CREATE INDEX IF NOT EXISTS idx_learnings_client_id ON titan_learnings(client_id) WHERE client_id IS NOT NULL;
 
 -- Revenue expansion opportunities: Perseus only expands when ROI is positive.
 CREATE TABLE IF NOT EXISTS revenue_expansion_opportunities (
@@ -346,7 +372,7 @@ CREATE TABLE IF NOT EXISTS email_sequences (
     subject VARCHAR(500),
     body TEXT,
     status VARCHAR(50) DEFAULT 'pending'
-        CHECK (status IN ('pending', 'sent', 'opened', 'replied', 'bounced')),
+        CHECK (status IN ('pending', 'queued', 'sent', 'opened', 'replied', 'bounced')),
     simulation_status VARCHAR(20) DEFAULT 'pending'
         CHECK (simulation_status IN ('pending', 'passed', 'flagged')),
     simulation_score INTEGER,
@@ -362,6 +388,9 @@ CREATE TABLE IF NOT EXISTS email_sequences (
 );
 CREATE INDEX IF NOT EXISTS idx_email_seq_client ON email_sequences(client_id);
 CREATE INDEX IF NOT EXISTS idx_email_seq_status ON email_sequences(status);
+-- Dedupe: one email per (client, step) — prevents duplicate compose/follow-up
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_seq_client_step_unique
+    ON email_sequences (client_id, step);
 
 -- Outbound email log: immutable record of every email dispatched
 -- soul/soul_copy.md line 41: "Log every send — no exceptions"
@@ -444,7 +473,8 @@ INSERT INTO system_config (key, value, is_customized) VALUES
     ('warmup_day', '1', FALSE),
     ('paused_domains', '[]', FALSE),
     ('company_address', '"[SET YOUR PHYSICAL ADDRESS]"', FALSE),
-    ('unsubscribe_base_url', '"https://your-domain.com"', FALSE)
+    ('unsubscribe_base_url', '"https://your-domain.com"', FALSE),
+    ('shadow_mode', 'true', FALSE)
 ON CONFLICT (key) DO UPDATE
 SET value = EXCLUDED.value,
     is_customized = FALSE,
@@ -530,6 +560,20 @@ FROM budget_tracking
 WHERE pipeline_stage IS NOT NULL
 GROUP BY pipeline_stage
 ORDER BY total_cost DESC;
+
+-- MAGMA causal edge audit trail (tracks Neo4j causal inference quality in Postgres)
+CREATE TABLE IF NOT EXISTS magma_causal_audit (
+    id SERIAL PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    cause_node_id TEXT,
+    effect_node_id TEXT,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    validated BOOLEAN DEFAULT FALSE,
+    validated_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_causal_audit_node ON magma_causal_audit(node_id);
+CREATE INDEX IF NOT EXISTS idx_causal_audit_confidence ON magma_causal_audit(confidence);
 
 -- Source quality: conversion funnel per discovery source
 CREATE OR REPLACE VIEW v_source_quality AS

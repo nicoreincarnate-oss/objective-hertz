@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.types import RunConfig, RunSummary
 from openjarvis.learning.optimize.types import (
@@ -80,6 +80,7 @@ class TrialRunner:
             run_config.engine_key,
             run_config.agent_name or "orchestrator",
             run_config.tools,
+            model=run_config.model,
         )
         judge_backend = _build_judge_backend(run_config.judge_model)
         scorer = _build_scorer(
@@ -135,16 +136,16 @@ class TrialRunner:
     def _summary_to_result(
         trial: TrialConfig,
         summary: RunSummary,
-        eval_results: Optional[List[Any]] = None,
+        eval_results: list[Any] | None = None,
     ) -> TrialResult:
         """Convert a :class:`RunSummary` to a :class:`TrialResult`."""
         total_tokens = summary.total_input_tokens + summary.total_output_tokens
 
-        failure_modes: List[str] = []
+        failure_modes: list[str] = []
         if summary.errors > 0:
             failure_modes.append(f"{summary.errors} evaluation errors")
 
-        sample_scores: List[SampleScore] = []
+        sample_scores: list[SampleScore] = []
         if eval_results:
             for er in eval_results:
                 sample_scores.append(
@@ -197,7 +198,7 @@ class MultiBenchTrialRunner:
 
     def __init__(
         self,
-        benchmark_specs: List[BenchmarkSpec],
+        benchmark_specs: list[BenchmarkSpec],
         judge_model: str = "gpt-5-mini-2025-08-07",
         output_dir: str = "results/optimize/",
     ) -> None:
@@ -207,7 +208,7 @@ class MultiBenchTrialRunner:
 
     def run_trial(self, trial: TrialConfig) -> TrialResult:
         """Run *trial* against all benchmarks and return a composite result."""
-        per_benchmark: List[BenchmarkScore] = []
+        per_benchmark: list[BenchmarkScore] = []
 
         for spec in self.benchmark_specs:
             if spec.benchmark == "terminalbench-native":
@@ -348,7 +349,7 @@ class MultiBenchTrialRunner:
     @staticmethod
     def _aggregate(
         trial: TrialConfig,
-        per_benchmark: List[BenchmarkScore],
+        per_benchmark: list[BenchmarkScore],
     ) -> TrialResult:
         """Compute weighted-aggregate metrics from per-benchmark scores."""
         total_weight = sum(b.weight for b in per_benchmark) or 1.0
@@ -367,8 +368,8 @@ class MultiBenchTrialRunner:
         total_tokens = sum(b.total_tokens for b in per_benchmark)
 
         # Merge all sample scores
-        all_scores: List[SampleScore] = []
-        failure_modes: List[str] = []
+        all_scores: list[SampleScore] = []
+        failure_modes: list[str] = []
         for b in per_benchmark:
             all_scores.extend(b.sample_scores)
             if b.errors > 0:

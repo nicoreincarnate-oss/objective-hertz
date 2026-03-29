@@ -7,7 +7,6 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -316,8 +315,8 @@ def _build_serve_command(backend: str, model: str, port: int) -> list[str]:
 )
 def host(
     model: str,
-    backend: Optional[str],
-    port: Optional[int],
+    backend: str | None,
+    port: int | None,
     trust_remote_code: bool,
 ) -> None:
     """Download (if needed) and serve a model locally.
@@ -400,7 +399,7 @@ def host(
         except subprocess.TimeoutExpired:
             proc.kill()
         console.print("[green]Server stopped.[/green]")
-    except FileNotFoundError:
+    except FileNotFoundError as err:
         console.print(f"[red]Command not found:[/red] {cmd[0]}")
         console.print(f"Make sure {info['display']} is installed and on your PATH.")
-        raise SystemExit(1)
+        raise SystemExit(1) from err

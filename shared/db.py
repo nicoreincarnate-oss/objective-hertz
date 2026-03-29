@@ -3,7 +3,9 @@ Postgres database helpers for Perseus.
 Async connection pool using psycopg (v3, async-native).
 """
 
+import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,25 +13,46 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from shared.config import config
+from shared.observability import (
+    capture_exception,
+    enrich_payload_with_context,
+    observe_db_query,
+)
 
 logger = logging.getLogger("perseus.db")
 
 _pool: AsyncConnectionPool | None = None
+_pool_lock = asyncio.Lock()
 
 
-async def init_pool(min_size: int = 2, max_size: int = 10):
-    """Initialize the connection pool. Call once at daemon startup."""
+async def init_pool(min_size: int = 2, max_size: int = 10, retries: int = 5, backoff: float = 2.0):
+    """Initialize the connection pool with retry logic. Call once at daemon startup."""
     global _pool
     if _pool is not None:
         return
-    _pool = AsyncConnectionPool(
-        conninfo=config.postgres.dsn,
-        min_size=min_size,
-        max_size=max_size,
-        kwargs={"row_factory": dict_row},
-    )
-    await _pool.open()
-    logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
+    async with _pool_lock:
+        if _pool is not None:
+            return  # type: ignore[unreachable]
+        for attempt in range(1, retries + 1):
+            try:
+                _pool = AsyncConnectionPool(
+                    conninfo=config.postgres.dsn,
+                    min_size=min_size,
+                    max_size=max_size,
+                    kwargs={"row_factory": dict_row},
+                )
+                await _pool.open()
+                logger.info("Postgres pool initialized (%d-%d connections)", min_size, max_size)
+                return
+            except Exception as e:
+                _pool = None
+                if attempt < retries:
+                    wait = backoff * attempt
+                    logger.warning("DB pool init failed (attempt %d/%d): %s — retrying in %.0fs", attempt, retries, e, wait)
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("DB pool init failed after %d attempts: %s", retries, e)
+                    raise
 
 
 async def close_pool():
@@ -60,22 +83,63 @@ async def transaction():
 
 async def execute(query: str, params: tuple = ()) -> None:
     """Execute a query (INSERT, UPDATE, DELETE)."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        await conn.execute(query, params)
+        try:
+            await conn.execute(query, params)
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
 
 
 async def fetch_one(query: str, params: tuple = ()) -> dict[str, Any] | None:
     """Fetch a single row."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        cursor = await conn.execute(query, params)
-        return await cursor.fetchone()
+        try:
+            cursor = await conn.execute(query, params)
+            row = await cursor.fetchone()
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
+        return row
 
 
 async def fetch_all(query: str, params: tuple = ()) -> list[dict[str, Any]]:
     """Fetch all rows."""
+    started_at = time.perf_counter()
+    operation = query.strip().split(None, 1)[0] if query.strip() else "unknown"
     async with get_conn() as conn:
-        cursor = await conn.execute(query, params)
-        return await cursor.fetchall()
+        try:
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
+        except Exception as exc:
+            observe_db_query(operation, time.perf_counter() - started_at, success=False)
+            capture_exception(
+                exc,
+                service_name="db",
+                category="query",
+                extra_context={"operation": operation},
+            )
+            raise
+        observe_db_query(operation, time.perf_counter() - started_at, success=True)
+        return rows
 
 
 async def fetch_val(query: str, params: tuple = ()) -> Any:
@@ -101,6 +165,7 @@ async def insert_task(
     collapse into one another.
     """
     import json
+    payload = enrich_payload_with_context(payload)
     if dedupe:
         # Skip if there's already a pending or running task of this type
         existing = await fetch_one(
@@ -123,6 +188,7 @@ async def insert_task(
 async def emit_event(event_type: str, payload: dict[str, Any] | None = None) -> int:
     """Emit an event for Hermes/dashboard. Returns event ID."""
     import json
+    payload = enrich_payload_with_context(payload)
     row = await fetch_one(
         """INSERT INTO events (event_type, payload)
            VALUES (%s, %s) RETURNING id""",

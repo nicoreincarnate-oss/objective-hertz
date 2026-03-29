@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -49,7 +50,7 @@ class WasmRunner:
     def run(
         self,
         wasm_bytes: bytes,
-        input_data: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any] | None = None,
     ) -> WasmResult:
         """Execute a WASM module with input data.
 
@@ -69,55 +70,78 @@ class WasmRunner:
             )
 
         t0 = time.time()
-        try:
-            # Configure engine with fuel metering
-            config = wasmtime.Config()
-            config.consume_fuel = True
-            engine = wasmtime.Engine(config)
+        result_box: list[WasmResult] = []
 
-            # Create store with fuel limit
-            store = wasmtime.Store(engine)
-            store.set_fuel(self._fuel_limit)
+        def _execute() -> None:
+            try:
+                # Configure engine with fuel metering
+                config = wasmtime.Config()
+                config.consume_fuel = True
+                engine = wasmtime.Engine(config)
 
-            # Compile module
-            module = wasmtime.Module(engine, wasm_bytes)
+                # Create store with fuel limit
+                store = wasmtime.Store(engine)
+                store.set_fuel(self._fuel_limit)
 
-            # Set up WASI if needed
-            wasi_config = wasmtime.WasiConfig()
-            wasi_config.inherit_stdout()
-            wasi_config.inherit_stderr()
-            store.set_wasi(wasi_config)
+                # Compile module
+                module = wasmtime.Module(engine, wasm_bytes)
 
-            # Create linker and link WASI
-            linker = wasmtime.Linker(engine)
-            linker.define_wasi()
+                # Set up WASI if needed
+                wasi_config = wasmtime.WasiConfig()
+                wasi_config.inherit_stdout()
+                wasi_config.inherit_stderr()
+                store.set_wasi(wasi_config)
 
-            # Instantiate
-            instance = linker.instantiate(store, module)
+                # Create linker and link WASI
+                linker = wasmtime.Linker(engine)
+                linker.define_wasi()
 
-            # Try to call _start (WASI entry point)
-            start_func = instance.exports(store).get("_start")
-            if start_func and isinstance(start_func, wasmtime.Func):
-                start_func(store)
+                # Instantiate
+                instance = linker.instantiate(store, module)
 
-            fuel_remaining = store.get_fuel()
-            fuel_consumed = self._fuel_limit - fuel_remaining
+                # Try to call _start (WASI entry point)
+                start_func = instance.exports(store).get("_start")
+                if start_func and isinstance(start_func, wasmtime.Func):
+                    start_func(store)
 
-            duration = time.time() - t0
-            return WasmResult(
-                success=True,
-                output="WASM module executed successfully.",
-                duration_seconds=duration,
-                fuel_consumed=fuel_consumed,
-            )
+                fuel_remaining = store.get_fuel()
+                fuel_consumed = self._fuel_limit - fuel_remaining
 
-        except Exception as exc:
+                duration = time.time() - t0
+                result_box.append(WasmResult(
+                    success=True,
+                    output="WASM module executed successfully.",
+                    duration_seconds=duration,
+                    fuel_consumed=fuel_consumed,
+                ))
+
+            except Exception as exc:
+                duration = time.time() - t0
+                result_box.append(WasmResult(
+                    success=False,
+                    output=f"WASM execution error: {exc}",
+                    duration_seconds=duration,
+                ))
+
+        # Run execution in a thread with timeout enforcement
+        worker = threading.Thread(target=_execute, daemon=True)
+        worker.start()
+        worker.join(timeout=self._timeout)
+
+        if worker.is_alive():
+            # Thread is still running — timeout exceeded
             duration = time.time() - t0
             return WasmResult(
                 success=False,
-                output=f"WASM execution error: {exc}",
+                output=f"WASM execution timed out after {self._timeout}s.",
                 duration_seconds=duration,
             )
+
+        return result_box[0] if result_box else WasmResult(
+            success=False,
+            output="WASM execution produced no result.",
+            duration_seconds=time.time() - t0,
+        )
 
     def validate(self, wasm_bytes: bytes) -> bool:
         """Validate that bytes represent a valid WASM module."""

@@ -6,7 +6,7 @@ import logging
 import os
 import socket
 import ssl
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -49,7 +49,7 @@ class IRCChannel(BaseChannel):
         nick: str = "",
         password: str = "",
         use_tls: bool = False,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._server = server or os.environ.get("IRC_SERVER", "")
         self._port = int(os.environ.get("IRC_PORT", str(port)))
@@ -57,7 +57,7 @@ class IRCChannel(BaseChannel):
         self._password = password or os.environ.get("IRC_PASSWORD", "")
         self._use_tls = use_tls
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -86,7 +86,7 @@ class IRCChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a PRIVMSG to an IRC channel via a new socket connection."""
         if not self._server or not self._nick:
@@ -119,7 +119,7 @@ class IRCChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["irc"]
 

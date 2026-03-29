@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.tracker import ResultTracker
 from openjarvis.evals.core.types import EvalResult, MetricStats, RunConfig, RunSummary
@@ -19,7 +19,7 @@ except ImportError:
 LOGGER = logging.getLogger(__name__)
 
 # Canonical column order for the summary row.
-SHEET_COLUMNS: List[str] = [
+SHEET_COLUMNS: list[str] = [
     "timestamp",
     "benchmark",
     "model",
@@ -52,7 +52,7 @@ SHEET_COLUMNS: List[str] = [
 ]
 
 
-def _stat_val(ms: Optional[MetricStats], attr: str) -> Any:
+def _stat_val(ms: MetricStats | None, attr: str) -> Any:
     """Safely extract a stat value from a MetricStats, returning '' if None."""
     if ms is None:
         return ""
@@ -124,7 +124,7 @@ class SheetsTracker(ResultTracker):
             creds, _ = google.auth.default(scopes=scopes)
         return gspread.authorize(creds)
 
-    def _build_row(self, s: RunSummary) -> List[Any]:
+    def _build_row(self, s: RunSummary) -> list[Any]:
         """Build a flat row matching SHEET_COLUMNS order."""
         return [
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

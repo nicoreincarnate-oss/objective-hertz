@@ -1,13 +1,21 @@
 'use client'
 
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, Mail, Star, DollarSign, AlertTriangle, AlertCircle, MessageSquare, ArrowRight, RefreshCw, Bot } from 'lucide-react'
+import {
+  Activity, Mail, Star, DollarSign, AlertTriangle, AlertCircle,
+  MessageSquare, ArrowRight, Bot, Globe, FileText, CreditCard,
+  Zap, Filter, X,
+} from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { AnimatedList } from '@/components/ui/animated-list'
 
 interface Event {
-  id: string
+  id: number | string
   event_type: string
   payload: Record<string, unknown>
-  created_at: string
+  created_at: string | null
   acknowledged: boolean
 }
 
@@ -15,161 +23,174 @@ interface SignalLedgerProps {
   events: Event[]
 }
 
-const eventConfig: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
-  email_sent: { icon: <Mail className="w-4 h-4" />, color: 'green', label: 'Email Sent' },
-  emails_sent: { icon: <Mail className="w-4 h-4" />, color: 'green', label: 'Emails Sent' },
-  lead_scored: { icon: <Star className="w-4 h-4" />, color: 'gold', label: 'Lead Scored' },
-  demo_completed: { icon: <Activity className="w-4 h-4" />, color: 'teal', label: 'Demo Completed' },
-  deal_closed: { icon: <DollarSign className="w-4 h-4" />, color: 'green', label: 'Deal Closed' },
-  site_deployed: { icon: <Activity className="w-4 h-4" />, color: 'teal', label: 'Site Deployed' },
-  review_needed: { icon: <AlertTriangle className="w-4 h-4" />, color: 'amber', label: 'Review Needed' },
-  leads_discovered: { icon: <ArrowRight className="w-4 h-4" />, color: 'gold', label: 'Leads Discovered' },
-  operator_message_sent: { icon: <MessageSquare className="w-4 h-4" />, color: 'gold', label: 'Operator Message' },
-  agent_message_ack: { icon: <Bot className="w-4 h-4" />, color: 'teal', label: 'Agent Acknowledged' },
-  payment_received: { icon: <DollarSign className="w-4 h-4" />, color: 'green', label: 'Payment Received' },
-  approval_required: { icon: <AlertTriangle className="w-4 h-4" />, color: 'amber', label: 'Approval Required' },
-  error: { icon: <AlertCircle className="w-4 h-4" />, color: 'red', label: 'Error' },
-  reply_received: { icon: <MessageSquare className="w-4 h-4" />, color: 'teal', label: 'Reply Received' },
-  pipeline_update: { icon: <ArrowRight className="w-4 h-4" />, color: 'gold', label: 'Pipeline Update' },
-  agent_handoff: { icon: <Bot className="w-4 h-4" />, color: 'gold', label: 'Agent Handoff' },
-  warning: { icon: <AlertTriangle className="w-4 h-4" />, color: 'amber', label: 'Warning' }
+type Severity = 'critical' | 'warning' | 'info' | 'success'
+
+const EVENT_CONFIG: Record<string, { icon: React.ReactNode; severity: Severity; label: string }> = {
+  email_sent:             { icon: <Mail className="w-3.5 h-3.5" />,          severity: 'info',     label: 'Email Sent' },
+  emails_sent:            { icon: <Mail className="w-3.5 h-3.5" />,          severity: 'info',     label: 'Emails Sent' },
+  email_queued:           { icon: <Mail className="w-3.5 h-3.5" />,          severity: 'info',     label: 'Email Queued' },
+  lead_scored:            { icon: <Star className="w-3.5 h-3.5" />,          severity: 'info',     label: 'Lead Scored' },
+  lead_approved:          { icon: <Zap className="w-3.5 h-3.5" />,           severity: 'success',  label: 'Lead Approved' },
+  lead_rejected:          { icon: <X className="w-3.5 h-3.5" />,             severity: 'warning',  label: 'Lead Rejected' },
+  lead_escalated:         { icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning',  label: 'Lead Escalated' },
+  demo_completed:         { icon: <Globe className="w-3.5 h-3.5" />,         severity: 'success',  label: 'Demo Completed' },
+  deal_closed:            { icon: <DollarSign className="w-3.5 h-3.5" />,    severity: 'success',  label: 'Deal Closed' },
+  site_deployed:          { icon: <Globe className="w-3.5 h-3.5" />,         severity: 'success',  label: 'Site Deployed' },
+  review_needed:          { icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning',  label: 'Review Needed' },
+  approval_required:      { icon: <AlertCircle className="w-3.5 h-3.5" />,   severity: 'critical', label: 'Approval Required' },
+  leads_discovered:       { icon: <ArrowRight className="w-3.5 h-3.5" />,    severity: 'info',     label: 'Leads Discovered' },
+  operator_message_sent:  { icon: <MessageSquare className="w-3.5 h-3.5" />, severity: 'info',     label: 'Operator Message' },
+  agent_message_ack:      { icon: <Bot className="w-3.5 h-3.5" />,           severity: 'info',     label: 'Agent Acknowledged' },
+  payment_received:       { icon: <CreditCard className="w-3.5 h-3.5" />,    severity: 'success',  label: 'Payment Received' },
+  invoice_sent:           { icon: <FileText className="w-3.5 h-3.5" />,      severity: 'info',     label: 'Invoice Sent' },
+  pipeline_error:         { icon: <AlertCircle className="w-3.5 h-3.5" />,   severity: 'critical', label: 'Pipeline Error' },
+  daemon_restart:         { icon: <Activity className="w-3.5 h-3.5" />,      severity: 'warning',  label: 'Daemon Restart' },
+}
+
+const SEVERITY_STYLES: Record<Severity, { border: string; glow: string; text: string; bg: string }> = {
+  critical: { border: 'border-l-red',   glow: 'glow-critical', text: 'text-red',   bg: 'bg-red/8' },
+  warning:  { border: 'border-l-amber', glow: 'glow-warning',  text: 'text-amber', bg: 'bg-amber/8' },
+  info:     { border: 'border-l-gold',  glow: '',               text: 'text-gold',  bg: 'bg-gold/5' },
+  success:  { border: 'border-l-green', glow: 'glow-success',  text: 'text-green', bg: 'bg-green/5' },
+}
+
+const SEVERITY_FILTERS: Severity[] = ['critical', 'warning', 'info', 'success']
+
+function getRelativeTime(dateString: string | null): string {
+  if (!dateString) return ''
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now.getTime() - date.getTime()
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  return `${Math.floor(diffHr / 24)}d ago`
 }
 
 export function SignalLedger({ events }: SignalLedgerProps) {
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
+  const [activeSeverity, setActiveSeverity] = useState<Set<Severity>>(new Set(SEVERITY_FILTERS))
+  const [showFilters, setShowFilters] = useState(false)
 
-    if (diffMins < 1) return 'Just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const toggleSeverity = (s: Severity) => {
+    setActiveSeverity(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return next
+    })
   }
 
-  const getEventDetail = (event: Event): string => {
-    const payload = event.payload
-    switch (event.event_type) {
-      case 'email_sent':
-        return `Sent to ${payload.recipient}`
-      case 'emails_sent':
-        return `${payload.count ?? payload.emails_sent ?? '0'} sent`
-      case 'lead_scored':
-        return `${payload.business}: ${payload.previous} → ${payload.score}`
-      case 'demo_completed':
-        return `${payload.business} - ${payload.outcome}`
-      case 'deal_closed':
-        return `${payload.client ?? payload.business_name ?? 'Client'} · ${payload.amount ?? ''}`
-      case 'site_deployed':
-        return `${payload.business_name ?? payload.client ?? 'Deployment'} · ${payload.details ?? payload.url ?? ''}`
-      case 'review_needed':
-        return `${payload.reason ?? payload.type ?? 'Approval needed'} · ${payload.count ?? ''}`
-      case 'leads_discovered':
-        return `${payload.count ?? '0'} new leads`
-      case 'operator_message_sent':
-        return `${payload.target_agent ?? 'agent'} · ${payload.message ?? ''}`
-      case 'agent_message_ack':
-        return `${payload.agent ?? 'agent'} · ${payload.reply ?? payload.operator_message ?? ''}`
-      case 'payment_received':
-        return `${payload.amount} from ${payload.business}`
-      case 'approval_required':
-        return `${payload.action}: ${payload.business}`
-      case 'error':
-        return `${payload.message}`
-      case 'reply_received':
-        return `From ${payload.from} (${payload.sentiment})`
-      case 'pipeline_update':
-        return `${payload.stage}: ${payload.count} (${payload.change})`
-      case 'agent_handoff':
-        return `${payload.from} → ${payload.to}`
-      case 'warning':
-        return `${payload.message}`
-      default:
-        return JSON.stringify(payload)
-    }
-  }
-
-  const getColorClasses = (color: string) => {
-    switch (color) {
-      case 'green': return { border: 'border-l-green', bg: 'bg-green/10', text: 'text-green' }
-      case 'gold': return { border: 'border-l-gold', bg: 'bg-gold/10', text: 'text-gold' }
-      case 'teal': return { border: 'border-l-teal', bg: 'bg-teal/10', text: 'text-teal' }
-      case 'amber': return { border: 'border-l-amber', bg: 'bg-amber/10', text: 'text-amber' }
-      case 'red': return { border: 'border-l-red', bg: 'bg-red/10', text: 'text-red', glow: 'shadow-red/20 shadow-lg' }
-      default: return { border: 'border-l-muted-foreground', bg: 'bg-muted', text: 'text-muted-foreground' }
-    }
-  }
+  const filteredEvents = useMemo(() => {
+    return events.filter(e => {
+      const config = EVENT_CONFIG[e.event_type]
+      const severity = config?.severity ?? 'info'
+      return activeSeverity.has(severity)
+    })
+  }, [events, activeSeverity])
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.5 }}
-      className="glass-card hud-panel rounded-xl p-5 md:p-6"
+      className="glass-card-elevated hud-panel rounded-xl p-8"
     >
-      <div className="flex items-center justify-between mb-5">
+      {/* Header with filter toggle */}
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <Activity className="w-5 h-5 text-gold" />
           Signal Ledger
+          <span className="text-xs text-muted-foreground">({filteredEvents.length})</span>
         </h2>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <RefreshCw className="w-3 h-3" />
-          <span>Auto-refresh</span>
-        </div>
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`p-1.5 rounded-lg transition-colors ${showFilters ? 'bg-gold/10 text-gold' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <Filter className="w-4 h-4" />
+        </button>
       </div>
 
-      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-        <AnimatePresence>
-          {events.map((event, index) => {
-            const config = eventConfig[event.event_type] || { 
-              icon: <Activity className="w-4 h-4" />, 
-              color: 'muted', 
-              label: event.event_type 
-            }
-            const colors = getColorClasses(config.color)
+      {/* Filter bar */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mb-3"
+          >
+            <div className="flex gap-2 pb-3 border-b border-border">
+              {SEVERITY_FILTERS.map(s => (
+                <button
+                  key={s}
+                  onClick={() => toggleSeverity(s)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                    activeSeverity.has(s)
+                      ? `${SEVERITY_STYLES[s].bg} ${SEVERITY_STYLES[s].text} border-current/30`
+                      : 'bg-muted/30 text-muted-foreground border-border'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            return (
-              <motion.div
-                key={event.id}
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ delay: index * 0.05 }}
-                className={`relative p-3 rounded-lg bg-muted/30 border-l-2 ${colors.border} ${config.color === 'red' ? colors.glow : ''} hover:bg-muted/50 transition-colors`}
-              >
-                <div className="flex items-start gap-3">
-                  {/* Icon */}
-                  <div className={`p-1.5 rounded-md ${colors.bg} ${colors.text}`}>
-                    {config.icon}
-                  </div>
+      {/* Event stream */}
+      <ScrollArea className="h-[320px]">
+        <div className="space-y-2 pr-2">
+          {filteredEvents.length === 0 ? (
+            <div className="text-center py-12">
+              <img src="/assets/generated/states/no-events.svg" alt="" className="w-28 h-20 mx-auto mb-3 opacity-60" />
+              <p className="text-xs text-muted-foreground">No events matching filters</p>
+            </div>
+          ) : (
+            <AnimatedList delay={400} className="gap-2">
+              {filteredEvents.map((event) => {
+                const config = EVENT_CONFIG[event.event_type] ?? {
+                  icon: <Activity className="w-3.5 h-3.5" />,
+                  severity: 'info' as Severity,
+                  label: event.event_type.replace(/_/g, ' '),
+                }
+                const styles = SEVERITY_STYLES[config.severity]
+                const isCritical = config.severity === 'critical' || config.severity === 'warning'
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                      <span className={`text-sm font-medium ${colors.text}`}>
-                        {config.label}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                        {formatTime(event.created_at)}
+                return (
+                  <div
+                    key={event.id}
+                    className={`p-3 rounded-lg border-l-2 ${styles.border} ${styles.bg} ${
+                      isCritical ? styles.glow : ''
+                    } transition-all`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={styles.text}>{config.icon}</div>
+                      <span className={`text-xs font-medium ${styles.text}`}>{config.label}</span>
+                      <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                        {getRelativeTime(event.created_at)}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {getEventDetail(event)}
-                    </p>
-                  </div>
 
-                  {/* Unacknowledged indicator */}
-                  {!event.acknowledged && (
-                    <div className="w-2 h-2 rounded-full bg-amber animate-pulse" />
-                  )}
-                </div>
-              </motion.div>
-            )
-          })}
-        </AnimatePresence>
-      </div>
+                    {/* Payload summary */}
+                    {event.payload && Object.keys(event.payload).length > 0 && (
+                      <div className="mt-1.5 text-[11px] text-muted-foreground truncate">
+                        {Object.entries(event.payload)
+                          .slice(0, 3)
+                          .map(([k, v]) => `${k}: ${String(v).slice(0, 30)}`)
+                          .join(' • ')}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </AnimatedList>
+          )}
+        </div>
+      </ScrollArea>
     </motion.div>
   )
 }

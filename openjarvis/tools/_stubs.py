@@ -11,8 +11,9 @@ import concurrent.futures
 import json
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -28,14 +29,14 @@ class ToolSpec:
 
     name: str
     description: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     category: str = ""
     cost_estimate: float = 0.0
     latency_estimate: float = 0.0
     requires_confirmation: bool = False
     timeout_seconds: float = 30.0
-    required_capabilities: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    required_capabilities: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ class BaseTool(ABC):
     def execute(self, **params: Any) -> ToolResult:
         """Execute the tool with the given parameters."""
 
-    def to_openai_function(self) -> Dict[str, Any]:
+    def to_openai_function(self) -> dict[str, Any]:
         """Convert to OpenAI function-calling format."""
         s = self.spec
         return {
@@ -92,16 +93,16 @@ class ToolExecutor:
 
     def __init__(
         self,
-        tools: List[BaseTool],
-        bus: Optional[EventBus] = None,
+        tools: list[BaseTool],
+        bus: EventBus | None = None,
         *,
         interactive: bool = False,
-        confirm_callback: Optional[Callable[[str], bool]] = None,
+        confirm_callback: Callable[[str], bool] | None = None,
         default_timeout: float = 30.0,
-        capability_policy: Optional[Any] = None,
+        capability_policy: Any | None = None,
         agent_id: str = "",
     ) -> None:
-        self._tools: Dict[str, BaseTool] = {t.spec.name: t for t in tools}
+        self._tools: dict[str, BaseTool] = {t.spec.name: t for t in tools}
         self._bus = bus
         self._interactive = interactive
         self._confirm_callback = confirm_callback
@@ -266,17 +267,17 @@ class ToolExecutor:
 
         return result
 
-    def available_tools(self) -> List[ToolSpec]:
+    def available_tools(self) -> list[ToolSpec]:
         """Return specs for all available tools."""
         return [t.spec for t in self._tools.values()]
 
-    def get_openai_tools(self) -> List[Dict[str, Any]]:
+    def get_openai_tools(self) -> list[dict[str, Any]]:
         """Return tools in OpenAI function-calling format."""
         return [t.to_openai_function() for t in self._tools.values()]
 
 
 def build_tool_descriptions(
-    tools: List[BaseTool],
+    tools: list[BaseTool],
     *,
     include_category: bool = True,
     include_cost: bool = False,

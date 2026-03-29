@@ -15,6 +15,11 @@ import json
 import logging
 import re
 
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:
+    Jsonb = None  # type: ignore[assignment,misc]
+
 from shared.db import (
     emit_event,
     execute,
@@ -204,9 +209,7 @@ def _score_deliverability_guard(combined: str, spam_hits: list[str]) -> dict:
 
 
 def _jsonb_value(value):
-    try:
-        from psycopg.types.json import Jsonb
-    except ImportError:
+    if Jsonb is None:
         return value
 
     return Jsonb(value)
@@ -234,6 +237,30 @@ async def _persist_micro_simulation(seq_id: int, simulation: dict):
 
 async def send_emails(batch_size: int = 50):
     """Add queued emails to Instantly campaign. Respects review mode and deliverability limits."""
+    # Shadow mode: log what would be sent but don't touch Instantly or transition state
+    if await get_config("shadow_mode", False):
+        leads = await fetch_all(
+            """SELECT c.id, c.business_name, c.email,
+                      es.subject
+               FROM clients c
+               JOIN email_sequences es ON es.client_id = c.id
+               WHERE c.status IN ('email_drafted', 'followed_up')
+                 AND es.status = 'pending'
+               ORDER BY c.lead_score DESC LIMIT %s""",
+            (batch_size,),
+        )
+        for lead in leads:
+            logger.info(
+                "SHADOW: would send to %s <%s> — subject: %s",
+                lead["business_name"], lead["email"], lead.get("subject", ""),
+            )
+            await emit_event("shadow_email_send", {
+                "client_id": lead["id"],
+                "email": lead["email"],
+                "subject": lead.get("subject", ""),
+            })
+        return
+
     # Check review mode
     review_mode = await get_config("review_mode", True)
     if review_mode:
@@ -248,8 +275,8 @@ async def send_emails(batch_size: int = 50):
             logger.info("Daily send budget exhausted — skipping email_send this cycle")
             return
         batch_size = min(batch_size, budget_remaining)
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.debug(f"Deliverability monitor not available: {e}")
 
     # Get emails ready to send
     leads = await fetch_all(
@@ -302,13 +329,16 @@ async def _get_or_create_campaign() -> str:
 
     try:
         from tools.instantly_client import InstantlyClient
-        client = InstantlyClient()
+    except ImportError:
+        logger.warning("Instantly client not available")
+        return ""
 
+    client = InstantlyClient()
+    try:
         if campaign_id:
             # Verify it still exists
             try:
                 campaign = await client.get_campaign(campaign_id)
-                await client.close()
                 return campaign_id
             except Exception:
                 logger.info("Stored campaign no longer valid, creating new one")
@@ -326,16 +356,13 @@ async def _get_or_create_campaign() -> str:
             # Activate the campaign so Instantly starts sending
             await client.activate_campaign(new_id)
 
-        await client.close()
-
         return new_id
 
-    except ImportError:
-        logger.warning("Instantly client not available")
-        return ""
     except Exception as e:
         logger.error(f"Failed to get/create campaign: {e}")
         return ""
+    finally:
+        await client.close()
 
 
 async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
@@ -360,7 +387,7 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
         subject=lead.get("subject", ""),
         body=lead.get("body", ""),
         seq_id=lead["seq_id"],
-        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        first_name=(lead.get("contact_name") or "").strip().split()[0] if (lead.get("contact_name") or "").strip() else "",
         company_name=lead.get("business_name", ""),
         industry=lead.get("industry", ""),
         city=lead.get("city", ""),
@@ -370,16 +397,20 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
     if not success:
         return False
 
-    # Update our tracking atomically so a crash can't partially advance state.
+    # Update our tracking atomically.
+    # Mark as 'queued' (accepted by Instantly campaign), NOT 'sent'.
+    # Instantly handles actual delivery later on its own schedule.
+    # The analytics sync in sync_campaign_analytics() updates to 'sent'
+    # when Instantly confirms the email was actually dispatched.
     async with transaction() as conn:
         await conn.execute(
-            "UPDATE email_sequences SET status = 'sent', sent_at = NOW() WHERE id = %s",
+            "UPDATE email_sequences SET status = 'queued' WHERE id = %s",
             (lead["seq_id"],),
         )
         if lead.get("step", 1) == 1:
             await conn.execute(
                 """UPDATE clients
-                   SET status = 'email_sent', last_contact_at = NOW(), updated_at = NOW()
+                   SET status = 'email_queued', last_contact_at = NOW(), updated_at = NOW()
                    WHERE id = %s""",
                 (lead["client_id"],),
             )
@@ -415,9 +446,8 @@ async def _add_lead_to_campaign(campaign_id: str, lead: dict) -> bool:
 
 async def _queue_for_review(batch_size: int):
     """In review mode: queue emails for Nico's approval instead of sending."""
-    from psycopg.types.json import Jsonb
-
     from titan.state_machine import transition_lead
+
 
     leads = await fetch_all(
         """SELECT c.id as client_id, c.email, c.business_name,
@@ -431,7 +461,23 @@ async def _queue_for_review(batch_size: int):
         (batch_size,),
     )
 
+    queued_count = 0
     for lead in leads:
+        # Dedupe: skip if this sequence already has a pending review item.
+        # Without this, every cycle re-selects the same pending drafts and
+        # piles up duplicate review_queue rows.
+        existing = await fetch_one(
+            """SELECT id FROM review_queue
+               WHERE item_type = 'email_draft'
+                 AND client_id = %s
+                 AND content->>'seq_id' = %s
+                 AND status = 'pending_review'
+               LIMIT 1""",
+            (lead["client_id"], str(lead["seq_id"])),
+        )
+        if existing:
+            continue
+
         content = {
             "seq_id": lead["seq_id"],
             "step": lead.get("step", 1),
@@ -443,12 +489,13 @@ async def _queue_for_review(batch_size: int):
                VALUES ('email_draft', %s, %s, 'pending_review')""",
             (lead["client_id"], Jsonb(content)),
         )
+        queued_count += 1
         if lead.get("step", 1) == 1:
             await transition_lead(lead["client_id"], "email_queued")
 
-    if leads:
-        await emit_event("review_needed", {"type": "email_drafts", "count": len(leads)})
-        logger.info(f"Queued {len(leads)} emails for review")
+    if queued_count:
+        await emit_event("review_needed", {"type": "email_drafts", "count": queued_count})
+        logger.info(f"Queued {queued_count} emails for review")
 
 
 async def sync_campaign_analytics():
@@ -540,7 +587,7 @@ def _apply_provider_bucketing(
     for lead in leads:
         if len(selected) >= batch_size:
             break
-        provider = _recipient_provider(lead.get("email", ""))
+        provider = _recipient_provider(lead.get("email") or "")
         cap = _PROVIDER_DAILY_CAPS.get(provider, _PROVIDER_DAILY_CAPS["other"])
         if counts.get(provider, 0) >= cap:
             continue

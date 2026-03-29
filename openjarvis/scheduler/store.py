@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 _CREATE_TASKS_TABLE = """\
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -62,7 +62,7 @@ class SchedulerStore:
 
     # -- Task CRUD -----------------------------------------------------------
 
-    def save_task(self, task: Dict[str, Any]) -> None:
+    def save_task(self, task: dict[str, Any]) -> None:
         """Insert or replace a scheduled task record."""
         self._conn.execute(
             _INSERT_TASK,
@@ -82,7 +82,7 @@ class SchedulerStore:
         )
         self._conn.commit()
 
-    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
         """Retrieve a single task by ID, or ``None`` if not found."""
         row = self._conn.execute(
             "SELECT * FROM scheduled_tasks WHERE id = ?", (task_id,)
@@ -91,7 +91,7 @@ class SchedulerStore:
             return None
         return self._row_to_dict(row)
 
-    def list_tasks(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:
         """Return all tasks, optionally filtered by *status*."""
         if status is not None:
             rows = self._conn.execute(
@@ -101,7 +101,7 @@ class SchedulerStore:
             rows = self._conn.execute("SELECT * FROM scheduled_tasks").fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def get_due_tasks(self, now_iso: str) -> List[Dict[str, Any]]:
+    def get_due_tasks(self, now_iso: str) -> list[dict[str, Any]]:
         """Return active tasks whose ``next_run`` is at or before *now_iso*."""
         rows = self._conn.execute(
             "SELECT * FROM scheduled_tasks WHERE status = 'active' "
@@ -110,7 +110,7 @@ class SchedulerStore:
         ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def update_task(self, task: Dict[str, Any]) -> None:
+    def update_task(self, task: dict[str, Any]) -> None:
         """Update an existing task (same as save_task — uses INSERT OR REPLACE)."""
         self.save_task(task)
 
@@ -141,7 +141,7 @@ class SchedulerStore:
 
     def get_run_logs(
         self, task_id: str, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return the most recent run logs for *task_id*."""
         rows = self._conn.execute(
             "SELECT * FROM task_run_logs WHERE task_id = ? "
@@ -159,7 +159,7 @@ class SchedulerStore:
     # -- Helpers -------------------------------------------------------------
 
     @staticmethod
-    def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
         if "metadata" in d and isinstance(d["metadata"], str):
             try:

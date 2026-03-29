@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import itertools
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.mcp.protocol import MCPError, MCPRequest, MCPResponse
 from openjarvis.mcp.transport import MCPTransport
@@ -22,13 +22,13 @@ class MCPClient:
     def __init__(self, transport: MCPTransport) -> None:
         self._transport = transport
         self._initialized = False
-        self._capabilities: Dict[str, Any] = {}
+        self._capabilities: dict[str, Any] = {}
         self._id_counter = itertools.count(1)
 
     def _next_id(self) -> int:
         return next(self._id_counter)
 
-    def _send(self, method: str, params: Dict[str, Any] | None = None) -> MCPResponse:
+    def _send(self, method: str, params: dict[str, Any] | None = None) -> MCPResponse:
         """Send a request and check for errors."""
         request = MCPRequest(
             method=method,
@@ -44,7 +44,7 @@ class MCPClient:
             )
         return response
 
-    def initialize(self) -> Dict[str, Any]:
+    def initialize(self) -> dict[str, Any]:
         """Perform the MCP initialize handshake.
 
         Returns the server capabilities.
@@ -54,7 +54,7 @@ class MCPClient:
         self._capabilities = response.result.get("capabilities", {})
         return response.result
 
-    def list_tools(self) -> List[ToolSpec]:
+    def list_tools(self) -> list[ToolSpec]:
         """Discover available tools from the server.
 
         Returns a list of ``ToolSpec`` objects.
@@ -71,8 +71,8 @@ class MCPClient:
         ]
 
     def call_tool(
-        self, name: str, arguments: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+        self, name: str, arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Call a tool on the server.
 
         Returns the result dictionary with ``content`` and ``isError`` fields.

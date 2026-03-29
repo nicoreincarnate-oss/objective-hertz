@@ -14,7 +14,7 @@ from typing import Any
 
 from conway.cloud import ConwayCloudClient
 from conway.identity import provision_api_key
-from conway.registry import AgentRegistry8004, ZERO_ADDRESS
+from conway.registry import ZERO_ADDRESS, AgentRegistry8004
 from conway.wallet import WalletManager
 from shared.config import config
 from shared.db import emit_event, get_config, set_config

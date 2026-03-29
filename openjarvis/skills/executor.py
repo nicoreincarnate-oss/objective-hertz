@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 from openjarvis.core.types import ToolCall, ToolResult
@@ -17,8 +17,8 @@ from openjarvis.tools._stubs import ToolExecutor
 class SkillResult:
     skill_name: str = ""
     success: bool = True
-    step_results: List[ToolResult] = field(default_factory=list)
-    context: Dict[str, Any] = field(default_factory=dict)
+    step_results: list[ToolResult] = field(default_factory=list)
+    context: dict[str, Any] = field(default_factory=dict)
 
 
 class SkillExecutor:
@@ -32,7 +32,7 @@ class SkillExecutor:
         self,
         tool_executor: ToolExecutor,
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._tool_executor = tool_executor
         self._bus = bus
@@ -41,11 +41,11 @@ class SkillExecutor:
         self,
         manifest: SkillManifest,
         *,
-        initial_context: Optional[Dict[str, Any]] = None,
+        initial_context: dict[str, Any] | None = None,
     ) -> SkillResult:
         """Execute all steps in a skill manifest."""
-        ctx: Dict[str, Any] = dict(initial_context or {})
-        all_results: List[ToolResult] = []
+        ctx: dict[str, Any] = dict(initial_context or {})
+        all_results: list[ToolResult] = []
 
         if self._bus:
             self._bus.publish(
@@ -98,13 +98,22 @@ class SkillExecutor:
         )
 
     @staticmethod
-    def _render_template(template: str, ctx: Dict[str, Any]) -> str:
-        """Simple {key} placeholder rendering."""
+    def _render_template(template: str, ctx: dict[str, Any]) -> str:
+        """Render {key} placeholders with proper JSON escaping.
+
+        When a placeholder appears inside a JSON string (detected by
+        surrounding quotes), the substituted value is JSON-escaped to
+        prevent broken JSON from multiline content, quotes, or
+        backslashes in tool outputs.
+        """
         def _replace(match: re.Match) -> str:
             key = match.group(1)
             val = ctx.get(key, match.group(0))
             if isinstance(val, str):
-                return val
+                # JSON-escape the string value so it's safe inside a
+                # JSON string literal.  json.dumps adds surrounding
+                # quotes which we strip since the template already has them.
+                return json.dumps(val)[1:-1]
             return json.dumps(val)
 
         return re.sub(r"\{(\w+)\}", _replace, template)

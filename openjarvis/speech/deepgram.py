@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional
 
 from openjarvis.core.registry import SpeechRegistry
 from openjarvis.speech._stubs import SpeechBackend, TranscriptionResult
@@ -21,7 +20,7 @@ class DeepgramSpeechBackend(SpeechBackend):
 
     backend_id = "deepgram"
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or os.environ.get("DEEPGRAM_API_KEY", "")
         self._client = None
         if self._api_key and DeepgramClient is not None:
@@ -32,7 +31,7 @@ class DeepgramSpeechBackend(SpeechBackend):
         audio: bytes,
         *,
         format: str = "wav",
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> TranscriptionResult:
         """Transcribe audio using Deepgram's API."""
         if self._client is None:
@@ -92,5 +91,5 @@ class DeepgramSpeechBackend(SpeechBackend):
     def health(self) -> bool:
         return self._client is not None and bool(self._api_key)
 
-    def supported_formats(self) -> List[str]:
+    def supported_formats(self) -> list[str]:
         return ["wav", "mp3", "ogg", "flac", "webm", "m4a"]

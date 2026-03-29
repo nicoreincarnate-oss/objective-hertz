@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -12,10 +12,10 @@ class DiscoveredSkill:
     """A skill discovered from trace analysis."""
     name: str
     description: str
-    tool_sequence: List[str]  # ordered tool names
+    tool_sequence: list[str]  # ordered tool names
     frequency: int  # how often this sequence appeared
     avg_outcome: float  # average outcome score
-    example_inputs: List[str] = field(default_factory=list)
+    example_inputs: list[str] = field(default_factory=list)
 
 
 class SkillDiscovery:
@@ -41,9 +41,9 @@ class SkillDiscovery:
         self._min_len = min_sequence_length
         self._max_len = max_sequence_length
         self._min_outcome = min_outcome
-        self._discovered: List[DiscoveredSkill] = []
+        self._discovered: list[DiscoveredSkill] = []
 
-    def analyze_traces(self, traces: List[Any]) -> List[DiscoveredSkill]:
+    def analyze_traces(self, traces: list[Any]) -> list[DiscoveredSkill]:
         """Analyze a list of traces for recurring tool sequences.
 
         Parameters
@@ -57,8 +57,8 @@ class SkillDiscovery:
         List of DiscoveredSkill objects meeting frequency and outcome thresholds.
         """
         # Extract tool sequences from traces
-        sequence_data: Dict[Tuple[str, ...], List[float]] = defaultdict(list)
-        sequence_inputs: Dict[Tuple[str, ...], List[str]] = defaultdict(list)
+        sequence_data: dict[tuple[str, ...], list[float]] = defaultdict(list)
+        sequence_inputs: dict[tuple[str, ...], list[str]] = defaultdict(list)
 
         for trace in traces:
             tool_calls = self._extract_tool_sequence(trace)
@@ -100,7 +100,7 @@ class SkillDiscovery:
         self._discovered = discovered
         return discovered
 
-    def _extract_tool_sequence(self, trace: Any) -> List[str]:
+    def _extract_tool_sequence(self, trace: Any) -> list[str]:
         """Extract ordered list of tool names from a trace."""
         if isinstance(trace, dict):
             steps = trace.get("steps", [])
@@ -132,8 +132,29 @@ class SkillDiscovery:
     def _extract_outcome(self, trace: Any) -> float:
         """Extract outcome score from a trace."""
         if isinstance(trace, dict):
-            return float(trace.get("outcome", 0.0))
-        return float(getattr(trace, "outcome", 0.0))
+            raw = trace.get("outcome", 0.0)
+        else:
+            raw = getattr(trace, "outcome", 0.0)
+        return self._parse_outcome(raw)
+
+    @staticmethod
+    def _parse_outcome(raw: Any) -> float:
+        """Convert an outcome value to a float score."""
+        if raw is None:
+            return 0.0
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        if isinstance(raw, str):
+            low = raw.strip().lower()
+            if low == "success":
+                return 1.0
+            if low == "failure":
+                return 0.0
+            try:
+                return float(low)
+            except ValueError:
+                return 0.0
+        return 0.0
 
     def _extract_query(self, trace: Any) -> str:
         """Extract the original query from a trace."""
@@ -142,11 +163,11 @@ class SkillDiscovery:
         return getattr(trace, "query", "")
 
     @property
-    def discovered_skills(self) -> List[DiscoveredSkill]:
+    def discovered_skills(self) -> list[DiscoveredSkill]:
         """Return the most recently discovered skills."""
         return list(self._discovered)
 
-    def to_skill_manifests(self) -> List[Dict[str, Any]]:
+    def to_skill_manifests(self) -> list[dict[str, Any]]:
         """Convert discovered skills to TOML-compatible manifest dicts."""
         manifests = []
         for skill in self._discovered:

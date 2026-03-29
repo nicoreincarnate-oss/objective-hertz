@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from 'next/server'
 const BACKEND = process.env.BACKEND_URL || 'http://localhost:8500'
 
 export async function POST(request: NextRequest) {
-  const token = request.nextUrl.searchParams.get('token')
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authHeader = request.headers.get('authorization') || ''
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const body = await request.json()
@@ -13,9 +15,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Question cannot be empty.' }, { status: 400 })
     }
 
-    const res = await fetch(`${BACKEND}/api/insights?token=${token}`, {
+    const res = await fetch(`${BACKEND}/api/insights`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
       body: JSON.stringify({ question }),
       cache: 'no-store',
     })

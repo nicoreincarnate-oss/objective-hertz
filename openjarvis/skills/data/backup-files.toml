@@ -11,7 +11,7 @@ output_key = "timestamp"
 
 [[skill.steps]]
 tool_name = "shell_exec"
-arguments_template = '{"command": "tar czf {destination}/backup_{timestamp}.tar.gz -C {source} ."}'
+arguments_template = '{"command": "tar czf \"{destination}/backup_{timestamp}.tar.gz\" -C \"{source}\" ."}'
 output_key = "archive_result"
 
 [[skill.steps]]

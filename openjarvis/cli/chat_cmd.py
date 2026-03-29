@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from typing import List, Optional
 
 import click
 from rich.console import Console
@@ -14,7 +13,7 @@ from openjarvis.core.config import load_config
 from openjarvis.core.types import Message, Role
 
 
-def _read_input(prompt: str = "You> ") -> Optional[str]:
+def _read_input(prompt: str = "You> ") -> str | None:
     """Read user input with graceful EOF handling."""
     try:
         return input(prompt)
@@ -134,7 +133,7 @@ def chat(
     )
 
     # Conversation state
-    history: List[Message] = []
+    history: list[Message] = []
     if system_prompt:
         history.append(Message(role=Role.SYSTEM, content=system_prompt))
 

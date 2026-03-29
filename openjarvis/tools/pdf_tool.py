@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import ToolResult
@@ -12,7 +12,7 @@ from openjarvis.tools._stubs import BaseTool, ToolSpec
 _DEFAULT_MAX_CHARS = 50_000
 
 
-def _parse_pages(pages_str: str, total_pages: int) -> List[int]:
+def _parse_pages(pages_str: str, total_pages: int) -> list[int]:
     """Parse a page range string into zero-indexed page numbers.
 
     Supports formats like ``"1-5"`` (range) and ``"1,3,5"`` (list).

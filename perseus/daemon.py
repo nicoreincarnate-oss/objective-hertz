@@ -1,3 +1,19 @@
+# =============================================================================
+# LEGACY MODULE — DO NOT USE AS PRIMARY ENTRYPOINT
+# =============================================================================
+# perseus/daemon.py is retained for backward compatibility only.
+#
+# The canonical entrypoint is orchestrator.py (OpenJarvis orchestrator),
+# which supersedes this file in all production and development deployments.
+#
+# Migration:
+#   Old:  python -m perseus.daemon   (or: python perseus/daemon.py)
+#   New:  python orchestrator.py
+#
+# This file will refuse to start if the OpenJarvis orchestrator is already
+# listening on ORCHESTRATOR_A2A_PORT (default 9000).  In that case use
+# orchestrator.py exclusively — perseus/daemon.py is a no-op.
+# =============================================================================
 """
 Perseus Master Daemon — LEGACY. Replaced by OpenJarvis orchestrator.
 
@@ -7,6 +23,7 @@ Use `python orchestrator.py` instead.
 """
 
 import asyncio
+import functools
 import json
 import signal
 import time
@@ -17,6 +34,7 @@ from shared import db
 from shared.agent_base import AgentBase
 from shared.config import config
 from shared.logging_config import setup_logging
+from shared.pipeline import assess_pipeline_state
 
 logger = setup_logging("perseus")
 
@@ -276,7 +294,6 @@ class PerseusDaemon(AgentBase):
 
 async def _assess_pipeline_state() -> dict:
     """Build a snapshot of the full pipeline for strategic decision-making."""
-    from shared.pipeline import assess_pipeline_state
     return await assess_pipeline_state()
 
 
@@ -360,7 +377,7 @@ def _openjarvis_is_running() -> bool:
     try:
         with socket.create_connection(("localhost", port), timeout=2):
             return True
-    except (ConnectionRefusedError, OSError, socket.timeout):
+    except (TimeoutError, ConnectionRefusedError, OSError):
         return False
 
 
@@ -382,7 +399,7 @@ async def main():
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(perseus.stop()))
+        loop.add_signal_handler(sig, functools.partial(asyncio.ensure_future, perseus.stop()))
 
     await perseus.start()
 

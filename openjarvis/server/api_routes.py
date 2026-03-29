@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -16,23 +16,23 @@ logger = logging.getLogger(__name__)
 
 class AgentCreateRequest(BaseModel):
     agent_type: str
-    tools: Optional[List[str]] = None
-    agent_id: Optional[str] = None
+    tools: list[str] | None = None
+    agent_id: str | None = None
 
 class AgentMessageRequest(BaseModel):
     message: str
 
 class MemoryStoreRequest(BaseModel):
     content: str
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 class MemorySearchRequest(BaseModel):
     query: str
     top_k: int = 5
 
 class BudgetLimitsRequest(BaseModel):
-    max_tokens_per_day: Optional[int] = None
-    max_requests_per_hour: Optional[int] = None
+    max_tokens_per_day: int | None = None
+    max_requests_per_hour: int | None = None
 
 
 class FeedbackScoreRequest(BaseModel):
@@ -99,8 +99,8 @@ async def create_agent(req: AgentCreateRequest, request: Request):
             "content": result.content,
             "metadata": result.metadata,
         }
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Agent tools not available")
+    except ImportError as err:
+        raise HTTPException(status_code=501, detail="Agent tools not available") from err
 
 @agents_router.delete("/{agent_id}")
 async def kill_agent(agent_id: str, request: Request):
@@ -112,8 +112,8 @@ async def kill_agent(agent_id: str, request: Request):
         if not result.success:
             raise HTTPException(status_code=404, detail=result.content)
         return {"status": "stopped", "agent_id": agent_id}
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Agent tools not available")
+    except ImportError as err:
+        raise HTTPException(status_code=501, detail="Agent tools not available") from err
 
 @agents_router.post("/{agent_id}/message")
 async def message_agent(agent_id: str, req: AgentMessageRequest, request: Request):
@@ -125,8 +125,8 @@ async def message_agent(agent_id: str, req: AgentMessageRequest, request: Reques
         if not result.success:
             raise HTTPException(status_code=404, detail=result.content)
         return {"status": "sent", "content": result.content}
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Agent tools not available")
+    except ImportError as err:
+        raise HTTPException(status_code=501, detail="Agent tools not available") from err
 
 
 # ---- Memory routes ----
@@ -142,7 +142,7 @@ async def memory_store(req: MemoryStoreRequest, request: Request):
         backend.store(req.content, metadata=req.metadata or {})
         return {"status": "stored"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @memory_router.post("/search")
 async def memory_search(req: MemorySearchRequest, request: Request):
@@ -157,7 +157,7 @@ async def memory_search(req: MemorySearchRequest, request: Request):
         ]
         return {"results": items}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @memory_router.get("/stats")
 async def memory_stats(request: Request):
@@ -168,7 +168,7 @@ async def memory_stats(request: Request):
         stats = backend.stats()
         return stats
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---- Traces routes ----
@@ -203,7 +203,7 @@ async def get_trace(trace_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---- Telemetry routes ----
@@ -345,18 +345,18 @@ async def get_session(session_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---- Budget routes ----
 
 budget_router = APIRouter(prefix="/v1/budget", tags=["budget"])
 
-_budget_limits: Dict[str, Any] = {
+_budget_limits: dict[str, Any] = {
     "max_tokens_per_day": None,
     "max_requests_per_hour": None,
 }
-_budget_usage: Dict[str, int] = {
+_budget_usage: dict[str, int] = {
     "tokens_today": 0,
     "requests_this_hour": 0,
 }
@@ -534,7 +534,7 @@ learning_router = APIRouter(prefix="/v1/learning", tags=["learning"])
 @learning_router.get("/stats")
 async def learning_stats(request: Request):
     """Return learning system statistics across all sub-policies."""
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     # Skill discovery
     try:
@@ -553,7 +553,7 @@ async def learning_stats(request: Request):
 @learning_router.get("/policy")
 async def learning_policy(request: Request):
     """Return current routing policy configuration."""
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     # Load config and extract learning section
     try:
@@ -663,7 +663,7 @@ async def submit_feedback(req: FeedbackScoreRequest, request: Request):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @feedback_router.get("/stats")

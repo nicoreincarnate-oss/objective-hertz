@@ -27,7 +27,13 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
 
     Called by the sleep cycle after Phase C. Only proposes — never creates.
     """
-    proposals: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    unique_proposals: list[dict[str, Any]] = []
+
+    def _add_proposal(proposal: dict[str, Any]) -> None:
+        if proposal["name"] not in seen_names:
+            seen_names.add(proposal["name"])
+            unique_proposals.append(proposal)
 
     # Check: sustained pipeline stage errors
     errors = snapshot.get("recent_errors", [])
@@ -39,7 +45,7 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
 
         for stage, count in stage_errors.items():
             if count >= 5:  # 5+ errors in one stage in 24h
-                proposals.append({
+                _add_proposal({
                     "name": f"{stage}-specialist",
                     "reason": (
                         f"Pipeline stage '{stage}' had {count} errors in 24h. "
@@ -57,7 +63,7 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
             source_revenue = float(source.get("revenue", 0))
             if source_revenue / total_revenue > REVENUE_CONCENTRATION_THRESHOLD:
                 source_name = source.get("source", "unknown")
-                proposals.append({
+                _add_proposal({
                     "name": f"{source_name}-outreach-agent",
                     "reason": (
                         f"Source '{source_name}' generates {source_revenue/total_revenue:.0%} of revenue. "
@@ -74,7 +80,7 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
         if error_rate > AGENT_ERROR_RATE_THRESHOLD:
             worst_stage = model.get("worst_performing_stage", "")
             if worst_stage:
-                proposals.append({
+                _add_proposal({
                     "name": f"{worst_stage}-offload-agent",
                     "reason": (
                         f"Agent '{agent_name}' has {error_rate:.0%} error rate, "
@@ -84,14 +90,6 @@ async def evaluate_division_need(snapshot: dict, cycle_id: int) -> None:
                     "trigger": "agent_overload",
                     "data": {"agent": agent_name, "error_rate": error_rate, "stage": worst_stage},
                 })
-
-    # Dedupe and limit
-    seen_names = set()
-    unique_proposals: list[dict[str, Any]] = []
-    for p in proposals:
-        if p["name"] not in seen_names:
-            seen_names.add(p["name"])
-            unique_proposals.append(p)
 
     # Only propose if we haven't recently proposed the same thing
     for proposal in unique_proposals[:2]:

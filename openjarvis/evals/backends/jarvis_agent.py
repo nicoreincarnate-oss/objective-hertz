@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.backend import InferenceBackend
 
@@ -19,12 +19,12 @@ class JarvisAgentBackend(InferenceBackend):
 
     def __init__(
         self,
-        engine_key: Optional[str] = None,
+        engine_key: str | None = None,
         agent_name: str = "orchestrator",
-        tools: Optional[List[str]] = None,
+        tools: list[str] | None = None,
         telemetry: bool = False,
         gpu_metrics: bool = False,
-        model: Optional[str] = None,
+        model: str | None = None,
     ) -> None:
         from openjarvis.system import SystemBuilder
 
@@ -70,7 +70,7 @@ class JarvisAgentBackend(InferenceBackend):
         system: str = "",
         temperature: float = 0.0,
         max_tokens: int = 2048,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         t0 = time.monotonic()
         ask_kwargs: dict = dict(
             agent=self._agent_name,

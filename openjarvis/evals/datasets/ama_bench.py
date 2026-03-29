@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import logging
 import random
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -56,8 +57,8 @@ class AMABenchDataset(DatasetProvider):
     def __init__(
         self,
         subset: str = "default",
-        cache_dir: Optional[str] = None,
-        max_trajectory_tokens: Optional[int] = None,
+        cache_dir: str | None = None,
+        max_trajectory_tokens: int | None = None,
     ) -> None:
         if subset not in ("default", ""):
             raise ValueError(
@@ -65,15 +66,15 @@ class AMABenchDataset(DatasetProvider):
             )
         self._cache_dir = Path(cache_dir) if cache_dir else None
         self._max_traj_tokens = max_trajectory_tokens or _DEFAULT_MAX_TRAJECTORY_TOKENS
-        self._records: List[EvalRecord] = []
-        self._episodes: List[List[EvalRecord]] = []
+        self._records: list[EvalRecord] = []
+        self._episodes: list[list[EvalRecord]] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         rows = self._load_from_hf(split=split or _DEFAULT_SPLIT)
 
@@ -98,14 +99,14 @@ class AMABenchDataset(DatasetProvider):
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)
 
-    def iter_episodes(self) -> Iterable[List[EvalRecord]]:
+    def iter_episodes(self) -> Iterable[list[EvalRecord]]:
         """Yield grouped QA pairs per trajectory for episode mode."""
         return iter(self._episodes)
 
     def size(self) -> int:
         return len(self._records)
 
-    def _load_from_hf(self, *, split: str) -> List[Dict[str, Any]]:
+    def _load_from_hf(self, *, split: str) -> list[dict[str, Any]]:
         try:
             from datasets import load_dataset
         except ImportError as exc:
@@ -114,7 +115,7 @@ class AMABenchDataset(DatasetProvider):
                 "Install with: pip install datasets",
             ) from exc
 
-        kwargs: Dict[str, Any] = {"split": split}
+        kwargs: dict[str, Any] = {"split": split}
         if self._cache_dir is not None:
             kwargs["cache_dir"] = str(self._cache_dir)
 
@@ -122,7 +123,7 @@ class AMABenchDataset(DatasetProvider):
             _HF_REPO_ID,
             **kwargs,
         )
-        rows: Sequence[Dict[str, Any]]
+        rows: Sequence[dict[str, Any]]
         if hasattr(dataset, "to_list"):
             rows = dataset.to_list()
         else:
@@ -130,8 +131,8 @@ class AMABenchDataset(DatasetProvider):
         return [dict(row) for row in rows]
 
     def _row_to_episode(
-        self, row: Dict[str, Any],
-    ) -> List[EvalRecord]:
+        self, row: dict[str, Any],
+    ) -> list[EvalRecord]:
         """Convert one AMA-Bench episode row to EvalRecord(s)."""
         episode_id = str(row.get("episode_id", "")).strip()
         if not episode_id:
@@ -167,7 +168,7 @@ class AMABenchDataset(DatasetProvider):
                 episode_id, original_len, len(trajectory_text),
             )
 
-        records: List[EvalRecord] = []
+        records: list[EvalRecord] = []
         for question_index, qa in enumerate(qa_pairs):
             if not isinstance(qa, dict):
                 raise ValueError(
@@ -224,7 +225,7 @@ class AMABenchDataset(DatasetProvider):
 
     @staticmethod
     def _format_trajectory(trajectory: Sequence[Any]) -> str:
-        lines: List[str] = []
+        lines: list[str] = []
         for idx, turn in enumerate(trajectory):
             if not isinstance(turn, dict):
                 raise ValueError(f"AMA-Bench trajectory turn {idx} is not a dict")

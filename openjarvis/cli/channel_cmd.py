@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import click
 from rich.console import Console
@@ -34,7 +34,7 @@ def _get_channel(
             "default_channel in [channel] config."
         )
 
-    kwargs: Dict[str, Any] = {}
+    kwargs: dict[str, Any] = {}
     if key == "telegram":
         tc = config.channel.telegram
         if tc.bot_token:
@@ -151,7 +151,7 @@ def channel() -> None:
     "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
 )
 def channel_list(
-    channel_type: Optional[str],
+    channel_type: str | None,
 ) -> None:
     """List available channels."""
     console = Console()
@@ -191,7 +191,7 @@ def channel_list(
 def channel_send(
     target: str,
     message: str,
-    channel_type: Optional[str],
+    channel_type: str | None,
 ) -> None:
     """Send a message to a channel."""
     console = Console()
@@ -219,7 +219,7 @@ def channel_send(
     "--channel-type", default=None, help=_CHANNEL_TYPE_HELP,
 )
 def channel_status(
-    channel_type: Optional[str],
+    channel_type: str | None,
 ) -> None:
     """Show channel connection status."""
     console = Console()

@@ -75,12 +75,13 @@ def test_health_api_includes_mode_and_metrics(monkeypatch):
     monkeypatch.setitem(sys.modules, "shared.db", fake_db_module)
     monkeypatch.setitem(sys.modules, "openjarvis.vassals.registry", fake_registry_module)
     monkeypatch.delitem(sys.modules, "hermes.web.app", raising=False)
+    monkeypatch.setenv("DASHBOARD_SECRET", "test-secret")
 
     try:
         web_app = importlib.import_module("hermes.web.app")
         client = TestClient(web_app.app)
 
-        response = client.get("/api/health")
+        response = client.get("/api/health", headers={"Authorization": "Bearer test-secret"})
 
         assert response.status_code == 200
         assert response.json() == {

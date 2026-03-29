@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <pattern id="grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+      <!-- Grid lines -->
+      <line x1="20" y1="0" x2="20" y2="20" stroke="#58e0ff" stroke-width="0.3" stroke-opacity="0.08"/>
+      <line x1="0" y1="20" x2="20" y2="20" stroke="#58e0ff" stroke-width="0.3" stroke-opacity="0.08"/>
+      <!-- Gold dot at intersections -->
+      <circle cx="20" cy="20" r="0.8" fill="#58e0ff" fill-opacity="0.18"/>
+    </pattern>
+  </defs>
+
+  <!-- Transparent base (tileable — no background fill so it composites) -->
+  <rect width="200" height="200" fill="url(#grid)"/>
+
+  <!-- Subtle diagonal shimmer lines (very faint) -->
+  <line x1="0" y1="0" x2="200" y2="200" stroke="#39f3e2" stroke-width="0.4" stroke-opacity="0.03"/>
+  <line x1="200" y1="0" x2="0" y2="200" stroke="#39f3e2" stroke-width="0.4" stroke-opacity="0.03"/>
+  <line x1="100" y1="0" x2="200" y2="100" stroke="#39f3e2" stroke-width="0.4" stroke-opacity="0.02"/>
+  <line x1="0" y1="100" x2="100" y2="200" stroke="#39f3e2" stroke-width="0.4" stroke-opacity="0.02"/>
+</svg>

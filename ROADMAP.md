@@ -1,3 +1,5 @@
+> **Historical**: This roadmap reflects early March 2026 planning. Current project state is tracked in the completion sweep.
+
 # PERSEUS ROADMAP — Single Source of Truth
 
 **Last updated:** March 21, 2026

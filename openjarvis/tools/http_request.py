@@ -105,7 +105,7 @@ class HttpRequestTool(BaseTool):
 
         from openjarvis._rust_bridge import get_rust_module
         _rust = get_rust_module()
-        if not headers:
+        if _rust is not None and not headers:
             try:
                 content = _rust.HttpRequestTool().execute(url, method, body)
                 return ToolResult(

@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
-from shared import db
-from shared import comms
+from shared import comms, db
 from shared.a2a_wrapper import AgentCard, create_a2a_app
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 from shared.pipeline import assess_pipeline_state
 
 logger = logging.getLogger("perseus.titan.a2a")
@@ -41,6 +45,7 @@ TITAN_CARD = AgentCard(
         "config_get", "config_set",
         "task_dispatch", "health_check",
         "events_recent", "event_relay",
+        "review_approve", "review_reject", "review_finding",
         "deliverability_check", "daily_reflection",
         "morning_briefing",
     ],
@@ -68,8 +73,8 @@ async def _budget_status(**_) -> dict:
 
 
 async def _lead_search(status: str = "", industry: str = "", min_score: float = 0, limit: int = 20, **_) -> list:
-    conditions = []
-    params = []
+    conditions: list[str] = []
+    params: list[str | float | int] = []
     if status:
         conditions.append("status = %s")
         params.append(status)
@@ -204,10 +209,10 @@ async def _run_daily_reflection(**_) -> dict:
     return {"reflected": True}
 
 
-async def _ask(question: str = "", from_agent: str = "", context: dict = None, **_) -> dict:
+async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
     """Handle a question from another agent about pipeline/lead/budget state."""
-    from shared.llm_client import llm
     from shared.db import fetch_all, fetch_val
+    from shared.llm_client import llm
 
     # Gather context for answering
     pipeline_summary = await fetch_val(
@@ -230,8 +235,50 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer concisely and factually."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "titan"}
+
+
+async def _review_finding(finding: dict | None = None, code_snippet: str = "", **_) -> dict:
+    """Review a self-audit finding against actual code.
+
+    Titan reviews for: revenue impact, data integrity, pipeline correctness,
+    SQL safety, and financial calculation bugs.
+    """
+    if not finding or not code_snippet:
+        return {"vote": "defer", "reason": "no finding or code provided", "from": "titan"}
+
+    from shared.llm_client import llm
+    prompt = (
+        f"You are Titan, the revenue pipeline agent. A self-audit found an issue "
+        f"in code you depend on. Review the ACTUAL CODE and the proposed fix.\n\n"
+        f"FILE: {finding.get('file', '?')}\n"
+        f"ISSUE: {finding.get('issue', '?')}\n"
+        f"SEVERITY: {finding.get('severity', '?')}\n"
+        f"FAILURE MODE: {finding.get('failure_mode', '?')}\n"
+        f"PROPOSED FIX: {finding.get('proposed_fix', 'none')}\n"
+        f"REASONING: {finding.get('reasoning', '?')}\n\n"
+        f"ACTUAL CODE:\n```python\n{code_snippet[:4000]}\n```\n\n"
+        f"Review from your perspective:\n"
+        f"1. Does this code affect revenue, payments, lead data, or pipeline correctness?\n"
+        f"2. Is the reported issue real? Can you see the bug in the code above?\n"
+        f"3. Will the proposed fix break anything you depend on?\n"
+        f"4. Is the severity rating accurate?\n\n"
+        f"Vote: approve (issue is real AND fix is safe), reject (false positive OR fix is dangerous), "
+        f"or defer (not in your domain). Include your reasoning."
+    )
+
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    # Parse structured vote from the response
+    lower = answer.lower()
+    if "reject" in lower[:100] or "false positive" in lower[:200]:
+        vote = "reject"
+    elif "approve" in lower[:100] or "issue is real" in lower[:200]:
+        vote = "approve"
+    else:
+        vote = "defer"
+
+    return {"vote": vote, "reason": answer[:500], "from": "titan"}
 
 
 async def _events_recent(limit: int = 20, **_) -> list:
@@ -243,7 +290,7 @@ async def _events_recent(limit: int = 20, **_) -> list:
     return [dict(r) for r in rows]
 
 
-async def _event_relay(type: str = "", payload: dict = None, source: str = "", **_) -> dict:
+async def _event_relay(type: str = "", payload: dict | None = None, source: str = "", **_) -> dict:
     """Accept a relayed event from OpenJarvis and store it."""
     if not type:
         return {"error": "event type is required"}
@@ -255,8 +302,30 @@ async def _event_relay(type: str = "", payload: dict = None, source: str = "", *
     return {"status": "relayed", "type": type, "source": source}
 
 
-CAPABILITY_HANDLERS = {
+async def _review_approve(review_id: int = 0, notes: str = "", **_) -> dict:
+    """Approve a review queue item (called via A2A from Hermes)."""
+    from titan.review_mode import approve_review
+    if not review_id:
+        return {"success": False, "error": "review_id is required"}
+    result = await approve_review(review_id, notes)
+    if result:
+        return {"success": True, "review_id": review_id}
+    return {"success": False, "error": "not found or action failed"}
+
+
+async def _review_reject(review_id: int = 0, notes: str = "", **_) -> dict:
+    """Reject a review queue item (called via A2A from Hermes)."""
+    from titan.review_mode import reject_review
+    if not review_id:
+        return {"success": False, "error": "review_id is required"}
+    result = await reject_review(review_id, notes)
+    if result:
+        return {"success": True, "review_id": review_id}
+    return {"success": False, "error": "not found or action failed"}
+
+CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "ask": _ask,
+    "review_finding": _review_finding,
     "pipeline_status": _pipeline_status,
     "lead_discovery": _run_lead_discovery,
     "lead_research": _run_lead_research,
@@ -283,6 +352,8 @@ CAPABILITY_HANDLERS = {
     "health_check": _health_check,
     "events_recent": _events_recent,
     "event_relay": _event_relay,
+    "review_approve": _review_approve,
+    "review_reject": _review_reject,
     "deliverability_check": _run_deliverability_check,
     "daily_reflection": _run_daily_reflection,
     "morning_briefing": lambda **p: _dispatch_task("morning_briefing", p),
@@ -311,8 +382,8 @@ async def handle_a2a(input_text: str) -> str:
                 result = await handler(**params)
                 return json.dumps(result, indent=2, default=str)
             return json.dumps({"error": f"Unknown capability: {cap}"})
-    except (json.JSONDecodeError, TypeError):
-        pass
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.debug("JSON decode failed: %s", e)
 
     # Natural language routing (keyword matching)
     lower = text.lower()
@@ -360,8 +431,8 @@ async def handle_a2a(input_text: str) -> str:
         result = await _memory_search(query=query)
     else:
         result = {
-            "error": f"Titan couldn't route this request. Try JSON format: "
-                     f'{{"capability": "pipeline_status", "params": {{}}}}',
+            "error": "Titan couldn't route this request. Try JSON format: "
+                     '{"capability": "pipeline_status", "params": {}}',
             "available_capabilities": list(CAPABILITY_HANDLERS.keys()),
         }
 
@@ -377,7 +448,7 @@ def _extract_number(text: str, default: int = 20) -> int:
 
 # ── Factory ───────────────────────────────────────────────────────────
 
-def create_titan_a2a(titan_daemon=None) -> "FastAPI":
+def create_titan_a2a(titan_daemon=None) -> FastAPI:  # noqa: F821
     """Create Titan's A2A FastAPI app."""
     health_fn = titan_daemon.health_check if titan_daemon else None
     return create_a2a_app(

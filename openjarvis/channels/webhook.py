@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -40,13 +40,13 @@ class WebhookChannel(BaseChannel):
         *,
         secret: str = "",
         method: str = "POST",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._url = url
         self._secret = secret
         self._method = method.upper()
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -71,7 +71,7 @@ class WebhookChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """POST a JSON payload to the configured webhook URL."""
         if not self._url:
@@ -81,7 +81,7 @@ class WebhookChannel(BaseChannel):
         try:
             import httpx
 
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "channel": channel,
                 "content": content,
             }
@@ -90,7 +90,7 @@ class WebhookChannel(BaseChannel):
             if metadata:
                 payload["metadata"] = metadata
 
-            headers: Dict[str, str] = {}
+            headers: dict[str, str] = {}
             if self._secret:
                 headers["X-Webhook-Secret"] = self._secret
 
@@ -113,7 +113,7 @@ class WebhookChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["webhook"]
 

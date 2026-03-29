@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tempfile
-from typing import List, Optional
 
 from openjarvis.core.registry import SpeechRegistry
 from openjarvis.speech._stubs import Segment, SpeechBackend, TranscriptionResult
@@ -29,7 +28,7 @@ class FasterWhisperBackend(SpeechBackend):
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
-        self._model: Optional[WhisperModel] = None
+        self._model: WhisperModel | None = None
 
     def _ensure_model(self) -> WhisperModel:
         """Lazy-load the Whisper model on first use."""
@@ -51,7 +50,7 @@ class FasterWhisperBackend(SpeechBackend):
         audio: bytes,
         *,
         format: str = "wav",
-        language: Optional[str] = None,
+        language: str | None = None,
     ) -> TranscriptionResult:
         """Transcribe audio bytes using Faster-Whisper."""
         model = self._ensure_model()
@@ -95,6 +94,6 @@ class FasterWhisperBackend(SpeechBackend):
             return True
         return WhisperModel is not None
 
-    def supported_formats(self) -> List[str]:
+    def supported_formats(self) -> list[str]:
         """Supported audio formats (same as ffmpeg/Whisper)."""
         return ["wav", "mp3", "m4a", "ogg", "flac", "webm"]

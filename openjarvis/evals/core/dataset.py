@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from typing import Iterable, List, Optional
 
 from openjarvis.evals.core.types import EvalRecord
 
@@ -19,9 +19,9 @@ class DatasetProvider(ABC):
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         """Load the dataset (possibly downloading from HuggingFace)."""
 
@@ -35,15 +35,15 @@ class DatasetProvider(ABC):
 
     def create_task_env(
         self, record: EvalRecord,
-    ) -> Optional[AbstractContextManager]:
+    ) -> AbstractContextManager | None:
         """Return a task environment context manager, or None."""
         return None
 
-    def verify_requirements(self) -> List[str]:
+    def verify_requirements(self) -> list[str]:
         """Return list of unsatisfied requirements, or empty list."""
         return []
 
-    def iter_episodes(self) -> Iterable[List[EvalRecord]]:
+    def iter_episodes(self) -> Iterable[list[EvalRecord]]:
         """Iterate over episodes (groups of sequential records).
 
         Default: each record is its own single-record episode.

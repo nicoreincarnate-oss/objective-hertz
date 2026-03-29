@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from shared.config import config
-from shared.db import fetch_one, fetch_all, execute, fetch_val
+from shared.db import fetch_all, fetch_val, get_config
 
 logger = logging.getLogger("perseus.tools.budget")
 
@@ -43,7 +43,12 @@ class BudgetGuard:
 async def get_month_spending(monthly_cap: Decimal | None = None) -> dict:
     """Get total spending for the current month (fiat + Conway crypto)."""
     if monthly_cap is None:
-        monthly_cap = Decimal(str(config.budget.monthly_cap))
+        # Check dashboard override first, fall back to .env config
+        db_cap = await get_config("monthly_budget_cap", None)
+        if db_cap is not None:
+            monthly_cap = Decimal(str(db_cap))
+        else:
+            monthly_cap = Decimal(str(config.budget.monthly_cap))
 
     month = date.today().replace(day=1)
 

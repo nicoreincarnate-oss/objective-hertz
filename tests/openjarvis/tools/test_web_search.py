@@ -37,8 +37,12 @@ class TestWebSearchTool:
         assert "No query" in result.content
 
     def test_execute_no_api_key(self, monkeypatch):
-        """When no API key, falls back to DuckDuckGo."""
+        """When no API key, falls back to DuckDuckGo (mocked)."""
         tool = WebSearchTool(api_key=None)
+        monkeypatch.setattr(
+            tool, "_duckduckgo_search",
+            lambda query, max_results: "**Mocked DDG Result**\nhttps://example.com\nContent",
+        )
         with patch.dict("os.environ", {}, clear=True):
             tool._api_key = None
             monkeypatch.delitem(sys.modules, "tavily", raising=False)
@@ -88,7 +92,7 @@ class TestWebSearchTool:
         assert result.metadata["num_results"] == 2
 
     def test_execute_tavily_error(self, monkeypatch):
-        """When Tavily errors (any error), falls back to DuckDuckGo."""
+        """When Tavily errors (any error), falls back to DuckDuckGo (mocked)."""
         import builtins
         from typing import Any
 
@@ -111,6 +115,10 @@ class TestWebSearchTool:
         monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key")
+        monkeypatch.setattr(
+            tool, "_duckduckgo_search",
+            lambda query, max_results: "**Mocked DDG Result**\nhttps://example.com\nContent",
+        )
         result = tool.execute(query="test query")
         assert result.success is True
         assert result.metadata["engine"] == "duckduckgo"
@@ -180,7 +188,7 @@ class TestWebSearchTool:
         assert "query" in fn["function"]["parameters"]["properties"]
 
     def test_execute_import_error(self, monkeypatch):
-        """When tavily-python not installed, falls back to DuckDuckGo."""
+        """When tavily-python not installed, falls back to DuckDuckGo (mocked)."""
         monkeypatch.delitem(sys.modules, "tavily", raising=False)
         import builtins
 
@@ -194,6 +202,10 @@ class TestWebSearchTool:
         monkeypatch.setattr(builtins, "__import__", _mock_import)
 
         tool = WebSearchTool(api_key="test-key")
+        monkeypatch.setattr(
+            tool, "_duckduckgo_search",
+            lambda query, max_results: "**Mocked DDG Result**\nhttps://example.com\nContent",
+        )
         result = tool.execute(query="test query")
         assert result.success is True
         assert result.metadata["engine"] == "duckduckgo"

@@ -25,10 +25,15 @@ class TestSetupLogging:
         assert isinstance(logger, logging.Logger)
         assert logger.name == "openjarvis"
 
-    def test_log_file_handler_on_verbose(self, tmp_path):
+    def test_verbose_without_log_file_has_no_file_handler(self):
+        """verbose=True without explicit log_file must not create filesystem side effects."""
+        logger = setup_logging(verbose=True, quiet=False)
+        file_handlers = [h for h in logger.handlers if hasattr(h, "baseFilename")]
+        assert len(file_handlers) == 0
+
+    def test_explicit_log_file_creates_file_handler(self, tmp_path):
         log_file = tmp_path / "cli.log"
         logger = setup_logging(verbose=True, quiet=False, log_file=log_file)
-        # Should have at least one file handler
         file_handlers = [h for h in logger.handlers if hasattr(h, "baseFilename")]
         assert len(file_handlers) >= 1
         # Clean up

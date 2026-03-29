@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from openjarvis.workflow.graph import WorkflowGraph
 from openjarvis.workflow.types import NodeType, WorkflowEdge, WorkflowNode
@@ -66,7 +66,7 @@ def load_workflow(path: str | Path) -> WorkflowGraph:
     return graph
 
 
-def _parse_node(data: Dict[str, Any]) -> WorkflowNode:
+def _parse_node(data: dict[str, Any]) -> WorkflowNode:
     """Parse a single node from TOML data."""
     node_type = NodeType(data.get("type", "agent"))
     return WorkflowNode(

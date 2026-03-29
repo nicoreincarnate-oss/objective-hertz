@@ -10,7 +10,7 @@ from __future__ import annotations
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from openjarvis.core.types import StepType, Trace
 from openjarvis.learning.routing._utils import classify_query
@@ -35,9 +35,9 @@ def _format_toml_value(value: Any) -> str:
     return repr(value)
 
 
-def _write_toml(path: Path, data: Dict[str, Any]) -> None:
+def _write_toml(path: Path, data: dict[str, Any]) -> None:
     """Write a dict as TOML to *path* using manual formatting."""
-    lines: List[str] = []
+    lines: list[str] = []
     for section_name, section_data in data.items():
         if isinstance(section_data, dict):
             lines.append(f"[{section_name}]")
@@ -66,7 +66,7 @@ class AgentConfigEvolver:
         self,
         trace_store: TraceStore,
         *,
-        config_dir: Union[str, Path],
+        config_dir: str | Path,
         min_quality: float = 0.5,
     ) -> None:
         self._store = trace_store
@@ -81,7 +81,7 @@ class AgentConfigEvolver:
     # analyze
     # ------------------------------------------------------------------
 
-    def analyze(self) -> List[Dict[str, Any]]:
+    def analyze(self) -> list[dict[str, Any]]:
         """Analyze traces, return recommendations per query class.
 
         Returns a list of dicts, each containing:
@@ -96,34 +96,44 @@ class AgentConfigEvolver:
             return []
 
         # Group traces by query class
-        groups: Dict[str, List[Trace]] = defaultdict(list)
+        groups: dict[str, list[Trace]] = defaultdict(list)
         for trace in traces:
             qclass = classify_query(trace.query)
             groups[qclass].append(trace)
 
-        recommendations: List[Dict[str, Any]] = []
+        recommendations: list[dict[str, Any]] = []
         for qclass, class_traces in sorted(groups.items()):
             rec = self._analyze_class(qclass, class_traces)
             if rec is not None:
+                # Enforce min_quality: skip classes with low avg feedback
+                feedbacks = [
+                    t.feedback for t in class_traces
+                    if t.feedback is not None
+                ]
+                avg_feedback = (
+                    sum(feedbacks) / len(feedbacks) if feedbacks else 0.0
+                )
+                if avg_feedback < self._min_quality:
+                    continue
                 recommendations.append(rec)
 
         return recommendations
 
     def _analyze_class(
-        self, qclass: str, traces: List[Trace]
-    ) -> Optional[Dict[str, Any]]:
+        self, qclass: str, traces: list[Trace]
+    ) -> dict[str, Any] | None:
         """Build a recommendation for a single query class."""
         # Collect tool usage, agent performance, and turn counts
-        tool_scores: Dict[str, _ToolScore] = defaultdict(lambda: _ToolScore())
-        agent_scores: Dict[str, _AgentScore] = defaultdict(lambda: _AgentScore())
-        turn_counts: List[int] = []
+        tool_scores: dict[str, _ToolScore] = defaultdict(lambda: _ToolScore())
+        agent_scores: dict[str, _AgentScore] = defaultdict(lambda: _AgentScore())
+        turn_counts: list[int] = []
 
         for trace in traces:
             feedback = trace.feedback if trace.feedback is not None else 0.0
             is_success = trace.outcome == "success"
 
             # Count tools used in this trace
-            trace_tools: List[str] = []
+            trace_tools: list[str] = []
             tool_call_count = 0
             for step in trace.steps:
                 step_type = (
@@ -194,7 +204,7 @@ class AgentConfigEvolver:
         self,
         agent_name: str,
         *,
-        tools: List[str],
+        tools: list[str],
         max_turns: int = 10,
         temperature: float = 0.3,
         system_prompt: str = "",
@@ -227,14 +237,14 @@ class AgentConfigEvolver:
     # list_versions
     # ------------------------------------------------------------------
 
-    def list_versions(self, agent_name: str) -> List[Dict[str, Any]]:
+    def list_versions(self, agent_name: str) -> list[dict[str, Any]]:
         """List all versions (including current) for *agent_name*.
 
         Returns a list of dicts with ``version``, ``path``, and ``modified``.
         Versions are numbered starting from 1 (oldest archived) through to
         the current (highest version number).
         """
-        versions: List[Dict[str, Any]] = []
+        versions: list[dict[str, Any]] = []
 
         # Collect archived versions from .history/
         pattern = f"{agent_name}.v*.toml"

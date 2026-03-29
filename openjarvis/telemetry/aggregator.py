@@ -6,7 +6,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,8 @@ class AggregatedStats:
     avg_mean_itl_ms: float = 0.0
     avg_median_itl_ms: float = 0.0
     avg_p95_itl_ms: float = 0.0
-    per_model: List[ModelStats] = field(default_factory=list)
-    per_engine: List[EngineStats] = field(default_factory=list)
+    per_model: list[ModelStats] = field(default_factory=list)
+    per_engine: list[EngineStats] = field(default_factory=list)
 
 
 class TelemetryAggregator:
@@ -93,8 +93,8 @@ class TelemetryAggregator:
 
     @staticmethod
     def _time_filter(
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        since: float | None = None,
+        until: float | None = None,
     ) -> tuple[str, list[Any]]:
         """Build a WHERE clause fragment for time-range filtering."""
         clauses: list[str] = []
@@ -121,9 +121,9 @@ class TelemetryAggregator:
     def per_model_stats(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[ModelStats]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[ModelStats]:
         where, params = self._time_filter(since, until)
 
         # Build optional columns for new fields (graceful on old DBs)
@@ -213,9 +213,9 @@ class TelemetryAggregator:
     def per_engine_stats(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[EngineStats]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[EngineStats]:
         where, params = self._time_filter(since, until)
 
         extra_cols = ""
@@ -301,16 +301,16 @@ class TelemetryAggregator:
         self,
         n: int = 5,
         *,
-        since: Optional[float] = None,
-    ) -> List[ModelStats]:
+        since: float | None = None,
+    ) -> list[ModelStats]:
         stats = self.per_model_stats(since=since)
         return stats[:n]
 
     def summary(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        since: float | None = None,
+        until: float | None = None,
     ) -> AggregatedStats:
         model_stats = self.per_model_stats(since=since, until=until)
         engine_stats = self.per_engine_stats(since=since, until=until)
@@ -351,10 +351,10 @@ class TelemetryAggregator:
     def per_batch_stats(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        since: float | None = None,
+        until: float | None = None,
         exclude_warmup: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Aggregate telemetry by batch_id.
 
         Returns list of dicts with batch_id, total_requests, total_tokens,
@@ -381,7 +381,7 @@ class TelemetryAggregator:
             " GROUP BY batch_id ORDER BY total_requests DESC"
         )
         rows = self._conn.execute(sql, params).fetchall()
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for r in rows:
             total_tokens = r["total_tokens"] or 0
             total_energy = r["total_energy_joules"] or 0.0
@@ -401,9 +401,9 @@ class TelemetryAggregator:
     def export_records(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[dict[str, Any]]:
         where, params = self._time_filter(since, until)
         sql = f"SELECT * FROM telemetry{where} ORDER BY timestamp"
         rows = self._conn.execute(sql, params).fetchall()

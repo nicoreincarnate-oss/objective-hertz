@@ -23,11 +23,11 @@ class _BrowserSession:
             return
         try:
             from playwright.sync_api import sync_playwright
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "playwright not installed. Install with: "
                 "uv sync --extra browser"
-            )
+            ) from err
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=True)
         self._page = self._browser.new_page()

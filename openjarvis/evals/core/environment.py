@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from openjarvis.evals.core.types import EvalRecord
 
@@ -17,7 +17,7 @@ class EnvironmentProvider(ABC):
     """
 
     @abstractmethod
-    def setup(self) -> Dict[str, Any]:
+    def setup(self) -> dict[str, Any]:
         """Start the environment and return connection info.
 
         Returns a dict with environment-specific connection details
@@ -35,7 +35,7 @@ class EnvironmentProvider(ABC):
     @abstractmethod
     def validate(
         self, record: EvalRecord,
-    ) -> Tuple[bool, Dict[str, Any]]:
+    ) -> tuple[bool, dict[str, Any]]:
         """Check environment state against expected outcome.
 
         Args:

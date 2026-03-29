@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -39,12 +39,12 @@ class MattermostChannel(BaseChannel):
         url: str = "",
         *,
         token: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._url = url or os.environ.get("MATTERMOST_URL", "")
         self._token = token or os.environ.get("MATTERMOST_TOKEN", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -69,7 +69,7 @@ class MattermostChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Mattermost channel via the REST API."""
         if not self._url or not self._token:
@@ -83,7 +83,7 @@ class MattermostChannel(BaseChannel):
             headers = {
                 "Authorization": f"Bearer {self._token}",
             }
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "channel_id": channel,
                 "message": content,
             }
@@ -108,7 +108,7 @@ class MattermostChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["mattermost"]
 

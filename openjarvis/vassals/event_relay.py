@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from openjarvis.core.events import EventBus, EventType
 
@@ -38,14 +38,14 @@ class EventRelay:
         self,
         bus: EventBus,
         vassal_discovery: Any,
-        forward_types: Optional[List[str]] = None,
+        forward_types: list[str] | None = None,
         poll_interval: float = 5.0,
     ) -> None:
         self._bus = bus
         self._vassals = vassal_discovery
         self._poll_interval = poll_interval
         self._running = False
-        self._seen_events: Set[str] = set()  # dedup by event hash
+        self._seen_events: set[str] = set()  # dedup by event hash
         self._max_seen = 10000
 
         # Default: forward security alerts, budget warnings, and strategy overrides
@@ -71,7 +71,7 @@ class EventRelay:
         if sub_type not in self._forward_types:
             return
 
-        for name, vassal in self._vassals.vassals.items():
+        for _name, vassal in self._vassals.vassals.items():
             if not vassal.healthy:
                 continue
             try:
@@ -119,7 +119,7 @@ class EventRelay:
             except Exception:
                 pass  # vassal might not support events_recent yet
 
-    def _ingest_remote_event(self, source: str, event: Dict[str, Any]) -> None:
+    def _ingest_remote_event(self, source: str, event: dict[str, Any]) -> None:
         """Publish a remote event on the local EventBus (deduped)."""
         event_key = f"{source}:{event.get('event_type', '')}:{event.get('created_at', '')}"
         if event_key in self._seen_events:
@@ -143,7 +143,7 @@ class EventRelay:
 
     # ── Manual relay ──────────────────────────────────────────────────
 
-    def relay_to_vassal(self, vassal_name: str, event_type: str, payload: Dict[str, Any]) -> None:
+    def relay_to_vassal(self, vassal_name: str, event_type: str, payload: dict[str, Any]) -> None:
         """Manually relay an event to a specific vassal."""
         vassal = self._vassals.get(vassal_name)
         if not vassal or not vassal.healthy:
@@ -156,7 +156,7 @@ class EventRelay:
         except Exception as exc:
             logger.debug("Failed to relay event to %s: %s", vassal_name, exc)
 
-    def relay_to_all(self, event_type: str, payload: Dict[str, Any]) -> None:
+    def relay_to_all(self, event_type: str, payload: dict[str, Any]) -> None:
         """Relay an event to all healthy vassals."""
         for name in self._vassals.vassals:
             self.relay_to_vassal(name, event_type, payload)

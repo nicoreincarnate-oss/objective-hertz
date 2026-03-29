@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -16,7 +16,7 @@ class OperatorManifest:
     description: str = ""
     author: str = ""
     # Agent config
-    tools: List[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
     system_prompt: str = ""
     system_prompt_path: str = ""
     max_turns: int = 20
@@ -25,12 +25,12 @@ class OperatorManifest:
     schedule_type: str = "interval"
     schedule_value: str = "300"
     # Monitoring
-    metrics: List[str] = field(default_factory=list)
+    metrics: list[str] = field(default_factory=list)
     # Security
-    required_capabilities: List[str] = field(default_factory=list)
+    required_capabilities: list[str] = field(default_factory=list)
     # Extra
-    settings: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    settings: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = ["OperatorManifest"]

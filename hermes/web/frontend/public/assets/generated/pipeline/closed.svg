@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)" stroke="#c8e060" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Left hand -->
+    <path d="M5 18 Q5 14 8 14 L13 14 L13 22 Q13 24 11 25 L6 25 Q5 25 5 24 Z" stroke-width="1.5"/>
+    <!-- Left fingers -->
+    <line x1="9" y1="14" x2="9" y2="11" stroke-width="1.5"/>
+    <line x1="11" y1="14" x2="11" y2="11" stroke-width="1.5"/>
+    <line x1="13" y1="14" x2="13" y2="12" stroke-width="1.5"/>
+    <!-- Right hand -->
+    <path d="M27 18 Q27 14 24 14 L19 14 L19 22 Q19 24 21 25 L26 25 Q27 25 27 24 Z" stroke-width="1.5"/>
+    <!-- Right fingers -->
+    <line x1="23" y1="14" x2="23" y2="11" stroke-width="1.5"/>
+    <line x1="21" y1="14" x2="21" y2="11" stroke-width="1.5"/>
+    <line x1="19" y1="14" x2="19" y2="12" stroke-width="1.5"/>
+    <!-- Handshake clasp -->
+    <path d="M13 18 Q16 16 19 18" stroke-width="2" stroke="#c8e060"/>
+  </g>
+</svg>

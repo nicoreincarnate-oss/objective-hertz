@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from openjarvis.a2a.protocol import (
     A2AResponse,
@@ -23,19 +24,19 @@ class A2AServer:
         self,
         agent_card: AgentCard,
         *,
-        handler: Optional[Callable[[str], str]] = None,
-        bus: Optional[EventBus] = None,
+        handler: Callable[[str], str] | None = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._card = agent_card
         self._handler = handler
         self._bus = bus
-        self._tasks: Dict[str, A2ATask] = {}
+        self._tasks: dict[str, A2ATask] = {}
 
     @property
     def agent_card(self) -> AgentCard:
         return self._card
 
-    def handle_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_request(self, request_data: dict[str, Any]) -> dict[str, Any]:
         """Process a JSON-RPC 2.0 A2A request."""
         method = request_data.get("method", "")
         params = request_data.get("params", {})
@@ -53,7 +54,7 @@ class A2AServer:
                 request_id=req_id,
             ).to_dict()
 
-    def _handle_task_send(self, params: Dict[str, Any], req_id: str) -> Dict[str, Any]:
+    def _handle_task_send(self, params: dict[str, Any], req_id: str) -> dict[str, Any]:
         """Handle tasks/send — create and execute a task."""
         input_text = params.get("message", {}).get("parts", [{}])[0].get("text", "")
         if not input_text:
@@ -90,7 +91,7 @@ class A2AServer:
 
         return A2AResponse(result=task.to_dict(), request_id=req_id).to_dict()
 
-    def _handle_task_get(self, params: Dict[str, Any], req_id: str) -> Dict[str, Any]:
+    def _handle_task_get(self, params: dict[str, Any], req_id: str) -> dict[str, Any]:
         """Handle tasks/get — retrieve task status."""
         task_id = params.get("id", "")
         task = self._tasks.get(task_id)
@@ -102,8 +103,8 @@ class A2AServer:
         return A2AResponse(result=task.to_dict(), request_id=req_id).to_dict()
 
     def _handle_task_cancel(
-        self, params: Dict[str, Any], req_id: str,
-    ) -> Dict[str, Any]:
+        self, params: dict[str, Any], req_id: str,
+    ) -> dict[str, Any]:
         """Handle tasks/cancel — cancel a running task."""
         task_id = params.get("id", "")
         task = self._tasks.get(task_id)
@@ -115,7 +116,7 @@ class A2AServer:
         task.state = TaskState.CANCELED
         return A2AResponse(result=task.to_dict(), request_id=req_id).to_dict()
 
-    def get_routes(self) -> List[Dict[str, Any]]:
+    def get_routes(self) -> list[dict[str, Any]]:
         """Return route definitions for mounting in a web framework."""
         return [
             {

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -28,11 +28,11 @@ _CITATION_PATTERN = re.compile(
 
 def _fact_match_score(
     model_answer: str,
-    required_facts: List[Dict[str, Any]],
-) -> Tuple[float, List[Dict[str, Any]]]:
+    required_facts: list[dict[str, Any]],
+) -> tuple[float, list[dict[str, Any]]]:
     """Check which required facts appear in model output."""
     ans_norm = normalize_str(model_answer)
-    details: List[Dict[str, Any]] = []
+    details: list[dict[str, Any]] = []
 
     for fact_entry in required_facts:
         fact = fact_entry["fact"]
@@ -57,8 +57,8 @@ def _fact_match_score(
 
 def _citation_check_score(
     model_answer: str,
-    required_facts: List[Dict[str, Any]],
-) -> Tuple[float, List[Dict[str, Any]]]:
+    required_facts: list[dict[str, Any]],
+) -> tuple[float, list[dict[str, Any]]]:
     """Check if cited document indices match expected sources."""
     # Extract all citations from the answer
     citations = _CITATION_PATTERN.findall(model_answer)
@@ -74,7 +74,7 @@ def _citation_check_score(
         if f.get("source_doc_index") is not None
     }
 
-    details: List[Dict[str, Any]] = []
+    details: list[dict[str, Any]] = []
     correct = 0
 
     for src in expected_sources:
@@ -105,7 +105,7 @@ class DocQAScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -125,7 +125,7 @@ class DocQAScorer(Scorer):
 
         # --- Tier 2: Checklist ---
         checklist_score = 0.0
-        checklist_details: List[Dict[str, Any]] = []
+        checklist_details: list[dict[str, Any]] = []
 
         if self._judge_backend and self._judge_model:
             items = [

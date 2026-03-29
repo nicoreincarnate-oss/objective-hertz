@@ -28,8 +28,8 @@ from openjarvis.cli.scheduler_cmd import scheduler
 from openjarvis.cli.serve import serve
 from openjarvis.cli.skill_cmd import skill
 from openjarvis.cli.telemetry_cmd import telemetry
-from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.vassals_cmd import vassals
+from openjarvis.cli.vault_cmd import vault
 from openjarvis.cli.workflow_cmd import workflow
 
 

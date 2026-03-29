@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.types import Trace
 from openjarvis.learning.optimize.feedback.judge import TraceJudge
@@ -17,7 +17,7 @@ class FeedbackCollector:
     """
 
     def __init__(self) -> None:
-        self._records: List[Dict[str, Any]] = []
+        self._records: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Recording helpers
@@ -52,17 +52,17 @@ class FeedbackCollector:
 
     def evaluate_traces(
         self,
-        traces: List[Trace],
+        traces: list[Trace],
         judge: TraceJudge,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Score *traces* via the LLM judge and record the results.
 
         Returns the list of newly created feedback records.
         """
-        new_records: List[Dict[str, Any]] = []
+        new_records: list[dict[str, Any]] = []
         for trace in traces:
             score, feedback = judge.score_trace(trace)
-            record: Dict[str, Any] = {
+            record: dict[str, Any] = {
                 "trace_id": trace.trace_id,
                 "score": score,
                 "source": "judge",
@@ -78,14 +78,14 @@ class FeedbackCollector:
     # ------------------------------------------------------------------
 
     def get_records(
-        self, trace_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        self, trace_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Return stored records, optionally filtered by *trace_id*."""
         if trace_id is None:
             return list(self._records)
         return [r for r in self._records if r["trace_id"] == trace_id]
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return aggregate statistics over all recorded feedback.
 
         Returns a dict with ``count``, ``mean_score``, and a simple

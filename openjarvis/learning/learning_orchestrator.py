@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +47,13 @@ class LearningOrchestrator:
         self,
         *,
         trace_store: Any,
-        config_dir: Union[str, Path],
-        eval_fn: Optional[Callable[[], float]] = None,
+        config_dir: str | Path,
+        eval_fn: Callable[[], float] | None = None,
         min_improvement: float = 0.02,
         min_sft_pairs: int = 10,
         min_quality: float = 0.7,
-        lora_config: Optional[Any] = None,
-        model_name: Optional[str] = None,
+        lora_config: Any | None = None,
+        model_name: str | None = None,
     ) -> None:
         from openjarvis.learning.agents.agent_evolver import AgentConfigEvolver
         from openjarvis.learning.training.data import TrainingDataMiner
@@ -74,7 +75,7 @@ class LearningOrchestrator:
     # public API
     # ------------------------------------------------------------------
 
-    def run(self, *, agent_id: str | None = None) -> Dict[str, Any]:
+    def run(self, *, agent_id: str | None = None) -> dict[str, Any]:
         """Execute one learning cycle.
 
         Parameters
@@ -96,7 +97,7 @@ class LearningOrchestrator:
         7. Run post-learning eval (if eval_fn provided)
         8. Accept/reject based on improvement threshold
         """
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "timestamp": time.time(),
         }
 
@@ -117,7 +118,7 @@ class LearningOrchestrator:
             return result
 
         # 3. Run baseline eval
-        baseline_score: Optional[float] = None
+        baseline_score: float | None = None
         if self._eval_fn is not None:
             baseline_score = self._eval_fn()
             result["baseline_score"] = baseline_score
@@ -125,8 +126,20 @@ class LearningOrchestrator:
         # 4. Update routing recommendations
         result["routing_updated"] = len(routing_pairs) > 0
 
-        # 5. Evolve agent configs
-        recommendations = self._evolver.analyze()
+        # 5. Evolve agent configs (filtered by agent_id when provided)
+        if agent_id is not None:
+            # Use a filtered evolver scoped to this agent's traces
+            from openjarvis.learning.agents.agent_evolver import (
+                AgentConfigEvolver,
+            )
+
+            filtered_evolver = AgentConfigEvolver(
+                _AgentFilteredStore(self._trace_store, agent_id),
+                config_dir=self._config_dir,
+            )
+            recommendations = filtered_evolver.analyze()
+        else:
+            recommendations = self._evolver.analyze()
         result["agent_configs_evolved"] = len(recommendations) > 0
         for rec in recommendations:
             agent_name = rec.get("recommended_agent", "default")
@@ -146,7 +159,7 @@ class LearningOrchestrator:
             result["lora_training"] = lora_result
 
         # 7. Post-learning eval
-        post_score: Optional[float] = None
+        post_score: float | None = None
         if self._eval_fn is not None:
             post_score = self._eval_fn()
             result["post_score"] = post_score
@@ -177,8 +190,8 @@ class LearningOrchestrator:
     # ------------------------------------------------------------------
 
     def _try_lora_training(
-        self, sft_pairs: list[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
+        self, sft_pairs: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         """Attempt LoRA training, returning result or None on failure."""
         try:
             from openjarvis.learning.training.lora import (
@@ -202,6 +215,18 @@ class LearningOrchestrator:
         except Exception as exc:
             logger.warning("LoRA training failed: %s", exc)
             return {"status": "error", "reason": str(exc)}
+
+
+class _AgentFilteredStore:
+    """Thin wrapper that forces an agent filter on list_traces calls."""
+
+    def __init__(self, store: Any, agent: str) -> None:
+        self._store = store
+        self._agent = agent
+
+    def list_traces(self, **kwargs: Any) -> Any:
+        kwargs["agent"] = self._agent
+        return self._store.list_traces(**kwargs)
 
 
 __all__ = ["LearningOrchestrator"]

@@ -23,6 +23,15 @@ from titan.state_machine import transition_lead
 logger = logging.getLogger("perseus.titan.close")
 
 
+def _site_build_fail_open_when_qa_unavailable() -> bool:
+    try:
+        from shared.config import config
+
+        return bool(getattr(getattr(config, "site_build", object()), "fail_open_when_qa_unavailable", False))
+    except Exception:
+        return False
+
+
 async def process_interested_leads():
     """Handle interested leads: demo site → proposal → close."""
     # Get interested leads that need a demo site
@@ -58,7 +67,12 @@ async def _build_demo_and_propose(lead: dict):
         from shared.comms import request_task_result
         qa_result = await request_task_result(
             "verify_demo_site",
-            payload={"url": demo_url, "business_name": lead["business_name"], "client_id": lead_id},
+            payload={
+                "url": demo_url,
+                "business_name": lead["business_name"],
+                "client_id": lead_id,
+                "site_type": "demo",
+            },
             timeout_seconds=45,
         )
         if qa_result and qa_result.get("ok") and qa_result.get("result", {}).get("passed"):
@@ -79,13 +93,22 @@ async def _build_demo_and_propose(lead: dict):
             })
             return
         else:
-            # ClawdBot unavailable — accept the demo (fail open, don't block revenue)
-            logger.info(f"Demo QA unavailable for lead {lead_id}, accepting demo")
-            await execute(
-                "UPDATE clients SET demo_site_url = %s WHERE id = %s",
-                (demo_url, lead_id),
-            )
-            await transition_lead(lead_id, "demo_built")
+            if _site_build_fail_open_when_qa_unavailable():
+                logger.info(f"Demo QA unavailable for lead {lead_id}, accepting demo due to fail-open config")
+                await execute(
+                    "UPDATE clients SET demo_site_url = %s WHERE id = %s",
+                    (demo_url, lead_id),
+                )
+                await transition_lead(lead_id, "demo_built")
+            else:
+                logger.warning(f"Demo QA unavailable for lead {lead_id}, blocking proposal")
+                await emit_event("proposal_blocked", {
+                    "client_id": lead_id,
+                    "business_name": lead["business_name"],
+                    "reason": "demo_qa_unavailable",
+                    "demo_url": demo_url,
+                })
+                return
     else:
         logger.warning(f"Could not build demo for lead {lead_id}, blocking proposal until demo exists")
         await emit_event("proposal_blocked", {
@@ -98,12 +121,19 @@ async def _build_demo_and_propose(lead: dict):
     # Generate proposal using Claude Sonnet (high quality)
     proposal = await _generate_proposal(lead, demo_url)
 
+    # 4.2: Red-team high-value proposals (4 agents: writer→attacker→optimizer→tone checker)
+    if proposal.get("body") and float(lead.get("lead_score", 0) or 0) >= 70:
+        try:
+            proposal = await _red_team_proposal(proposal, lead)
+        except Exception as e:
+            logger.debug(f"Red-team skipped for lead {lead_id} (non-critical): {e}")
+
     if needs_approval:
         # Queue for Nico's review
         await execute(
             """INSERT INTO review_queue (item_type, client_id, content, status)
                VALUES ('proposal', %s, %s, 'pending_review')""",
-            (lead_id, json.dumps(proposal)),
+            (lead_id, json.dumps(proposal, default=str)),
         )
         await emit_event("review_needed", {
             "type": "proposal",
@@ -126,9 +156,14 @@ async def _build_demo_and_propose(lead: dict):
 
 
 async def _build_demo_site(lead: dict) -> str:
-    """Build a demo landing page using ClawdBot's competitive build process."""
-    from clawdbot.site_builder import build_demo_site
-    return await build_demo_site(lead)
+    """Build a demo landing page using ClawdBot's build_demo_site capability via A2A."""
+    from shared.comms import call_agent_capability
+    result = await call_agent_capability(
+        "clawdbot", "build_demo_site", {"lead": lead}, timeout=120,
+    )
+    if not result or result.get("status") == "error":
+        raise RuntimeError(f"ClawdBot demo site build failed: {result}")
+    return result.get("url", "")
 
 
 async def _get_dynamic_price(lead: dict) -> dict:
@@ -175,9 +210,11 @@ async def _generate_proposal(lead: dict, demo_url: str = "") -> dict:
     """Generate a custom proposal using Claude Sonnet with dynamic pricing."""
     demo_mention = f"\nI already built a demo site for you: {demo_url}" if demo_url else ""
 
-    # Get learnings about what closes deals
+    # Get learnings about what closes deals (scoped to this client + system techniques)
     learnings = await get_relevant_learnings(
-        "sales proposals, closing deals, pricing objections, what converts interested leads"
+        "sales proposals, closing deals, pricing objections, what converts interested leads",
+        client_id=lead.get("id"),
+        query_type="proposal_generation",
     )
 
     # Dynamic pricing based on lead quality, industry, region
@@ -217,7 +254,7 @@ Return JSON:
     "estimated_close_probability": 0.5
 }}"""
 
-    result = await llm.generate(prompt, model="smart", temperature=0.6)
+    result = await llm.generate(prompt, model="smart", temperature=0.6, use_dna=True, daemon_name="titan")
     try:
         start = result.find("{")
         end = result.rfind("}") + 1
@@ -229,6 +266,65 @@ Return JSON:
             "pricing_summary": "$299 for a 5-page professional website",
             "estimated_close_probability": 0.3,
         }
+
+
+async def _red_team_proposal(proposal: dict, lead: dict) -> dict:
+    """4-agent red-team pipeline: Writer→Attacker→Optimizer→Tone Checker.
+
+    Cost: ~$0.03-0.06 per proposal (Sonnet×3 + Haiku×1).
+    The $0.01 tone check prevents a $299 deal dying to robotic copy.
+    """
+    original_body = proposal.get("body", "")
+    business = lead.get("business_name", "Business")
+
+    # Agent 2 (Attacker): plays the skeptical prospect
+    attack = await llm.generate(
+        f"You are {business}'s owner. You're busy, skeptical, "
+        f"and have been burned by web agencies before. Read this proposal and "
+        f"explain exactly why you WON'T reply:\n\n{original_body}\n\n"
+        f"Be specific: what feels generic? What's missing? What would make you hit delete?",
+        model="smart", temperature=0.6,
+    )
+
+    # Agent 3 (Optimizer): synthesizes writer + attacker
+    optimized = await llm.generate(
+        f"Original proposal:\n{original_body}\n\n"
+        f"Prospect's likely objections:\n{attack}\n\n"
+        f"Rewrite the proposal to preemptively address every objection. "
+        f"Keep it under 200 words. Make it impossible to ignore.\n\n"
+        f"Return ONLY the rewritten email body, no JSON.",
+        model="smart", temperature=0.4,
+    )
+
+    # Agent 4 (Tone Checker): anti-AI-voice gate
+    tone_result = await llm.generate(
+        f"Read this cold email proposal and flag problems:\n\n{optimized}\n\n"
+        f"Check for:\n"
+        f"1. AI-sounding phrases ('leverage', 'streamline', 'I'd love to', 'excited to')\n"
+        f"2. Overly formal tone (no human talks like this in email)\n"
+        f"3. Spam trigger words (guarantee, limited time, act now, exclusive)\n"
+        f"4. Generic filler that could apply to any business\n"
+        f"5. Sentences longer than 20 words\n\n"
+        f"Return JSON: {{\"passes\": true, \"issues\": []}} or "
+        f"{{\"passes\": false, \"issues\": [\"...\"], \"rewrite\": \"...\"}}",
+        model="fast", temperature=0.2,
+    )
+
+    # Parse tone check
+    final_body = optimized
+    try:
+        start = tone_result.find("{")
+        end = tone_result.rfind("}") + 1
+        tone_data = json.loads(tone_result[start:end])
+        if not tone_data.get("passes") and tone_data.get("rewrite"):
+            final_body = tone_data["rewrite"]
+    except (json.JSONDecodeError, ValueError):
+        pass  # Use optimizer output if tone check parse fails
+
+    proposal["body"] = final_body
+    proposal["red_teamed"] = True
+    logger.info(f"Proposal red-teamed for {business} (4 agents)")
+    return proposal
 
 
 async def _send_proposal(lead: dict, proposal: dict, demo_url: str = "") -> bool:
@@ -247,7 +343,7 @@ async def _send_proposal(lead: dict, proposal: dict, demo_url: str = "") -> bool
         subject=proposal.get("subject", ""),
         body=proposal.get("body", ""),
         message_type="proposal",
-        first_name=lead.get("contact_name", "").split()[0] if lead.get("contact_name") else "",
+        first_name=(lead.get("contact_name") or "").strip().split()[0] if (lead.get("contact_name") or "").strip() else "",
         company_name=lead.get("business_name", ""),
     )
 

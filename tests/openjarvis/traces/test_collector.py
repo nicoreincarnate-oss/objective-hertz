@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.events import EventBus, EventType
@@ -21,13 +21,13 @@ class _FakeAgent(BaseAgent):
     def __init__(
         self,
         response: str = "test response",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._response = response
         self._bus = bus
 
     def run(
-        self, input: str, context: Optional[AgentContext] = None,
+        self, input: str, context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         # Simulate an inference step via event bus
@@ -51,7 +51,7 @@ class _ToolAgent(BaseAgent):
         self._bus = bus
 
     def run(
-        self, input: str, context: Optional[AgentContext] = None,
+        self, input: str, context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         # Simulate inference + tool call + inference

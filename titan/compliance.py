@@ -17,6 +17,11 @@ import logging
 import os
 from dataclasses import dataclass
 
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:
+    Jsonb = None  # type: ignore[assignment,misc]
+
 from shared.db import emit_event, execute, fetch_one, get_config
 
 logger = logging.getLogger("perseus.titan.compliance")
@@ -253,8 +258,6 @@ async def send_to_instantly(
 
     # 3. Create the audit log row before send so we never lose the attempt.
     try:
-        from psycopg.types.json import Jsonb
-
         log_row = await fetch_one(
             """INSERT INTO outbound_email_log
                (client_id, email_sequence_id, recipient_email, subject, body,

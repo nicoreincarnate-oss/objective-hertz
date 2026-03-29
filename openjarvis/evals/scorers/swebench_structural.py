@@ -9,7 +9,7 @@ authoritative pass/fail to external test execution.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -48,7 +48,7 @@ class SWEBenchScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 

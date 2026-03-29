@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.events import EventType, get_event_bus
 from openjarvis.core.registry import MemoryRegistry
@@ -10,11 +10,11 @@ from openjarvis.tools.storage._stubs import MemoryBackend, RetrievalResult
 
 
 def reciprocal_rank_fusion(
-    ranked_lists: List[List[RetrievalResult]],
+    ranked_lists: list[list[RetrievalResult]],
     *,
     k: int = 60,
-    weights: Optional[List[float]] = None,
-) -> List[RetrievalResult]:
+    weights: list[float] | None = None,
+) -> list[RetrievalResult]:
     """Fuse multiple ranked result lists using RRF.
 
     ``RRF_score(d) = sum(weight_i / (k + rank_i(d)))``
@@ -36,10 +36,10 @@ def reciprocal_rank_fusion(
         weights = [1.0] * len(ranked_lists)
 
     # Map content -> (fused_score, best_result)
-    scores: Dict[str, float] = {}
-    best_result: Dict[str, RetrievalResult] = {}
+    scores: dict[str, float] = {}
+    best_result: dict[str, RetrievalResult] = {}
 
-    for weight, results in zip(weights, ranked_lists):
+    for weight, results in zip(weights, ranked_lists, strict=False):
         for rank, result in enumerate(results):
             key = result.content
             rrf = weight / (k + rank + 1)
@@ -89,14 +89,14 @@ class HybridMemory(MemoryBackend):
         self._k = k
         self._weights = [sparse_weight, dense_weight]
         # Track doc IDs across both backends
-        self._id_map: Dict[str, str] = {}
+        self._id_map: dict[str, str] = {}
 
     def store(
         self,
         content: str,
         *,
         source: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Store in both sub-backends with the same doc id."""
         # Store in sparse first to get the id
@@ -124,7 +124,7 @@ class HybridMemory(MemoryBackend):
         *,
         top_k: int = 5,
         **kwargs: Any,
-    ) -> List[RetrievalResult]:
+    ) -> list[RetrievalResult]:
         """Retrieve from both backends and fuse with RRF."""
         # Over-fetch for better fusion
         fetch_k = top_k * 3

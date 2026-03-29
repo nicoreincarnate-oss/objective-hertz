@@ -6,7 +6,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class TaskState(str, Enum):
@@ -25,11 +25,11 @@ class AgentCard:
     description: str = ""
     url: str = ""
     version: str = "0.1.0"
-    capabilities: List[str] = field(default_factory=list)
-    skills: List[str] = field(default_factory=list)
-    authentication: Dict[str, Any] = field(default_factory=dict)
+    capabilities: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    authentication: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -48,10 +48,10 @@ class A2ATask:
     state: TaskState = TaskState.SUBMITTED
     input_text: str = ""
     output_text: str = ""
-    history: List[Dict[str, str]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    history: list[dict[str, str]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.task_id,
             "state": self.state.value,
@@ -66,10 +66,10 @@ class A2ATask:
 class A2ARequest:
     """JSON-RPC 2.0 request for A2A."""
     method: str
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "method": self.method,
@@ -85,11 +85,11 @@ class A2ARequest:
 class A2AResponse:
     """JSON-RPC 2.0 response for A2A."""
     result: Any = None
-    error: Optional[Dict[str, Any]] = None
+    error: dict[str, Any] | None = None
     request_id: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
-        resp: Dict[str, Any] = {"jsonrpc": "2.0", "id": self.request_id}
+    def to_dict(self) -> dict[str, Any]:
+        resp: dict[str, Any] = {"jsonrpc": "2.0", "id": self.request_id}
         if self.error:
             resp["error"] = self.error
         else:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 class GatewayDaemon:
@@ -26,7 +26,7 @@ class GatewayDaemon:
         platform: str,
         chat_type: str,
         chat_id: str,
-        thread_id: Optional[str],
+        thread_id: str | None,
     ) -> str:
         return f"agent:main:{platform}:{chat_type}:{chat_id}:{thread_id}"
 

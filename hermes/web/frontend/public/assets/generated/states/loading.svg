@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#58e0ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#58e0ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Outermost ring — slowest, most faded -->
+  <circle cx="40" cy="40" r="35" fill="none" stroke="#39f3e2" stroke-width="0.8" stroke-opacity="0.2">
+    <animate attributeName="r" values="30;35;30" dur="2.8s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-opacity" values="0.1;0.3;0.1" dur="2.8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Middle ring -->
+  <circle cx="40" cy="40" r="26" fill="none" stroke="#58e0ff" stroke-width="1.2" stroke-opacity="0.35">
+    <animate attributeName="r" values="22;26;22" dur="2.2s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-opacity" values="0.2;0.5;0.2" dur="2.2s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Inner ring -->
+  <circle cx="40" cy="40" r="17" fill="none" stroke="#58e0ff" stroke-width="1.5" stroke-opacity="0.5">
+    <animate attributeName="r" values="14;17;14" dur="1.6s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-opacity" values="0.3;0.7;0.3" dur="1.6s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Center glow fill -->
+  <circle cx="40" cy="40" r="14" fill="url(#core-glow)">
+    <animate attributeName="r" values="10;14;10" dur="1.6s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Center dot -->
+  <circle cx="40" cy="40" r="3" fill="#58e0ff">
+    <animate attributeName="opacity" values="0.6;1;0.6" dur="1.6s" repeatCount="indefinite"/>
+  </circle>
+</svg>

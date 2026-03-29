@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import random
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -73,15 +73,15 @@ class WorkArenaDataset(DatasetProvider):
         self._n_seed_l1 = n_seed_l1
         self._meta_seed = meta_seed
         self._headless = headless
-        self._records: List[EvalRecord] = []
-        self._episodes: List[List[EvalRecord]] = []
+        self._records: list[EvalRecord] = []
+        self._episodes: list[list[EvalRecord]] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         if not _HAS_WORKARENA:
             detail = f"\n\nUnderlying error: {_WORKARENA_IMPORT_ERROR}" if _WORKARENA_IMPORT_ERROR else ""
@@ -113,7 +113,7 @@ class WorkArenaDataset(DatasetProvider):
             "WorkArena[%s]: loaded %d task instances", self._level, len(self._records),
         )
 
-    def _enumerate_tasks(self) -> List[tuple]:
+    def _enumerate_tasks(self) -> list[tuple]:
         """Enumerate (task_class, seed) tuples from browsergym-workarena.
 
         Uses the original ``get_all_tasks_agents()`` for L2/L3 and
@@ -121,7 +121,7 @@ class WorkArenaDataset(DatasetProvider):
         the original benchmark's sampling strategy.
         """
         levels = list(_VALID_LEVELS) if self._level == "all" else [self._level]
-        task_tuples: List[tuple] = []
+        task_tuples: list[tuple] = []
 
         for level in levels:
             tuples = get_all_tasks_agents(
@@ -194,7 +194,7 @@ class WorkArenaDataset(DatasetProvider):
     def iter_records(self) -> Iterable[EvalRecord]:
         return iter(self._records)
 
-    def iter_episodes(self) -> Iterable[List[EvalRecord]]:
+    def iter_episodes(self) -> Iterable[list[EvalRecord]]:
         return iter(self._episodes)
 
     def size(self) -> int:
@@ -211,9 +211,9 @@ class WorkArenaDataset(DatasetProvider):
         except ImportError:
             return None
 
-    def verify_requirements(self) -> List[str]:
+    def verify_requirements(self) -> list[str]:
         """Check that all prerequisites for WorkArena evaluation are met."""
-        issues: List[str] = []
+        issues: list[str] = []
 
         if not _HAS_WORKARENA:
             issues.append(

@@ -3,7 +3,7 @@ name = "monitor"
 description = "Hybrid agent combining code execution with tool calling for monitoring, log analysis, and long-horizon observation tasks"
 
 [agent]
-type = "monitor"
+type = "monitor_operative"
 max_turns = 25
 temperature = 0.3
 system_prompt = """You are a Monitor Agent with two modes: (1) TOOLS for calling available functions (memory, KG, grep, web), and (2) CODE for writing Python in code blocks for data processing and calculation. Use shell_exec for searching and filtering, memory_store and kg_add_entity for persisting findings, code_interpreter for calculations, and think for reasoning. Always store important findings before finishing and record causal patterns in the knowledge graph."""

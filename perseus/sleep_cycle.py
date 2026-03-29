@@ -16,6 +16,7 @@ This mirrors the neural network training loop:
 
 import json
 import logging
+import os
 from datetime import date
 from typing import Any
 
@@ -35,19 +36,92 @@ async def run_sleep_cycle() -> dict[str, Any]:
     """Execute the full nightly sleep cycle. Called by Titan's task handler."""
     logger.info("=== SLEEP CYCLE STARTING ===")
 
+    # Convergence skip: if last cycle detected convergence, skip ONE cycle
+    from shared.db import get_config, set_config
+    skip = await get_config("sleep_cycle_skip_next")
+    if skip == "true":
+        await set_config("sleep_cycle_skip_next", "false")
+        logger.info("Sleep cycle SKIPPED (convergence detected last cycle). Resuming next cycle.")
+        return {"skipped": True, "reason": "convergence_pause"}
+
+    # Phase 0: memory garbage collection (clean before optimizing)
+    try:
+        from titan.memory import memory_gc
+        gc_stats = await memory_gc()
+        logger.info(f"Sleep cycle memory GC: {gc_stats}")
+    except Exception as e:
+        logger.warning(f"Sleep cycle memory GC failed (non-critical): {e}")
+
     # Phase A: gather everything
     snapshot = await _gather_system_snapshot()
 
     # Phase B: contrarian debate
     alpha_proposals = await _run_alpha(snapshot)
+
+    # Misalignment probes: check each Alpha proposal BEFORE Beta sees them
+    try:
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, probe_proposal
+        if MISALIGNMENT_PROBES_ENABLED:
+            safe_proposals = []
+            for prop in alpha_proposals:
+                probe_result = await probe_proposal(prop, snapshot)
+                if probe_result["safe"]:
+                    safe_proposals.append(prop)
+                else:
+                    logger.warning(f"Sleep cycle: probe BLOCKED proposal: risk={probe_result['risk_score']:.2f}, flags={probe_result['flags']}")
+            alpha_proposals = safe_proposals
+            logger.info(f"Sleep cycle: {len(safe_proposals)} proposals passed probes")
+    except ImportError:
+        pass
+
     beta_verdicts = await _run_beta(alpha_proposals, snapshot)
 
     # Filter to surviving proposals
     surviving = _filter_surviving(alpha_proposals, beta_verdicts)
     logger.info(f"Sleep cycle: {len(alpha_proposals)} proposals → {len(surviving)} survived Beta review")
 
+    # Prospect Simulator: 3rd persona role-plays how leads would react (Paper 73)
+    try:
+        from shared.prospect_simulator import (
+            PROSPECT_SIM_ENABLED,
+            filter_by_prospect_reactions,
+            simulate_prospect_reactions,
+        )
+        if PROSPECT_SIM_ENABLED and surviving:
+            reactions = await simulate_prospect_reactions(surviving, snapshot)
+            surviving = filter_by_prospect_reactions(surviving, reactions)
+            logger.info(f"Sleep cycle: {len(surviving)} proposals survived prospect simulation")
+    except ImportError:
+        pass
+
+    # Trajectory analysis: if drifting, reduce to 1 proposal max
+    try:
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, trajectory_analysis
+        if MISALIGNMENT_PROBES_ENABLED:
+            trajectory = await trajectory_analysis(days=7)
+            if trajectory.get("alert"):
+                logger.warning(f"Sleep cycle: trajectory alert — {trajectory['details']}")
+                surviving = surviving[:1]  # Reduce to 1 proposal
+    except ImportError:
+        pass
+
     # Log the cycle
     cycle_id = await _log_cycle(snapshot, alpha_proposals, beta_verdicts, surviving)
+
+    # Forgetting risk check: block edits that conflict with high-confidence rules
+    try:
+        from perseus.misalignment_probe import check_forgetting_risk
+        if os.environ.get("FORGETTING_CHECK_ENABLED", "1") == "1":
+            safe_surviving = []
+            for prop in surviving:
+                risk = await check_forgetting_risk(prop)
+                if risk < 0.5:
+                    safe_surviving.append(prop)
+                else:
+                    logger.warning(f"Sleep cycle: forgetting risk BLOCKED: risk={risk:.2f}")
+            surviving = safe_surviving
+    except ImportError:
+        pass
 
     # Phase C: apply changes
     applied = await _apply_changes(surviving, cycle_id)
@@ -55,8 +129,46 @@ async def run_sleep_cycle() -> dict[str, Any]:
     # Update agent self-models
     await _update_all_self_models(snapshot)
 
+    # Convergence detection: should we pause self-modification?
+    try:
+        from perseus.misalignment_probe import MISALIGNMENT_PROBES_ENABLED, convergence_detector
+        if MISALIGNMENT_PROBES_ENABLED:
+            conv = await convergence_detector(days=14)
+            if conv.get("converged"):
+                logger.warning(f"Sleep cycle CONVERGED: entropy={conv['entropy']:.3f}. {conv['recommendation']}")
+                await set_config("sleep_cycle_skip_next", "true")
+                await emit_event("sleep_cycle_converged", {
+                    "entropy": conv["entropy"],
+                    "recommendation": conv["recommendation"],
+                })
+    except ImportError:
+        pass
+
     # Check if cell division is warranted
     await _check_cell_division(snapshot, cycle_id)
+
+    # Self-play sustainability check (Self-Play Evolves When paper)
+    try:
+        sustainability = await _check_self_play_conditions(cycle_id)
+        if sustainability and not sustainability.get("sustainable"):
+            logger.warning(f"Self-play NOT sustainable: mutual_info={sustainability.get('mutual_info', 0):.3f}. "
+                          f"{sustainability.get('recommendation', '')}")
+            await emit_event("self_play_unsustainable", sustainability)
+    except Exception as e:
+        logger.debug(f"Self-play check failed (non-critical): {e}")
+
+    # LoRA training check: if enough training data has accumulated, schedule a run
+    try:
+        from shared.db import insert_task
+        from titan.training import should_train
+        if await should_train():
+            task_id = await insert_task("lora_training", priority=3, dedupe=True)
+            if task_id:
+                logger.info(f"Sleep cycle: scheduled LoRA training task (id={task_id})")
+            else:
+                logger.debug("Sleep cycle: LoRA training task already queued")
+    except Exception as e:
+        logger.debug(f"LoRA training check failed (non-critical): {e}")
 
     # Git commit (best-effort)
     if applied:
@@ -126,6 +238,37 @@ async def _gather_system_snapshot() -> dict[str, Any]:
     soul_copy = _read_file("soul/soul_copy.md")
     soul_agent = _read_file("soul/soul_agent.md")
 
+    # Recent sleep cycle history (4.1: what was tried, what stuck, what reverted)
+    recent_cycles = await fetch_all(
+        """SELECT cycle_date, applied_changes::text, rolled_back
+           FROM sleep_cycle_log
+           ORDER BY cycle_date DESC LIMIT 7"""
+    )
+
+    # Git history of backprop-touched files
+    import subprocess
+    try:
+        git_log = subprocess.run(
+            ["git", "log", "--oneline", "-7", "--", "soul/", "titan/pipeline/"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout[:2000]
+    except Exception:
+        git_log = ""
+
+    # MAGMA causal subgraph for Alpha/Beta (if enabled)
+    causal_context = ""
+    try:
+        from shared.config import config as _cfg
+        from shared.magma import magma_retrieve
+        if _cfg.memory.magma_enabled:
+            causal_context = await magma_retrieve(
+                "Why did metrics change this week? What caused pipeline errors? "
+                "What rule changes led to what outcomes?",
+                limit=15,
+            )
+    except Exception:
+        causal_context = ""
+
     return {
         "date": date.today().isoformat(),
         "pipeline_state": pipeline,
@@ -138,6 +281,9 @@ async def _gather_system_snapshot() -> dict[str, Any]:
         "agent_self_models": self_models,
         "soul_copy_content": soul_copy[:3000],
         "soul_agent_content": soul_agent[:2000],
+        "recent_cycle_history": [dict(c) for c in recent_cycles] if recent_cycles else [],
+        "recent_git_changes": git_log,
+        "causal_context": causal_context,
     }
 
 
@@ -145,13 +291,21 @@ async def _gather_system_snapshot() -> dict[str, Any]:
 
 async def _run_alpha(snapshot: dict) -> list[dict]:
     """Alpha observes the system and proposes changes."""
+    # MAGMA causal context — gives Alpha reasoning chains, not just flat metrics
+    causal_block = ""
+    if snapshot.get("causal_context"):
+        causal_block = f"""
+CAUSAL REASONING CHAINS (what caused what — use these to propose targeted fixes):
+{snapshot['causal_context'][:3000]}
+"""
+
     prompt = f"""You are Alpha, the system optimizer for Perseus — an autonomous AI revenue system.
 You've observed the full system for the last 24 hours. Your job: find what's broken,
 what's underperforming, and propose specific, data-backed changes.
 
 FULL SYSTEM SNAPSHOT:
 {json.dumps(snapshot, indent=2, default=str)[:12000]}
-
+{causal_block}
 Propose 3-5 specific changes. For each, be precise about:
 1. WHAT to change (exact text, value, or rule)
 2. WHERE (file path, config key, or rule ID)
@@ -173,7 +327,8 @@ Return JSON:
 ]}}"""
 
     result = await llm.generate(prompt, model="genius", temperature=0.3, max_tokens=3000,
-                                 pipeline_stage="sleep_cycle_alpha")
+                                 pipeline_stage="sleep_cycle_alpha",
+                                 use_dna=True, daemon_name="perseus")
 
     try:
         start = result.find("{")
@@ -187,10 +342,89 @@ Return JSON:
         return []
 
 
+DEBATE_DEDUP_ENABLED = os.environ.get("DEBATE_DEDUP_ENABLED", "1") == "1"
+DEDUP_SIMILARITY_THRESHOLD = 0.85
+
+
+def _proposal_similarity(a: dict, b: dict) -> float:
+    """Jaccard similarity between two proposals on what+where fields."""
+    def tokenize(d):
+        text = f"{d.get('what', '')} {d.get('where', '')}".lower()
+        return set(text.split())
+    tokens_a = tokenize(a)
+    tokens_b = tokenize(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = len(tokens_a & tokens_b)
+    union = len(tokens_a | tokens_b)
+    return intersection / union if union > 0 else 0.0
+
+
+async def _get_rolled_back_proposals(days: int = 7) -> list[dict]:
+    """Fetch proposals from recently rolled-back sleep cycles."""
+    try:
+        rows = await fetch_all(
+            """SELECT applied_changes FROM sleep_cycle_log
+               WHERE rolled_back = TRUE
+               AND cycle_date > NOW() - INTERVAL '1 day' * %s
+               ORDER BY cycle_date DESC LIMIT 10""",
+            (days,),
+        )
+        proposals = []
+        for row in rows:
+            changes = row.get("applied_changes", [])
+            if isinstance(changes, str):
+                try:
+                    changes = json.loads(changes)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            if isinstance(changes, list):
+                proposals.extend(changes)
+        return proposals
+    except Exception as e:
+        logger.warning(f"Failed to fetch rolled-back proposals: {e}")
+        return []
+
+
 async def _run_beta(proposals: list[dict], snapshot: dict) -> list[dict]:
-    """Beta challenges every proposal — the devil's advocate."""
+    """Beta challenges every proposal — the devil's advocate.
+
+    FIX: Dedup against rolled-back proposals (debate hardening).
+    """
     if not proposals:
         return []
+
+    # Debate dedup: auto-reject proposals similar to recently rolled-back ones
+    if DEBATE_DEDUP_ENABLED:
+        rolled_back = await _get_rolled_back_proposals(days=7)
+        if rolled_back:
+            for i, proposal in enumerate(proposals):
+                for hist in rolled_back:
+                    if _proposal_similarity(proposal, hist) > DEDUP_SIMILARITY_THRESHOLD:
+                        logger.info(f"Debate dedup: auto-rejecting proposal {i} (similar to rolled-back)")
+                        proposals[i]["_auto_rejected"] = True
+                        break
+
+    # 4.1: Inject recent cycle history so Beta can see what was already tried/reverted
+    cycle_history = snapshot.get("recent_cycle_history", [])
+    git_changes = snapshot.get("recent_git_changes", "")
+    history_block = ""
+    if cycle_history:
+        history_lines = []
+        for c in cycle_history[:5]:
+            status = "ROLLED BACK" if c.get("rolled_back") else "kept"
+            changes_preview = str(c.get("applied_changes", ""))[:150]
+            history_lines.append(f"  {c.get('cycle_date', '?')}: {status} — {changes_preview}")
+        history_block = f"""
+RECENT CYCLE HISTORY (what was already tried):
+{chr(10).join(history_lines)}
+
+RECENT GIT CHANGES:
+{git_changes[:1000] if git_changes else 'None'}
+
+Use this history to avoid re-proposing changes already tried and reverted.
+If Alpha proposes something similar to a reverted change, flag it.
+"""
 
     prompt = f"""You are Beta, the devil's advocate for Perseus. Alpha proposed these changes:
 
@@ -199,7 +433,7 @@ PROPOSALS:
 
 FULL SYSTEM SNAPSHOT:
 {json.dumps(snapshot, indent=2, default=str)[:8000]}
-
+{history_block}
 For EACH proposal, argue the OTHER side:
 - Why could this change HURT the system?
 - Is Alpha over-indexing on one day's data?
@@ -218,7 +452,8 @@ Return JSON:
 ]}}"""
 
     result = await llm.generate(prompt, model="genius", temperature=0.4, max_tokens=2500,
-                                 pipeline_stage="sleep_cycle_beta")
+                                 pipeline_stage="sleep_cycle_beta",
+                                 use_dna=True, daemon_name="perseus")
 
     try:
         start = result.find("{")
@@ -236,18 +471,30 @@ Return JSON:
 
 
 def _filter_surviving(proposals: list[dict], verdicts: list[dict]) -> list[dict]:
-    """Return proposals that survived Beta review (approved or modified)."""
+    """Return proposals that survived Beta review (approved or modified).
+
+    Proposals marked _auto_rejected by debate dedup are always excluded,
+    regardless of Beta's verdict — they matched a recently rolled-back
+    change and must not be re-applied.
+    """
     surviving = []
     for verdict in verdicts:
         idx = verdict.get("proposal_index", -1)
         if idx < 0 or idx >= len(proposals):
             continue
 
+        proposal = proposals[idx]
+
+        # Debate dedup: hard reject regardless of Beta's opinion
+        if proposal.get("_auto_rejected"):
+            logger.info(f"Enforcing auto-rejection of proposal {idx} (matched rolled-back change)")
+            continue
+
         v = verdict.get("verdict", "reject")
         if v == "approve":
-            surviving.append(proposals[idx])
+            surviving.append(proposal)
         elif v == "modify" and verdict.get("modified_proposal"):
-            modified = {**proposals[idx], **verdict["modified_proposal"]}
+            modified = {**proposal, **verdict["modified_proposal"]}
             surviving.append(modified)
         # reject = skip
 
@@ -359,6 +606,82 @@ async def _log_cycle(
 
 
 # ── Helpers ───────────────────────────────────────────────────────
+
+async def _check_self_play_conditions(cycle_id: int) -> dict:
+    """Information-theoretic check: is self-evolution sustainable?
+
+    Self-Play Evolves When (ICML) paper: sustainable self-evolution requires
+    mutual information between iterations to remain above a threshold.
+    If it drops, the system is just adding noise.
+
+    Measures: proposal diversity, outcome improvement trend, rollback rate.
+    Returns: {"sustainable": bool, "mutual_info": float, "recommendation": str}
+    """
+    try:
+        cycles = await fetch_all(
+            """SELECT applied_changes, rolled_back,
+                      (SELECT COUNT(*) FROM events WHERE event_type = 'payment_received'
+                       AND created_at > s.cycle_date - INTERVAL '1 day'
+                       AND created_at < s.cycle_date + INTERVAL '1 day') as daily_revenue_events
+               FROM sleep_cycle_log s
+               WHERE cycle_date > NOW() - INTERVAL '14 days'
+               ORDER BY cycle_date ASC""",
+        )
+    except Exception:
+        return {"sustainable": True, "mutual_info": 1.0, "recommendation": "check unavailable"}
+
+    if len(cycles) < 4:
+        return {"sustainable": True, "mutual_info": 1.0, "recommendation": "too few cycles to assess"}
+
+    # Measure 1: Are changes producing improved outcomes?
+    revenue_trend = [c.get("daily_revenue_events", 0) or 0 for c in cycles]
+    improving = False
+    if len(revenue_trend) >= 4:
+        first_half = sum(revenue_trend[:len(revenue_trend)//2])
+        second_half = sum(revenue_trend[len(revenue_trend)//2:])
+        improving = second_half >= first_half
+
+    # Measure 2: Rollback rate (high = changes aren't working)
+    rollback_count = sum(1 for c in cycles if c.get("rolled_back"))
+    rollback_rate = rollback_count / len(cycles)
+
+    # Measure 3: Are proposals getting more diverse or more narrow?
+    all_cats: list[str] = []
+    for c in cycles:
+        changes = c.get("applied_changes", [])
+        if isinstance(changes, str):
+            try:
+                changes = json.loads(changes)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if isinstance(changes, list):
+            all_cats.extend(str(ch.get("category", "?")) for ch in changes)
+
+    import math
+    from collections import Counter
+    counter = Counter(all_cats)
+    total = max(1, len(all_cats))
+    entropy = -sum((c/total) * math.log2(c/total) for c in counter.values() if c > 0)
+    max_entropy = math.log2(max(1, len(counter)))
+    norm_entropy = entropy / max_entropy if max_entropy > 0 else 0
+
+    # Mutual information proxy: entropy × improvement × (1 - rollback_rate)
+    mutual_info = norm_entropy * (1.0 if improving else 0.5) * (1.0 - rollback_rate)
+
+    sustainable = mutual_info > 0.2
+    if not sustainable:
+        recommendation = "Pause evolution. Changes aren't producing revenue improvement."
+    elif mutual_info < 0.4:
+        recommendation = "Caution: self-evolution producing marginal returns."
+    else:
+        recommendation = "Self-evolution is healthy."
+
+    return {
+        "sustainable": sustainable,
+        "mutual_info": round(mutual_info, 3),
+        "recommendation": recommendation,
+    }
+
 
 def _read_file(relative_path: str) -> str:
     """Read a file from the repo root."""

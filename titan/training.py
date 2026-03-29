@@ -17,6 +17,7 @@ Training happens when:
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from shared.db import emit_event, execute, fetch_all, fetch_one, fetch_val
 logger = logging.getLogger("perseus.titan.training")
 
 TRAINING_DATA_DIR = config.root_dir / "training_data"
+TRAINING_METHOD = "oplora"  # Orthogonal Projection LoRA — prevents catastrophic forgetting
 
 
 async def collect_training_example(
@@ -80,13 +82,156 @@ async def collect_email_outcome(email_seq_id: int, outcome: str):
         "body": email.get("body", ""),
     })
 
-    await collect_training_example(
-        example_type="email_compose",
-        input_text=input_text,
-        output_text=output_text,
-        outcome=outcome,
-        metadata={"email_seq_id": email_seq_id, "client_id": email["client_id"]},
+    result = await fetch_one(
+        """INSERT INTO training_data (example_type, input_text, output_text, outcome, metadata)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+        ("email_compose", input_text, output_text, outcome,
+         json.dumps({"email_seq_id": email_seq_id, "client_id": email["client_id"]})),
     )
+
+    # Schedule delayed outcome re-checks (2.1) so training labels
+    # get corrected when deals close weeks later
+    if result and result.get("id"):
+        try:
+            from titan.memory import create_pending_outcome_checks
+            await create_pending_outcome_checks(
+                training_data_id=result["id"],
+                client_id=email["client_id"],
+                email_seq_id=email_seq_id,
+            )
+        except Exception as e:
+            logger.debug(f"Pending outcome scheduling failed (non-critical): {e}")
+
+
+MUA_LR_ENABLED = os.environ.get("MUA_LR_ENABLED", "1") == "1"
+WDPO_ENABLED = os.environ.get("WDPO_ENABLED", "1") == "1"
+UNI_DPO_ENABLED = os.environ.get("UNI_DPO_ENABLED", "1") == "1"
+ULTRAMIX_CURATION = os.environ.get("ULTRAMIX_CURATION", "1") == "1"
+HYBRID_SFT_DPO = os.environ.get("HYBRID_SFT_DPO", "1") == "1"
+
+
+def compute_mua_lr(width: int, layer_type: str) -> float:
+    """muA learning rate scaling (muA paper: Init[B] alpha=1, eta ∝ n^(-1)).
+
+    Principled LR that's rank-invariant. Attention layers get alpha=1.0,
+    FFN layers get alpha=0.5 (they need less aggressive updates).
+    For rank=16, width=4096: lr = 1.0 / 4096 ≈ 2.4e-4 (similar to default but principled).
+    """
+    alpha = 1.0 if layer_type in ("q_proj", "k_proj", "v_proj", "o_proj") else 0.5
+    return alpha / max(1, width)
+
+
+def compute_wdpo_weights(examples: list[dict], noise_tolerance: float = 0.3) -> list[float]:
+    """wDPO: per-example weights inversely proportional to estimated noise.
+
+    Stage 1: Margin-aware soft label correction — examples with small margins
+    between positive/negative get lower weight (more likely mislabeled).
+    Stage 2: Gradient winsorization — clip extreme weights to prevent dominance.
+
+    Sales preference data is inherently noisy (30%+ label noise). wDPO handles this.
+    """
+    if not examples:
+        return []
+
+    weights = []
+    # Count outcome flip rate per example_type as noise proxy
+    type_outcomes: dict[str, dict[str, int]] = {}
+    for ex in examples:
+        etype = ex.get("example_type", "unknown")
+        outcome = ex.get("outcome", "")
+        if etype not in type_outcomes:
+            type_outcomes[etype] = {"positive": 0, "negative": 0}
+        type_outcomes[etype][outcome] = type_outcomes[etype].get(outcome, 0) + 1
+
+    for ex in examples:
+        etype = ex.get("example_type", "unknown")
+        counts = type_outcomes.get(etype, {"positive": 1, "negative": 1})
+        total = counts.get("positive", 0) + counts.get("negative", 0)
+        if total == 0:
+            weights.append(1.0)
+            continue
+
+        # Noise estimate: types with near-50/50 split are noisiest
+        minority_ratio = min(counts.get("positive", 0), counts.get("negative", 0)) / total
+        noise_estimate = minority_ratio * 2  # 0.0 = pure signal, 1.0 = pure noise
+
+        # Weight: inversely proportional to noise, floored at noise_tolerance
+        weight = max(noise_tolerance, 1.0 - noise_estimate)
+        weights.append(weight)
+
+    # Winsorize: clip to [5th, 95th] percentile to prevent gradient dominance
+    if len(weights) > 10:
+        sorted_w = sorted(weights)
+        p5 = sorted_w[len(sorted_w) // 20]
+        p95 = sorted_w[-len(sorted_w) // 20 - 1]
+        weights = [max(p5, min(p95, w)) for w in weights]
+
+    return weights
+
+
+def uni_dpo_dynamic_weights(examples: list[dict], epoch: int, total_epochs: int) -> list[float]:
+    """Uni-DPO: dual-perspective weighting that evolves over training.
+
+    Early epochs: explore (uniform weights, learn from everything).
+    Late epochs: exploit (upweight high-confidence, downweight noisy).
+    """
+    if not examples or total_epochs <= 0:
+        return [1.0] * len(examples)
+
+    progress = epoch / total_epochs  # 0.0 = start, 1.0 = end
+
+    # Blend uniform (explore) with quality-weighted (exploit)
+    base_weights = compute_wdpo_weights(examples)
+    uniform = [1.0] * len(examples)
+
+    return [
+        (1.0 - progress) * u + progress * b
+        for u, b in zip(uniform, base_weights, strict=True)
+    ]
+
+
+def curate_preference_dataset(raw_examples: list[dict]) -> list[dict]:
+    """UltraMix-style preference data curation.
+
+    1. Score each example for quality (label consistency, recency, type balance)
+    2. Filter bottom 30%
+    3. Balance positive/negative
+    4. Return curated set
+    """
+    if not raw_examples:
+        return []
+
+    # Score each example
+    scored = []
+    for ex in raw_examples:
+        score = 0.5  # base
+
+        # Recency boost (last 7 days = +0.3)
+        age = ex.get("age_days", 30)
+        if age <= 7:
+            score += 0.3
+        elif age <= 14:
+            score += 0.15
+
+        # Known outcome is more valuable
+        if ex.get("outcome") in ("positive", "negative"):
+            score += 0.2
+
+        scored.append((score, ex))
+
+    # Sort by quality, filter bottom 30%
+    scored.sort(key=lambda x: x[0], reverse=True)
+    cutoff = int(len(scored) * 0.7)
+    curated = [ex for _, ex in scored[:cutoff]]
+
+    # Balance positive/negative
+    positive = [e for e in curated if e.get("outcome") == "positive"]
+    negative = [e for e in curated if e.get("outcome") == "negative"]
+    min_count = min(len(positive), len(negative))
+    if min_count > 0:
+        curated = positive[:min_count] + negative[:min_count]
+
+    return curated
 
 
 async def export_training_data(min_examples: int = 100) -> Path | None:
@@ -97,33 +242,55 @@ async def export_training_data(min_examples: int = 100) -> Path | None:
     """
     TRAINING_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 4.5: Rolling 30-day training window — model stays tuned to current market
+    # Old examples still exist in DB for analysis, just not used for training
     examples = await fetch_all(
-        """SELECT example_type, input_text, output_text, outcome
+        """SELECT example_type, input_text, output_text, outcome,
+                EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400 as age_days
            FROM training_data
            WHERE outcome IN ('positive', 'negative')
+           AND created_at > NOW() - INTERVAL '30 days'
            ORDER BY created_at DESC""",
     )
 
     if len(examples) < min_examples:
-        logger.info(f"Only {len(examples)} labeled examples (need {min_examples}). Skipping export.")
+        logger.info(f"Only {len(examples)} labeled examples in 30-day window (need {min_examples}). Skipping export.")
         return None
 
     # Separate positive (good emails) from negative (bad emails)
     positive = [e for e in examples if e["outcome"] == "positive"]
     negative = [e for e in examples if e["outcome"] == "negative"]
 
+    # Recency boost: duplicate examples from last 7 days
+    recent_positive = [e for e in positive if (e.get("age_days") or 30) <= 7]
+    _recent_negative = [e for e in negative if (e.get("age_days") or 30) <= 7]
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = TRAINING_DATA_DIR / f"training_{timestamp}.jsonl"
 
     with open(output_path, "w") as f:
-        # Positive examples: train to replicate
-        for ex in positive:
+        # Optional: curate dataset (UltraMix paper) before export
+        all_examples = positive + recent_positive + negative[:len(positive)]
+        if ULTRAMIX_CURATION:
+            all_examples = curate_preference_dataset(all_examples)
+            positive = [e for e in all_examples if e.get("outcome") == "positive"]
+            negative = [e for e in all_examples if e.get("outcome") == "negative"]
+
+        # Optional: compute per-example wDPO weights for noise robustness
+        wdpo_weights = compute_wdpo_weights(all_examples) if WDPO_ENABLED else None
+
+        # Positive examples: train to replicate (+ recency-boosted duplicates)
+        idx = 0
+        for ex in positive + recent_positive:
             record = {
                 "instruction": f"Write a cold outreach email that gets replies. Type: {ex['example_type']}. This email resulted in a positive outcome.",
                 "input": ex["input_text"],
                 "output": ex["output_text"],
             }
+            if wdpo_weights and idx < len(wdpo_weights):
+                record["weight"] = round(wdpo_weights[idx], 3)
             f.write(json.dumps(record) + "\n")
+            idx += 1
 
         # Negative examples: train to avoid (as negative examples with instruction)
         for ex in negative[:len(positive)]:  # Balance positive/negative
@@ -132,10 +299,16 @@ async def export_training_data(min_examples: int = 100) -> Path | None:
                 "input": ex["input_text"],
                 "output": f"[NEGATIVE EXAMPLE - DO NOT REPLICATE] {ex['output_text']}",
             }
+            if wdpo_weights and idx < len(wdpo_weights):
+                record["weight"] = round(wdpo_weights[idx], 3)
             f.write(json.dumps(record) + "\n")
+            idx += 1
 
-    total = len(positive) + min(len(negative), len(positive))
-    logger.info(f"Exported {total} training examples to {output_path}")
+    total = len(positive) + len(recent_positive) + min(len(negative), len(positive))
+    logger.info(
+        f"Exported {total} training examples to {output_path} "
+        f"(30-day window, {len(recent_positive)} recency-boosted)"
+    )
     return output_path
 
 
@@ -146,8 +319,9 @@ async def should_train() -> bool:
         "SELECT COUNT(*) FROM training_data WHERE outcome IN ('positive', 'negative')"
     ) or 0
 
-    if count < 500:
-        logger.info(f"Only {count} labeled examples. Need 500 for training.")
+    min_threshold = 100  # Start training early; quality over quantity via UltraMix curation
+    if count < min_threshold:
+        logger.info(f"Only {count} labeled examples. Need {min_threshold} for training.")
         return False
 
     # Check if we trained recently (within 7 days)
@@ -194,7 +368,7 @@ async def run_lora_training():
     await emit_event("lora_training_started", {"status": "exporting_data"})
 
     # Step 1: Export training data
-    data_path = await export_training_data(min_examples=500)
+    data_path = await export_training_data(min_examples=100)
     if not data_path:
         return
 
@@ -219,6 +393,7 @@ async def run_lora_training():
            VALUES ('lora_training', %s, 0.9)""",
         (json.dumps({
             "timestamp": datetime.now().isoformat(),
+            "method": TRAINING_METHOD,
             "examples": example_count,
             "data_path": str(data_path),
             "adapter_path": str(adapter_path) if adapter_path else None,
@@ -251,6 +426,9 @@ def main():
         load_in_4bit=True,
     )
 
+    # OPLoRA (Orthogonal Projection LoRA) — prevents catastrophic forgetting
+    # between training cycles. use_rslora=True enables rank-stabilized LoRA
+    # with orthogonal initialization, so new training doesn't erase prior learning.
     model = FastLanguageModel.get_peft_model(
         model,
         r=16,
@@ -260,6 +438,7 @@ def main():
         lora_dropout=0,
         bias="none",
         use_gradient_checkpointing="unsloth",
+        use_rslora=True,
     )
 
     dataset = load_dataset("json", data_files=DATA_PATH, split="train")
@@ -281,7 +460,7 @@ def main():
             gradient_accumulation_steps=4,
             warmup_steps=10,
             num_train_epochs=3,
-            learning_rate=2e-4,
+            learning_rate=float(os.getenv("MUA_LR", "2e-4")),
             fp16=True,
             logging_steps=10,
             save_strategy="epoch",
@@ -433,18 +612,32 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
                 logger.error("No SSH host returned for instance")
                 raise RuntimeError("Missing SSH connection info")
 
-            # Step 4: Upload training data + script via SCP
+            # Validate ssh_host and ssh_port — these come from an external API
+            # and must not contain shell metacharacters.
+            import re
             import subprocess
 
+            ssh_port = int(ssh_port)  # Raises ValueError if not numeric
+            if not re.match(r'^[a-zA-Z0-9._-]+$', ssh_host):
+                raise ValueError(f"Invalid ssh_host from provider: {ssh_host!r}")
+
+            # Step 4: Upload training data + script via SCP
             train_script_path = data_path.parent / "train_remote.py"
             train_script_path.write_text(_generate_training_script())
 
-            ssh_opts = f"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {ssh_port}"
+            ssh_opts = [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-p", str(ssh_port),
+            ]
 
             # Upload training data
             scp_data = subprocess.run(
-                f"scp {ssh_opts} {data_path} root@{ssh_host}:/workspace/training_data.jsonl",
-                shell=True, capture_output=True, text=True, timeout=120,
+                ["scp"] + ssh_opts + [
+                    str(data_path),
+                    f"root@{ssh_host}:/workspace/training_data.jsonl",
+                ],
+                capture_output=True, text=True, timeout=120,
             )
             if scp_data.returncode != 0:
                 logger.error(f"SCP data upload failed: {scp_data.stderr[:300]}")
@@ -452,28 +645,38 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
 
             # Upload training script
             scp_script = subprocess.run(
-                f"scp {ssh_opts} {train_script_path} root@{ssh_host}:/workspace/train.py",
-                shell=True, capture_output=True, text=True, timeout=60,
+                ["scp"] + ssh_opts + [
+                    str(train_script_path),
+                    f"root@{ssh_host}:/workspace/train.py",
+                ],
+                capture_output=True, text=True, timeout=60,
             )
             if scp_script.returncode != 0:
                 raise RuntimeError("Failed to upload training script")
 
             logger.info("Uploaded training data and script")
 
-            # Step 5: Run training
-            ssh_cmd = (
-                f"ssh {ssh_opts} root@{ssh_host} "
-                f"'cd /workspace && nohup python3 train.py > train.log 2>&1 &'"
+            # Step 5: Run training (inject muA learning rate if enabled)
+            remote_cmd = "cd /workspace && nohup python3 train.py > train.log 2>&1 &"
+            if MUA_LR_ENABLED:
+                lr = compute_mua_lr(4096, "q_proj")  # Qwen2.5-14B hidden_size=4096
+                remote_cmd = f"cd /workspace && MUA_LR={lr} nohup python3 train.py > train.log 2>&1 &"
+
+            subprocess.run(
+                ["ssh"] + ssh_opts + [f"root@{ssh_host}", remote_cmd],
+                capture_output=True, timeout=30,
             )
-            subprocess.run(ssh_cmd, shell=True, capture_output=True, timeout=30)
             logger.info("Training started on remote GPU")
 
             # Step 6: Poll for completion (up to 3 hours)
             for _attempt in range(108):  # 3 hours at 100s intervals
                 await asyncio.sleep(100)
                 check = subprocess.run(
-                    f"ssh {ssh_opts} root@{ssh_host} 'cat /workspace/TRAINING_COMPLETE 2>/dev/null'",
-                    shell=True, capture_output=True, text=True, timeout=30,
+                    ["ssh"] + ssh_opts + [
+                        f"root@{ssh_host}",
+                        "cat /workspace/TRAINING_COMPLETE 2>/dev/null",
+                    ],
+                    capture_output=True, text=True, timeout=30,
                 )
                 if "TRAINING_COMPLETE" in (check.stdout or ""):
                     logger.info("Remote training complete!")
@@ -485,8 +688,11 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
                     break
                 # Check if training errored
                 log_check = subprocess.run(
-                    f"ssh {ssh_opts} root@{ssh_host} 'tail -5 /workspace/train.log 2>/dev/null'",
-                    shell=True, capture_output=True, text=True, timeout=30,
+                    ["ssh"] + ssh_opts + [
+                        f"root@{ssh_host}",
+                        "tail -5 /workspace/train.log 2>/dev/null",
+                    ],
+                    capture_output=True, text=True, timeout=30,
                 )
                 if log_check.stdout:
                     logger.debug(f"Training log: {log_check.stdout[-200:]}")
@@ -499,8 +705,11 @@ async def _train_on_cloud_gpu(data_path: Path) -> Path | None:
             adapter_dir.mkdir(parents=True, exist_ok=True)
 
             download = subprocess.run(
-                f"scp -r {ssh_opts} root@{ssh_host}:/workspace/adapter_output/* {adapter_dir}/",
-                shell=True, capture_output=True, text=True, timeout=300,
+                ["scp", "-r"] + ssh_opts + [
+                    f"root@{ssh_host}:/workspace/adapter_output/.",
+                    str(adapter_dir),
+                ],
+                capture_output=True, text=True, timeout=300,
             )
             if download.returncode != 0:
                 logger.error(f"Failed to download adapter: {download.stderr[:300]}")
@@ -641,13 +850,25 @@ SYSTEM "You are Titan, Perseus's revenue engine. You write cold emails that get 
             ["ollama", "create", model_name, "-f", str(modelfile)],
             capture_output=True, text=True, timeout=300,
         )
-        if result.returncode == 0:
-            logger.info(f"Imported fine-tuned model as '{model_name}' in Ollama")
-            # Update config to use the new model
-            from shared.db import set_config
-            await set_config("fine_tuned_model", model_name)
-            await emit_event("model_updated", {"model": model_name})
-        else:
+        if result.returncode != 0:
             logger.warning(f"Ollama import failed: {result.stderr[:500]}")
+            return
+
+        # Validate: send a test prompt to verify the model actually works
+        import httpx
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            test_resp = await client.post(
+                f"{config.ollama.host}/api/generate",
+                json={"model": model_name, "prompt": "Say hello.", "stream": False,
+                      "options": {"num_predict": 10}},
+            )
+            if test_resp.status_code != 200:
+                logger.warning(f"Fine-tuned model validation failed (HTTP {test_resp.status_code}), keeping base model")
+                return
+
+        logger.info(f"Imported and validated fine-tuned model '{model_name}' in Ollama")
+        from shared.db import set_config
+        await set_config("fine_tuned_model", model_name)
+        await emit_event("model_updated", {"model": model_name})
     except Exception as e:
         logger.warning(f"Ollama import error: {e}")

@@ -12,15 +12,24 @@ The A2A server runs alongside the daemon's existing async loop via asyncio.gathe
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import os
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Awaitable, Dict, List, Optional
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from shared.observability import (
+    bind_context_from_payload,
+    clear_observability_context,
+    ensure_trace_context,
+)
 
 logger = logging.getLogger("perseus.a2a")
 
@@ -44,11 +53,11 @@ class AgentCard:
     description: str = ""
     url: str = ""
     version: str = "1.0.0"
-    capabilities: List[str] = field(default_factory=list)
-    skills: List[str] = field(default_factory=list)
-    authentication: Dict[str, Any] = field(default_factory=dict)
+    capabilities: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    authentication: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -66,8 +75,8 @@ class AgentCard:
 def create_a2a_app(
     agent_card: AgentCard,
     handler: Callable[[str], Awaitable[str]],
-    health_check: Optional[Callable[[], Awaitable[dict]]] = None,
-    capability_details: Optional[List[Dict[str, Any]]] = None,
+    health_check: Callable[[], Awaitable[dict]] | None = None,
+    capability_details: list[dict[str, Any]] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app serving the OpenJarvis-native A2A protocol.
 
@@ -84,7 +93,7 @@ def create_a2a_app(
         Optional list of rich capability descriptions for /a2a/capabilities.
     """
     app = FastAPI(title=f"{agent_card.name} A2A Server", docs_url=None, redoc_url=None)
-    tasks: Dict[str, Dict[str, Any]] = {}
+    tasks: dict[str, dict[str, Any]] = {}
 
     @app.get("/.well-known/agent.json")
     async def get_agent_card():
@@ -92,18 +101,32 @@ def create_a2a_app(
 
     @app.post("/a2a/tasks")
     async def handle_task(request: Request):
-        """Handle JSON-RPC 2.0 A2A task requests."""
+        """Handle JSON-RPC 2.0 A2A task requests.
+
+        When A2A_SHARED_SECRET is set, all callers must include a matching
+        X-A2A-Secret header. This prevents unauthenticated local processes
+        from impersonating operator messages or sending commands to daemons.
+        """
+        a2a_secret = os.getenv("A2A_SHARED_SECRET", "").strip()
+        if a2a_secret:
+            caller_secret = request.headers.get("x-a2a-secret", "")
+            if not hmac.compare_digest(caller_secret, a2a_secret):
+                return JSONResponse(
+                    {"jsonrpc": "2.0", "error": {"code": -32000, "message": "A2A authentication failed"}, "id": ""},
+                    status_code=401,
+                )
+
         body = await request.json()
         method = body.get("method", "")
         params = body.get("params", {})
         req_id = body.get("id", "")
 
         if method == "tasks/send":
-            return await _handle_send(params, req_id)
+            return await _handle_send(params, req_id, request)
         elif method == "tasks/get":
-            return _handle_get(params, req_id)
+            return await _handle_get(params, req_id)
         elif method == "tasks/cancel":
-            return _handle_cancel(params, req_id)
+            return await _handle_cancel(params, req_id)
         else:
             return JSONResponse({
                 "jsonrpc": "2.0",
@@ -111,7 +134,7 @@ def create_a2a_app(
                 "id": req_id,
             })
 
-    async def _handle_send(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_send(params: dict, req_id: str, request: Request) -> JSONResponse:
         """Handle tasks/send — extract text, call handler, return result.
 
         Security: scans input for prompt injection before processing.
@@ -129,6 +152,22 @@ def create_a2a_app(
         if not input_text:
             input_text = params.get("input", "")
 
+        request_meta = params.get("metadata", {}) if isinstance(params.get("metadata", {}), dict) else {}
+        if isinstance(params.get("_meta", {}), dict):
+            request_meta = {
+                **request_meta,
+                **params.get("_meta", {}),
+            }
+        header_trace = request.headers.get("x-trace-id", "").strip()[:64]
+        header_correlation = request.headers.get("x-correlation-id", "").strip()[:64]
+        header_request = (request.headers.get("x-request-id", "").strip() or req_id)[:64]
+        context = ensure_trace_context(
+            trace_id=str(request_meta.get("trace_id", "") or header_trace),
+            correlation_id=str(request_meta.get("correlation_id", "") or header_correlation),
+            task_id=str(request_meta.get("task_id", "")),
+            request_id=str(request_meta.get("request_id", "") or header_request),
+        )
+
         task_id = uuid.uuid4().hex[:16]
         task = {
             "id": task_id,
@@ -136,9 +175,12 @@ def create_a2a_app(
             "input": input_text,
             "output": "",
             "history": [],
-            "metadata": {},
+            "metadata": {
+                **context,
+            },
         }
         tasks[task_id] = task
+        bind_context_from_payload({"_meta": {**context, "task_id": task_id}})
 
         # Security: scan for prompt injection
         try:
@@ -155,17 +197,17 @@ def create_a2a_app(
                 )
                 task["output"] = json.dumps({"error": "Request blocked by injection scanner"})
                 task["state"] = TaskState.FAILED.value
-                task["metadata"]["blocked_by"] = "injection_scanner"
+                task["metadata"]["blocked_by"] = "injection_scanner"  # type: ignore[index]
                 return JSONResponse({"jsonrpc": "2.0", "result": task, "id": req_id})
-        except ImportError:
-            pass  # Scanner not available, proceed without
+        except ImportError as e:
+            logger.debug("Injection scan failed: %s", e)
 
         t0 = _time.time()
         try:
             result = await handler(input_text)
             task["output"] = result
             task["state"] = TaskState.COMPLETED.value
-            task["history"].append({"role": "agent", "content": result})
+            cast(list, task["history"]).append({"role": "agent", "content": result})
         except Exception as exc:
             logger.error("A2A handler error: %s", exc, exc_info=True)
             task["output"] = str(exc)
@@ -174,8 +216,8 @@ def create_a2a_app(
 
         # Tracing: publish A2A execution event
         try:
-            from shared.oj_bridge import get_bus
             from openjarvis.core.events import EventType
+            from shared.oj_bridge import get_bus
             get_bus().publish(EventType.A2A_TASK_COMPLETED, {
                 "agent": agent_card.name,
                 "task_id": task_id,
@@ -183,9 +225,12 @@ def create_a2a_app(
                 "duration_seconds": duration,
                 "input_length": len(input_text),
                 "output_length": len(task.get("output", "")),
+                **context,
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Injection scan failed: %s", e)
+        finally:
+            clear_observability_context()
 
         # Prune old tasks (keep last 100)
         if len(tasks) > 100:
@@ -199,7 +244,7 @@ def create_a2a_app(
             "id": req_id,
         })
 
-    def _handle_get(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_get(params: dict, req_id: str) -> JSONResponse:
         task_id = params.get("id", "")
         task = tasks.get(task_id)
         if not task:
@@ -210,7 +255,7 @@ def create_a2a_app(
             })
         return JSONResponse({"jsonrpc": "2.0", "result": task, "id": req_id})
 
-    def _handle_cancel(params: dict, req_id: str) -> JSONResponse:
+    async def _handle_cancel(params: dict, req_id: str) -> JSONResponse:
         task_id = params.get("id", "")
         task = tasks.get(task_id)
         if not task:

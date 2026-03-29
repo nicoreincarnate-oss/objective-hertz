@@ -12,7 +12,7 @@ Or register as a scheduled task::
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import click
 
@@ -42,7 +42,7 @@ def main(topics: str, model: str | None, engine_key: str | None) -> None:
         click.echo("Error: --topics must contain at least one topic.", err=True)
         raise SystemExit(1)
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     prompt = (
         f"Today is {today}. Search for and summarize the top news stories on "
         f"the following topics: {', '.join(topic_list)}. "

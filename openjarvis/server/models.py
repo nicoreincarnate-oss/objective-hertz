@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -16,18 +16,18 @@ from pydantic import BaseModel, Field
 class ChatMessage(BaseModel):
     role: str
     content: str = ""
-    name: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
     model: str
-    messages: List[ChatMessage]
+    messages: list[ChatMessage]
     temperature: float = 0.7
     max_tokens: int = 1024
     stream: bool = False
-    tools: Optional[List[Dict[str, Any]]] = None
+    tools: list[dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +43,8 @@ class UsageInfo(BaseModel):
 
 class ChoiceMessage(BaseModel):
     role: str = "assistant"
-    content: Optional[str] = ""
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    content: str | None = ""
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class Choice(BaseModel):
@@ -58,7 +58,7 @@ class ChatCompletionResponse(BaseModel):
     object: str = "chat.completion"
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str = ""
-    choices: List[Choice] = Field(default_factory=list)
+    choices: list[Choice] = Field(default_factory=list)
     usage: UsageInfo = Field(default_factory=UsageInfo)
 
 
@@ -68,14 +68,14 @@ class ChatCompletionResponse(BaseModel):
 
 
 class DeltaMessage(BaseModel):
-    role: Optional[str] = None
-    content: Optional[str] = None
+    role: str | None = None
+    content: str | None = None
 
 
 class StreamChoice(BaseModel):
     index: int = 0
     delta: DeltaMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class ChatCompletionChunk(BaseModel):
@@ -83,7 +83,7 @@ class ChatCompletionChunk(BaseModel):
     object: str = "chat.completion.chunk"
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str = ""
-    choices: List[StreamChoice] = Field(default_factory=list)
+    choices: list[StreamChoice] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ class ModelObject(BaseModel):
 
 class ModelListResponse(BaseModel):
     object: str = "list"
-    data: List[ModelObject] = Field(default_factory=list)
+    data: list[ModelObject] = Field(default_factory=list)
 
 
 __all__ = [

@@ -6,7 +6,7 @@ Adapted from IPW's gpqa.py dataset loader.
 from __future__ import annotations
 
 import random
-from typing import Iterable, List, MutableMapping, Optional, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -31,14 +31,14 @@ class GPQADataset(DatasetProvider):
     _default_split = "train"
 
     def __init__(self) -> None:
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
 
@@ -73,7 +73,7 @@ class GPQADataset(DatasetProvider):
 
     def _convert_row(
         self, raw: MutableMapping[str, object], idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         # Field names vary across dataset versions.
         question = str(
             raw.get("Question") or raw.get("question") or "",
@@ -84,7 +84,7 @@ class GPQADataset(DatasetProvider):
         ).strip()
 
         # Gather distractor answers.
-        distractors: List[str] = []
+        distractors: list[str] = []
         for key in (
             "Incorrect Answer 1", "incorrect_answer_1",
             "Incorrect Answer 2", "incorrect_answer_2",

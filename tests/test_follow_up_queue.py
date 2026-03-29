@@ -17,6 +17,7 @@ def load_follow_up_module():
     fake_db.fetch_one = AsyncMock()
     fake_db.execute = AsyncMock()
     fake_db.emit_event = AsyncMock()
+    fake_db.get_config = AsyncMock(return_value=None)
 
     fake_llm = types.ModuleType("shared.llm_client")
     fake_llm.llm = types.SimpleNamespace(
@@ -33,6 +34,7 @@ def load_follow_up_module():
     fake_memory = types.ModuleType("titan.memory")
     fake_memory.get_relevant_learnings = AsyncMock(return_value="short emails work")
     fake_memory.format_rules_for_prompt = AsyncMock(return_value="")
+    fake_memory.attribute_reply_cause = AsyncMock()
 
     fake_training = types.ModuleType("titan.training")
     fake_training.collect_email_outcome = AsyncMock()

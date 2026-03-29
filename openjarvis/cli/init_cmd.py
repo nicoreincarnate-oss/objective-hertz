@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.console import Console
@@ -159,9 +158,9 @@ def _next_steps_text(engine: str, model: str = "") -> str:
 )
 def init(
     force: bool,
-    config: Optional[Path],
+    config: Path | None,
     full_config: bool = False,
-    engine: Optional[str] = None,
+    engine: str | None = None,
 ) -> None:
     """Detect hardware and generate ~/.openjarvis/config.toml."""
     console = Console()

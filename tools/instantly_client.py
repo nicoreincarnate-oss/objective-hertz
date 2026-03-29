@@ -345,7 +345,7 @@ async def generate_domain_report(domains: list[str]) -> str:
 
     try:
         # Get warmup analytics for health overview
-        warmup = await client.get_warmup_analytics()
+        await client.get_warmup_analytics()
         accounts = await client.list_accounts()
 
         for account in (accounts if isinstance(accounts, list) else []):

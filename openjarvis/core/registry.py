@@ -6,7 +6,8 @@ own isolated storage so registrations in one registry never leak into another.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, Type, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 if TYPE_CHECKING:
     from openjarvis.agents._stubs import BaseAgent
@@ -20,11 +21,11 @@ class RegistryBase(Generic[T]):
     """Generic registry base class with class-specific entry isolation."""
 
     @classmethod
-    def _entries(cls) -> Dict[str, T]:
+    def _entries(cls) -> dict[str, T]:
         attr_name = f"_registry_entries_{cls.__name__}"
         storage = getattr(cls, attr_name, None)
         if storage is None:
-            storage: Dict[str, T] = {}
+            storage: dict[str, T] = {}
             setattr(cls, attr_name, storage)
         return storage
 
@@ -72,12 +73,12 @@ class RegistryBase(Generic[T]):
         return entry(*args, **kwargs)
 
     @classmethod
-    def items(cls) -> Tuple[Tuple[str, T], ...]:
+    def items(cls) -> tuple[tuple[str, T], ...]:
         """Return all ``(key, entry)`` pairs as a tuple."""
         return tuple(cls._entries().items())
 
     @classmethod
-    def keys(cls) -> Tuple[str, ...]:
+    def keys(cls) -> tuple[str, ...]:
         """Return all registered keys as a tuple."""
         return tuple(cls._entries().keys())
 
@@ -101,15 +102,15 @@ class ModelRegistry(RegistryBase[Any]):
     """Registry for ``ModelSpec`` objects."""
 
 
-class EngineRegistry(RegistryBase[Type["InferenceEngine"]]):
+class EngineRegistry(RegistryBase[type["InferenceEngine"]]):
     """Registry for inference engine backends."""
 
 
-class MemoryRegistry(RegistryBase[Type["MemoryBackend"]]):
+class MemoryRegistry(RegistryBase[type["MemoryBackend"]]):
     """Registry for memory / retrieval backends."""
 
 
-class AgentRegistry(RegistryBase[Type["BaseAgent"]]):
+class AgentRegistry(RegistryBase[type["BaseAgent"]]):
     """Registry for agent implementations."""
 
 

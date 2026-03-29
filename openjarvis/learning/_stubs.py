@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Dict
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from openjarvis.core.registry import LearningRegistry  # noqa: F401
 
@@ -18,7 +18,7 @@ class RouterPolicy(ABC):
     """Model selection policy (used by the learning system)."""
 
     @abstractmethod
-    def select_model(self, context: "RoutingContext") -> str:
+    def select_model(self, context: RoutingContext) -> str:
         """Select the best model key for the given routing context."""
 
 
@@ -26,7 +26,7 @@ class QueryAnalyzer(ABC):
     """Query analysis for routing contexts."""
 
     @abstractmethod
-    def analyze(self, query: str, **kwargs: object) -> "RoutingContext":
+    def analyze(self, query: str, **kwargs: object) -> RoutingContext:
         """Analyze a query and return a RoutingContext."""
 
 
@@ -36,7 +36,7 @@ class RewardFunction(ABC):
     @abstractmethod
     def compute(
         self,
-        context: "RoutingContext",
+        context: RoutingContext,
         model_key: str,
         response: str,
         **kwargs: object,
@@ -50,7 +50,7 @@ class LearningPolicy(ABC):
     target: ClassVar[str] = ""  # "intelligence" | "agent"
 
     @abstractmethod
-    def update(self, trace_store: Any, **kwargs: object) -> Dict[str, Any]:
+    def update(self, trace_store: Any, **kwargs: object) -> dict[str, Any]:
         """Analyze traces and return update actions."""
 
 

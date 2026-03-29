@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import pytest
 
@@ -21,7 +21,7 @@ class MockBackend(InferenceBackend):
 
     backend_id = "mock"
 
-    def __init__(self, responses: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, responses: dict[str, str] | None = None) -> None:
         self._responses = responses or {}
         self._default_response = "Mock response"
         self._call_count = 0
@@ -46,7 +46,7 @@ class MockBackend(InferenceBackend):
         system: str = "",
         temperature: float = 0.0,
         max_tokens: int = 2048,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         content = self.generate(
             prompt, model=model, system=system,
             temperature=temperature, max_tokens=max_tokens,
@@ -79,7 +79,7 @@ class MockScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         return self._result, {"mock": True}
 
 
@@ -89,7 +89,7 @@ class MockDataset(DatasetProvider):
     dataset_id = "mock"
     dataset_name = "Mock"
 
-    def __init__(self, records: Optional[list[EvalRecord]] = None) -> None:
+    def __init__(self, records: list[EvalRecord] | None = None) -> None:
         self._records = records or []
 
     def load(self, *, max_samples=None, split=None, seed=None) -> None:

@@ -21,9 +21,10 @@ import re
 import statistics
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.backend import InferenceBackend
 from openjarvis.evals.core.dataset import DatasetProvider
@@ -62,24 +63,24 @@ class EvalRunner:
         dataset: DatasetProvider,
         backend: InferenceBackend,
         scorer: Scorer,
-        trackers: Optional[List[ResultTracker]] = None,
+        trackers: list[ResultTracker] | None = None,
     ) -> None:
         self._config = config
         self._dataset = dataset
         self._backend = backend
         self._scorer = scorer
-        self._trackers: List[ResultTracker] = trackers or []
-        self._results: List[EvalResult] = []
-        self._output_file: Optional[Any] = None
+        self._trackers: list[ResultTracker] = trackers or []
+        self._results: list[EvalResult] = []
+        self._output_file: Any | None = None
 
     @property
-    def results(self) -> List[EvalResult]:
+    def results(self) -> list[EvalResult]:
         """Return a copy of collected evaluation results."""
         return list(self._results)
 
     def run(
         self,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> RunSummary:
         """Execute the evaluation and return a summary.
 
@@ -182,7 +183,7 @@ class EvalRunner:
                 )
 
         # Write summary JSON alongside JSONL
-        traces_dir: Optional[Path] = None
+        traces_dir: Path | None = None
         if output_path:
             summary_path = output_path.with_suffix(".summary.json")
             with open(summary_path, "w") as f:
@@ -199,7 +200,7 @@ class EvalRunner:
 
         return summary
 
-    def _write_traces(self, output_path: Path) -> Optional[Path]:
+    def _write_traces(self, output_path: Path) -> Path | None:
         """Write per-sample trace data to a traces subdirectory."""
         if not self._results:
             return None
@@ -317,8 +318,8 @@ class EvalRunner:
 
     def _run_episode_mode(
         self,
-        records: List[EvalRecord],
-        progress_callback: Optional[Callable[[int, int], None]],
+        records: list[EvalRecord],
+        progress_callback: Callable[[int, int], None] | None,
         total: int,
     ) -> None:
         """Process samples sequentially within episodes.
@@ -343,7 +344,7 @@ class EvalRunner:
         )
 
         for episode in self._dataset.iter_episodes():
-            successful_examples: List[Dict[str, Any]] = []
+            successful_examples: list[dict[str, Any]] = []
 
             for record in episode:
                 if has_task_env:
@@ -363,7 +364,7 @@ class EvalRunner:
                 # Accumulate successful examples for lifelong learning.
                 # Store the full interaction history when available.
                 if result.is_correct:
-                    example: Dict[str, Any] = {
+                    example: dict[str, Any] = {
                         "problem": record.problem,
                         "answer": result.model_answer,
                     }
@@ -384,7 +385,7 @@ class EvalRunner:
     def _inject_examples(
         self,
         record: EvalRecord,
-        examples: List[Dict[str, Any]],
+        examples: list[dict[str, Any]],
     ) -> EvalRecord:
         """Create a copy of the record with prior examples prepended.
 
@@ -436,7 +437,7 @@ class EvalRunner:
     def _process_interactive(
         self,
         record: EvalRecord,
-        prior_examples: List[Dict[str, Any]],
+        prior_examples: list[dict[str, Any]],
     ) -> EvalResult:
         """Process a record via multi-turn environment interaction.
 
@@ -454,7 +455,7 @@ class EvalRunner:
         total_prompt_tokens = 0
         total_completion_tokens = 0
         total_cost = 0.0
-        all_responses: List[str] = []
+        all_responses: list[str] = []
 
         try:
             env = self._dataset.create_task_env(record)
@@ -471,7 +472,7 @@ class EvalRunner:
                     break
 
             # Build conversation with optional prior examples
-            messages: List[Dict[str, str]] = []
+            messages: list[dict[str, str]] = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
 
@@ -525,7 +526,7 @@ class EvalRunner:
                 else self._MAX_INTERACTIVE_TURNS_DEFAULT
             )
 
-            for turn in range(max_turns):
+            for _turn in range(max_turns):
                 # Format conversation as prompt for the backend
                 prompt = self._format_messages_as_prompt(messages)
 
@@ -595,13 +596,13 @@ class EvalRunner:
                     pass
 
     @staticmethod
-    def _format_messages_as_prompt(messages: List[Dict[str, str]]) -> str:
+    def _format_messages_as_prompt(messages: list[dict[str, str]]) -> str:
         """Format a message list as a single prompt string.
 
         Uses a clear role-labeled format that works with most LLMs when
         passed as a user prompt via the backend.
         """
-        parts: List[str] = []
+        parts: list[str] = []
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
@@ -673,7 +674,7 @@ class EvalRunner:
                     type(tracker).__name__, exc,
                 )
 
-    def _resolve_output_path(self) -> Optional[Path]:
+    def _resolve_output_path(self) -> Path | None:
         """Determine the output file path."""
         if self._config.output_path:
             return Path(self._config.output_path)
@@ -684,7 +685,7 @@ class EvalRunner:
 
     def _compute_summary(
         self,
-        records: List[EvalRecord],
+        records: list[EvalRecord],
         started_at: float,
         ended_at: float,
     ) -> RunSummary:
@@ -702,13 +703,13 @@ class EvalRunner:
 
         # Per-subject breakdown
         record_map = {r.record_id: r for r in records}
-        subject_groups: Dict[str, List[EvalResult]] = defaultdict(list)
+        subject_groups: dict[str, list[EvalResult]] = defaultdict(list)
         for r in results:
             rec = record_map.get(r.record_id)
             subj = rec.subject if rec and rec.subject else "general"
             subject_groups[subj].append(r)
 
-        per_subject: Dict[str, Dict[str, float]] = {}
+        per_subject: dict[str, dict[str, float]] = {}
         for subj, subj_results in sorted(subject_groups.items()):
             subj_scored = [r for r in subj_results if r.is_correct is not None]
             subj_correct = [r for r in subj_scored if r.is_correct]
@@ -766,7 +767,7 @@ class EvalRunner:
         avg_power = statistics.mean(power_vals) if power_vals else 0.0
 
         # Compute efficiency section
-        efficiency_dict: Dict[str, Any] = {
+        efficiency_dict: dict[str, Any] = {
             "accuracy": round(accuracy, 4),
             "total_energy_joules": round(total_energy, 6),
             "avg_power_watts": round(avg_power, 4),
@@ -828,9 +829,9 @@ class EvalRunner:
 
 
 def _compute_normalized_stats(
-    results: List[EvalResult],
+    results: list[EvalResult],
     accuracy: float,
-) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Compute stats after trimming top/bottom 5% outliers by latency.
 
     Returns (normalized_statistics, normalized_efficiency) or (None, None)
@@ -860,7 +861,7 @@ def _compute_normalized_stats(
     ]
     t_mbu_vals = [r.mbu_pct for r in trimmed if r.mbu_pct > 0]
 
-    norm_stats: Dict[str, Any] = {
+    norm_stats: dict[str, Any] = {
         "_description": (
             f"Statistics recomputed after trimming {trim_count} outlier(s) "
             f"from each end by latency ({len(trimmed)}/{n} results kept)"
@@ -878,7 +879,7 @@ def _compute_normalized_stats(
 
     t_total_energy = sum(r.energy_joules for r in trimmed)
     t_avg_power = statistics.mean(t_power_vals) if t_power_vals else 0.0
-    norm_eff: Dict[str, Any] = {
+    norm_eff: dict[str, Any] = {
         "accuracy": round(t_accuracy, 4),
         "total_energy_joules": round(t_total_energy, 6),
         "avg_power_watts": round(t_avg_power, 4),
@@ -906,7 +907,7 @@ def _eval_percentile(data: list[float], p: float) -> float:
     return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
 
 
-def _metric_stats(values: List[float]) -> Optional[MetricStats]:
+def _metric_stats(values: list[float]) -> MetricStats | None:
     """Compute MetricStats from a list of float values."""
     if not values:
         return None
@@ -922,7 +923,7 @@ def _metric_stats(values: List[float]) -> Optional[MetricStats]:
     )
 
 
-def _metric_stats_to_dict(ms: Optional[MetricStats]) -> Optional[Dict[str, float]]:
+def _metric_stats_to_dict(ms: MetricStats | None) -> dict[str, float] | None:
     """Convert MetricStats to a JSON-serializable dict."""
     if ms is None:
         return None
@@ -938,7 +939,7 @@ def _metric_stats_to_dict(ms: Optional[MetricStats]) -> Optional[Dict[str, float
     }
 
 
-def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
+def _summary_to_dict(s: RunSummary) -> dict[str, Any]:
     """Convert a RunSummary to a JSON-serializable dict."""
     return {
         "hardware_info": _hardware_info_dict(),
@@ -989,7 +990,7 @@ def _summary_to_dict(s: RunSummary) -> Dict[str, Any]:
     }
 
 
-def _result_to_trace_dict(result: EvalResult) -> Dict[str, Any]:
+def _result_to_trace_dict(result: EvalResult) -> dict[str, Any]:
     """Convert an EvalResult to a full trace dict for per-sample export."""
     return {
         "record_id": result.record_id,

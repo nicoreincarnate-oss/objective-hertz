@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import List, Optional
 
 from openjarvis.core.registry import ModelRegistry
 from openjarvis.core.types import RoutingContext
@@ -51,7 +50,7 @@ def _model_size(key: str) -> float:
         return 0.0
 
 
-def _find_model_by_tag(available: List[str], tag: str) -> Optional[str]:
+def _find_model_by_tag(available: list[str], tag: str) -> str | None:
     """Find the first available model whose key contains *tag* (case-insensitive)."""
     tag_lower = tag.lower()
     for key in available:
@@ -60,7 +59,7 @@ def _find_model_by_tag(available: List[str], tag: str) -> Optional[str]:
     return None
 
 
-def _largest_model(available: List[str]) -> Optional[str]:
+def _largest_model(available: list[str]) -> str | None:
     """Return the model with the largest parameter count from the available list."""
     if not available:
         return None
@@ -74,7 +73,7 @@ def _largest_model(available: List[str]) -> Optional[str]:
     return best
 
 
-def _smallest_model(available: List[str]) -> Optional[str]:
+def _smallest_model(available: list[str]) -> str | None:
     """Return the smallest-parameter model from *available*."""
     if not available:
         return None
@@ -102,7 +101,7 @@ class HeuristicRouter(RouterPolicy):
 
     def __init__(
         self,
-        available_models: List[str] | None = None,
+        available_models: list[str] | None = None,
         *,
         default_model: str = "",
         fallback_model: str = "",
@@ -112,7 +111,7 @@ class HeuristicRouter(RouterPolicy):
         self._fallback = fallback_model
 
     @property
-    def available_models(self) -> List[str]:
+    def available_models(self) -> list[str]:
         return list(self._available)
 
     def select_model(self, context: RoutingContext) -> str:

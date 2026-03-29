@@ -8,8 +8,8 @@ from __future__ import annotations
 import os
 import random
 import shutil
+from collections.abc import Iterable, MutableMapping, Sequence
 from pathlib import Path
-from typing import Iterable, List, MutableMapping, Optional, Sequence
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -40,16 +40,16 @@ class GAIADataset(DatasetProvider):
     _default_subset = "2023_all"
     _default_split = "validation"
 
-    def __init__(self, cache_dir: Optional[str] = None) -> None:
+    def __init__(self, cache_dir: str | None = None) -> None:
         self._cache_dir = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         from datasets import load_dataset
         from huggingface_hub import snapshot_download
@@ -109,7 +109,7 @@ class GAIADataset(DatasetProvider):
         raw: MutableMapping[str, object],
         files_location: Path,
         idx: int,
-    ) -> Optional[EvalRecord]:
+    ) -> EvalRecord | None:
         task_id = str(raw.get("task_id") or "")
         question = str(raw.get("Question") or "").strip()
         answer = str(raw.get("Final answer") or "").strip()
@@ -119,8 +119,8 @@ class GAIADataset(DatasetProvider):
             return None
 
         # Discover associated files
-        file_name: Optional[str] = None
-        file_path: Optional[Path] = None
+        file_name: str | None = None
+        file_path: Path | None = None
         if files_location.exists():
             files = [f for f in os.listdir(files_location) if task_id in f]
             if files:

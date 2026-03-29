@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -16,20 +16,20 @@ class TurnTrace:
     input_tokens: int = 0
     output_tokens: int = 0
     tool_result_tokens: int = 0
-    tools_called: List[str] = field(default_factory=list)
-    tool_latencies_s: Dict[str, float] = field(default_factory=dict)
+    tools_called: list[str] = field(default_factory=list)
+    tool_latencies_s: dict[str, float] = field(default_factory=dict)
     wall_clock_s: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     # Energy and cost fields
-    gpu_energy_joules: Optional[float] = None
-    cpu_energy_joules: Optional[float] = None
-    gpu_power_avg_watts: Optional[float] = None
-    cpu_power_avg_watts: Optional[float] = None
-    cost_usd: Optional[float] = None
+    gpu_energy_joules: float | None = None
+    cpu_energy_joules: float | None = None
+    gpu_power_avg_watts: float | None = None
+    cpu_power_avg_watts: float | None = None
+    cost_usd: float | None = None
     # Per-action energy breakdown (lm_inference vs tool_call granularity)
-    action_energy_breakdown: Optional[List[Dict[str, Any]]] = None
+    action_energy_breakdown: list[dict[str, Any]] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "turn_index": self.turn_index,
             "input_tokens": self.input_tokens,
@@ -48,7 +48,7 @@ class TurnTrace:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> TurnTrace:
+    def from_dict(cls, d: dict[str, Any]) -> TurnTrace:
         return cls(
             turn_index=d["turn_index"],
             input_tokens=d.get("input_tokens", 0),
@@ -75,18 +75,18 @@ class QueryTrace:
     workload_type: str
     query_text: str = ""
     response_text: str = ""
-    turns: List[TurnTrace] = field(default_factory=list)
+    turns: list[TurnTrace] = field(default_factory=list)
     total_wall_clock_s: float = 0.0
     completed: bool = False
     timed_out: bool = False
     # Query-level energy fields (populated even when turns are empty)
-    query_gpu_energy_joules: Optional[float] = None
-    query_cpu_energy_joules: Optional[float] = None
-    query_gpu_power_avg_watts: Optional[float] = None
-    query_cpu_power_avg_watts: Optional[float] = None
-    is_resolved: Optional[bool] = None
-    query_mbu_avg_pct: Optional[float] = None
-    query_mbu_max_pct: Optional[float] = None
+    query_gpu_energy_joules: float | None = None
+    query_cpu_energy_joules: float | None = None
+    query_gpu_power_avg_watts: float | None = None
+    query_cpu_power_avg_watts: float | None = None
+    is_resolved: bool | None = None
+    query_mbu_avg_pct: float | None = None
+    query_mbu_max_pct: float | None = None
 
     @property
     def num_turns(self) -> int:
@@ -109,7 +109,7 @@ class QueryTrace:
         return self.tool_call_count
 
     @property
-    def total_gpu_energy_joules(self) -> Optional[float]:
+    def total_gpu_energy_joules(self) -> float | None:
         values = [
             t.gpu_energy_joules for t in self.turns
             if t.gpu_energy_joules is not None
@@ -119,7 +119,7 @@ class QueryTrace:
         return self.query_gpu_energy_joules
 
     @property
-    def total_cpu_energy_joules(self) -> Optional[float]:
+    def total_cpu_energy_joules(self) -> float | None:
         values = [
             t.cpu_energy_joules for t in self.turns
             if t.cpu_energy_joules is not None
@@ -129,7 +129,7 @@ class QueryTrace:
         return self.query_cpu_energy_joules
 
     @property
-    def total_cost_usd(self) -> Optional[float]:
+    def total_cost_usd(self) -> float | None:
         values = [t.cost_usd for t in self.turns if t.cost_usd is not None]
         return sum(values) if values else None
 
@@ -139,7 +139,7 @@ class QueryTrace:
         return self.total_input_tokens + self.total_output_tokens
 
     @property
-    def avg_gpu_power_watts(self) -> Optional[float]:
+    def avg_gpu_power_watts(self) -> float | None:
         """Mean GPU power across turns; falls back to query-level power."""
         values = [
             t.gpu_power_avg_watts for t in self.turns
@@ -150,7 +150,7 @@ class QueryTrace:
         return self.query_gpu_power_avg_watts
 
     @property
-    def avg_cpu_power_watts(self) -> Optional[float]:
+    def avg_cpu_power_watts(self) -> float | None:
         """Mean CPU power across turns; falls back to query-level power."""
         values = [
             t.cpu_power_avg_watts for t in self.turns
@@ -161,21 +161,21 @@ class QueryTrace:
         return self.query_cpu_power_avg_watts
 
     @property
-    def throughput_tokens_per_sec(self) -> Optional[float]:
+    def throughput_tokens_per_sec(self) -> float | None:
         """Output tokens per second; None if zero tokens or zero time."""
         if self.total_output_tokens > 0 and self.total_wall_clock_s > 0:
             return self.total_output_tokens / self.total_wall_clock_s
         return None
 
     @property
-    def energy_per_token_joules(self) -> Optional[float]:
+    def energy_per_token_joules(self) -> float | None:
         """GPU energy per output token; None if no energy data or zero tokens."""
         gpu_energy = self.total_gpu_energy_joules
         if gpu_energy is not None and gpu_energy > 0 and self.total_output_tokens > 0:
             return gpu_energy / self.total_output_tokens
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "query_id": self.query_id,
             "workload_type": self.workload_type,
@@ -195,7 +195,7 @@ class QueryTrace:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> QueryTrace:
+    def from_dict(cls, d: dict[str, Any]) -> QueryTrace:
         return cls(
             query_id=d["query_id"],
             workload_type=d["workload_type"],
@@ -221,7 +221,7 @@ class QueryTrace:
             f.write(json.dumps(self.to_dict()) + "\n")
 
     @classmethod
-    def load_jsonl(cls, path: Path) -> List[QueryTrace]:
+    def load_jsonl(cls, path: Path) -> list[QueryTrace]:
         """Load traces from a JSONL file."""
         traces = []
         with open(path) as f:
@@ -232,7 +232,7 @@ class QueryTrace:
         return traces
 
     @staticmethod
-    def to_hf_dataset(traces: List[QueryTrace]) -> Any:
+    def to_hf_dataset(traces: list[QueryTrace]) -> Any:
         """Convert a list of QueryTrace objects to a HuggingFace Dataset.
 
         Returns:

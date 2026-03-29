@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -38,13 +38,13 @@ class MessengerChannel(BaseChannel):
         self,
         access_token: str = "",
         *,
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._access_token = access_token or os.environ.get(
             "MESSENGER_ACCESS_TOKEN", ""
         )
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -57,11 +57,11 @@ class MessengerChannel(BaseChannel):
             return
         try:
             import pymessenger  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "pymessenger not installed. Install with: "
                 "uv sync --extra channel-messenger"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -76,7 +76,7 @@ class MessengerChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Messenger user.
 
@@ -110,7 +110,7 @@ class MessengerChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["messenger"]
 

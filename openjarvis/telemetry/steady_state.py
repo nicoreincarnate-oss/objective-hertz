@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
-from typing import List
 
 
 @dataclass
@@ -26,10 +25,10 @@ class SteadyStateResult:
     warmup_samples: int = 0
     steady_state_samples: int = 0
     steady_state_reached: bool = False
-    warmup_throughputs: List[float] = field(default_factory=list)
-    warmup_energies: List[float] = field(default_factory=list)
-    steady_throughputs: List[float] = field(default_factory=list)
-    steady_energies: List[float] = field(default_factory=list)
+    warmup_throughputs: list[float] = field(default_factory=list)
+    warmup_energies: list[float] = field(default_factory=list)
+    steady_throughputs: list[float] = field(default_factory=list)
+    steady_energies: list[float] = field(default_factory=list)
 
 
 class SteadyStateDetector:
@@ -43,8 +42,8 @@ class SteadyStateDetector:
 
     def __init__(self, config: SteadyStateConfig | None = None) -> None:
         self._config = config or SteadyStateConfig()
-        self._throughputs: List[float] = []
-        self._energies: List[float] = []
+        self._throughputs: list[float] = []
+        self._energies: list[float] = []
         self._consecutive_stable: int = 0
         self._steady_state_reached: bool = False
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import statistics as stats_mod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.core.types import StepType, Trace, TraceStep
 from openjarvis.traces.store import TraceStore
@@ -24,7 +24,7 @@ class RouteStats:
     avg_latency: float = 0.0
     avg_tokens: float = 0.0
     success_rate: float = 0.0
-    avg_feedback: Optional[float] = None
+    avg_feedback: float | None = None
 
 
 @dataclass(slots=True)
@@ -70,10 +70,10 @@ class TraceSummary:
     avg_latency: float = 0.0
     avg_tokens: float = 0.0
     success_rate: float = 0.0
-    step_type_distribution: Dict[str, int] = field(default_factory=dict)
+    step_type_distribution: dict[str, int] = field(default_factory=dict)
     total_energy_joules: float = 0.0
     total_generate_energy_joules: float = 0.0
-    step_type_stats: Dict[str, StepTypeStats] = field(default_factory=dict)
+    step_type_stats: dict[str, StepTypeStats] = field(default_factory=dict)
 
 
 class TraceAnalyzer:
@@ -89,8 +89,8 @@ class TraceAnalyzer:
     def summary(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        since: float | None = None,
+        until: float | None = None,
     ) -> TraceSummary:
         """Compute an overall summary of all traces in the time range."""
         traces = self._store.list_traces(since=since, until=until, limit=10_000)
@@ -101,10 +101,10 @@ class TraceAnalyzer:
         evaluated = [t for t in traces if t.outcome is not None]
         successes = [t for t in evaluated if t.outcome == "success"]
 
-        step_dist: Dict[str, int] = {}
+        step_dist: dict[str, int] = {}
         total_energy = 0.0
         generate_energy = 0.0
-        step_data: Dict[str, Dict[str, list]] = {}
+        step_data: dict[str, dict[str, list]] = {}
 
         for t in traces:
             for s in t.steps:
@@ -130,7 +130,7 @@ class TraceAnalyzer:
                     s.output.get("completion_tokens", 0)
                 )
 
-        sts_map: Dict[str, StepTypeStats] = {}
+        sts_map: dict[str, StepTypeStats] = {}
         for key, data in step_data.items():
             durations = data["durations"]
             in_tok = [float(x) for x in data["input_tokens"]]
@@ -171,12 +171,12 @@ class TraceAnalyzer:
     def per_route_stats(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[RouteStats]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[RouteStats]:
         """Compute stats grouped by (model, agent) routing decisions."""
         traces = self._store.list_traces(since=since, until=until, limit=10_000)
-        groups: Dict[tuple, list[Trace]] = {}
+        groups: dict[tuple, list[Trace]] = {}
         for t in traces:
             key = (t.model, t.agent)
             groups.setdefault(key, []).append(t)
@@ -202,12 +202,12 @@ class TraceAnalyzer:
     def per_tool_stats(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[ToolStats]:
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[ToolStats]:
         """Compute stats grouped by tool name."""
         traces = self._store.list_traces(since=since, until=until, limit=10_000)
-        tools: Dict[str, Dict[str, Any]] = {}
+        tools: dict[str, dict[str, Any]] = {}
         for t in traces:
             for s in t.steps:
                 stype = _step_type_str(s)
@@ -238,11 +238,11 @@ class TraceAnalyzer:
         self,
         *,
         has_code: bool = False,
-        min_length: Optional[int] = None,
-        max_length: Optional[int] = None,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
-    ) -> List[Trace]:
+        min_length: int | None = None,
+        max_length: int | None = None,
+        since: float | None = None,
+        until: float | None = None,
+    ) -> list[Trace]:
         """Retrieve traces matching query characteristics.
 
         Useful for the learning system to find traces similar to a new
@@ -263,10 +263,10 @@ class TraceAnalyzer:
     def export_traces(
         self,
         *,
-        since: Optional[float] = None,
-        until: Optional[float] = None,
+        since: float | None = None,
+        until: float | None = None,
         limit: int = 1000,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Export traces as plain dicts (for JSON serialization)."""
         traces = self._store.list_traces(since=since, until=until, limit=limit)
         return [_trace_to_dict(t) for t in traces]
@@ -292,7 +292,7 @@ def _looks_like_code(text: str) -> bool:
     return any(ind in text for ind in indicators)
 
 
-def _trace_to_dict(trace: Trace) -> Dict[str, Any]:
+def _trace_to_dict(trace: Trace) -> dict[str, Any]:
     return {
         "trace_id": trace.trace_id,
         "query": trace.query,

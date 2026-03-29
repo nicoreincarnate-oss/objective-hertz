@@ -68,11 +68,15 @@ Rules:
         model="smart",
         temperature=0.2,
         max_tokens=500,
+        use_dna=True,
+        daemon_name="hermes",
     )
 
     try:
         start = result.find("{")
         end = result.rfind("}") + 1
+        if start < 0 or end <= start:
+            raise ValueError("No JSON object found in LLM response")
         parsed = json.loads(result[start:end])
     except (json.JSONDecodeError, ValueError):
         parsed = {

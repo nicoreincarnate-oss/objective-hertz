@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -69,7 +69,7 @@ def _make_mock_backend(response: str) -> MagicMock:
 
 def _make_trial_result(
     trial_id: str = "t1",
-    params: Dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
     accuracy: float = 0.75,
     latency: float = 1.5,
     cost: float = 0.02,

@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Deque, List, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from openjarvis.telemetry.energy_monitor import EnergyMonitor
@@ -36,12 +36,12 @@ class _PythonRingBuffer:
     """Pure-Python fallback ring buffer."""
 
     def __init__(self, capacity: int = 100_000):
-        self._data: Deque[TelemetrySample] = deque(maxlen=capacity)
+        self._data: deque[TelemetrySample] = deque(maxlen=capacity)
 
     def push(self, sample: TelemetrySample) -> None:
         self._data.append(sample)
 
-    def window(self, start_ns: int, end_ns: int) -> List[TelemetrySample]:
+    def window(self, start_ns: int, end_ns: int) -> list[TelemetrySample]:
         return [s for s in self._data if start_ns <= s.timestamp_ns <= end_ns]
 
     def compute_energy_delta(self, start_ns: int, end_ns: int) -> tuple[float, float]:
@@ -82,14 +82,14 @@ class TelemetrySession:
 
     def __init__(
         self,
-        monitor: Optional[EnergyMonitor] = None,
+        monitor: EnergyMonitor | None = None,
         interval_ms: int = 100,
         buffer_size: int = 100_000,
     ) -> None:
         self._monitor = monitor
         self._interval_ms = interval_ms
         self._buffer = _PythonRingBuffer(buffer_size)
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def _sample_loop(self) -> None:
@@ -131,7 +131,7 @@ class TelemetrySession:
             self._thread.join(timeout=2.0)
             self._thread = None
 
-    def window(self, start_ns: int, end_ns: int) -> List[TelemetrySample]:
+    def window(self, start_ns: int, end_ns: int) -> list[TelemetrySample]:
         return self._buffer.window(start_ns, end_ns)
 
     def energy_delta(self, start_ns: int, end_ns: int) -> tuple[float, float]:

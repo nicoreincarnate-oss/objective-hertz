@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.core.registry import ToolRegistry
 from openjarvis.core.types import Message, Role, ToolResult
@@ -18,7 +18,7 @@ class LLMTool(BaseTool):
 
     def __init__(
         self,
-        engine: Optional[InferenceEngine] = None,
+        engine: InferenceEngine | None = None,
         *,
         model: str = "",
     ) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openjarvis.channels._stubs import (
     BaseChannel,
@@ -48,14 +48,14 @@ class ZulipChannel(BaseChannel):
         api_key: str = "",
         site: str = "",
         zuliprc: str = "",
-        bus: Optional[EventBus] = None,
+        bus: EventBus | None = None,
     ) -> None:
         self._email = email or os.environ.get("ZULIP_EMAIL", "")
         self._api_key = api_key or os.environ.get("ZULIP_API_KEY", "")
         self._site = site or os.environ.get("ZULIP_SITE", "")
         self._zuliprc = zuliprc or os.environ.get("ZULIP_RC", "")
         self._bus = bus
-        self._handlers: List[ChannelHandler] = []
+        self._handlers: list[ChannelHandler] = []
         self._status = ChannelStatus.DISCONNECTED
 
     # -- connection lifecycle ---------------------------------------------------
@@ -69,11 +69,11 @@ class ZulipChannel(BaseChannel):
             return
         try:
             import zulip  # noqa: F401
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "zulip not installed. Install with: "
                 "uv sync --extra channel-zulip"
-            )
+            ) from err
         self._status = ChannelStatus.CONNECTED
 
     def disconnect(self) -> None:
@@ -88,7 +88,7 @@ class ZulipChannel(BaseChannel):
         content: str,
         *,
         conversation_id: str = "",
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Send a message to a Zulip stream or user.
 
@@ -116,7 +116,7 @@ class ZulipChannel(BaseChannel):
             msg_type = meta.get("type", "stream")
             topic = meta.get("topic", "OpenJarvis")
 
-            request: Dict[str, Any] = {
+            request: dict[str, Any] = {
                 "type": msg_type,
                 "content": content,
             }
@@ -144,7 +144,7 @@ class ZulipChannel(BaseChannel):
         """Return the current connection status."""
         return self._status
 
-    def list_channels(self) -> List[str]:
+    def list_channels(self) -> list[str]:
         """Return available channel identifiers."""
         return ["zulip"]
 

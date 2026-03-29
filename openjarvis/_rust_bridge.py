@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import json
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import types as _types
@@ -20,19 +20,20 @@ if TYPE_CHECKING:
 
 
 @functools.lru_cache(maxsize=1)
-def get_rust_module() -> _types.ModuleType:
-    """Return the ``openjarvis_rust`` module.
+def get_rust_module() -> _types.ModuleType | None:
+    """Return the ``openjarvis_rust`` module, or *None* when unavailable.
 
-    Raises ``ImportError`` if the compiled extension is not available.
-    The Rust backend is mandatory for all modules that have Rust
-    implementations — there is no Python fallback.
+    The Rust backend is optional at runtime — callers must handle None.
     """
-    import openjarvis_rust  # type: ignore[import-untyped]
+    try:
+        import openjarvis_rust  # type: ignore[import-untyped]
 
-    return openjarvis_rust
+        return openjarvis_rust
+    except ImportError:
+        return None
 
 
-RUST_AVAILABLE: bool = True
+RUST_AVAILABLE: bool = get_rust_module() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ def scan_result_from_json(json_str: str) -> object:
     )
 
     data = json.loads(json_str)
-    findings: List[ScanFinding] = []
+    findings: list[ScanFinding] = []
     for f in data.get("findings", []):
         findings.append(
             ScanFinding(
@@ -74,7 +75,7 @@ def injection_result_from_json(json_str: str) -> object:
     from openjarvis.security.types import ScanFinding, ThreatLevel
 
     data = json.loads(json_str)
-    findings: List[ScanFinding] = []
+    findings: list[ScanFinding] = []
     for f in data.get("findings", []):
         findings.append(
             ScanFinding(
@@ -107,7 +108,7 @@ def retrieval_results_from_json(json_str: str) -> list:
     from openjarvis.tools.storage._stubs import RetrievalResult
 
     items = json.loads(json_str)
-    results: List[RetrievalResult] = []
+    results: list[RetrievalResult] = []
     for item in items:
         meta = item.get("metadata", {})
         if isinstance(meta, str):

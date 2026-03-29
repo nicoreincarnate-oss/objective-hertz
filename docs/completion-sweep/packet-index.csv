@@ -1,0 +1,309 @@
+packet,phase_bucket,file_count,audit_mode_hint,notes
+P001_phase0_docs_01,phase0_docs,11,deep-support,closed: 4 clean; 7 fixed
+P002_phase0_ops_01,phase0_ops,13,deep-support,closed: 6 clean; 6 fixed; 1 needs-followup
+P003_phase0_root_01,phase0_root,11,deep-support,closed: 3 clean; 5 fixed; 3 needs-followup
+P004_phase1_clawdbot_01,phase1_clawdbot,11,deep-runtime,closed: 6 clean; 2 blocked; 3 needs-followup
+P005A_phase1_core_01a,phase1_core,5,deep-runtime,closed: 3 clean; 2 needs-followup
+P005B_phase1_core_01b,phase1_core,3,deep-runtime,closed: 1 clean; 2 needs-followup
+P005C_phase1_core_01c,phase1_core,3,deep-runtime,closed: 3 needs-followup
+P005D_phase1_core_01d,phase1_core,4,deep-runtime,closed: 3 clean; 1 needs-followup
+P005E_phase1_core_01e,phase1_core,5,deep-runtime,closed: 2 clean; 3 needs-followup
+P006A_phase1_core_02a,phase1_core,4,deep-runtime,closed: 3 clean; 1 needs-followup
+P006B_phase1_core_02b,phase1_core,3,deep-runtime,closed: 1 clean; 2 needs-followup
+P006C_phase1_core_02c,phase1_core,6,deep-runtime,closed: 3 clean; 3 needs-followup
+P006D_phase1_core_02d,phase1_core,1,deep-runtime,closed: 1 needs-followup
+P006E_phase1_core_02e,phase1_core,6,deep-runtime,closed: 1 clean; 5 needs-followup
+P007_phase1_core_03,phase1_core,5,deep-runtime,closed: 2 clean; 3 needs-followup
+P008_phase1_hermes_backend_01,phase1_hermes_backend,8,deep-runtime,closed: 2 clean; 1 blocked; 5 needs-followup
+P009A_phase1_openjarvis_core_01a,phase1_openjarvis_core,5,deep-runtime,closed: 3 clean; 2 needs-followup
+P009B_phase1_openjarvis_core_01b,phase1_openjarvis_core,6,deep-runtime,closed: 4 clean; 2 needs-followup
+P009C_phase1_openjarvis_core_01c,phase1_openjarvis_core,1,deep-runtime,closed: 1 clean
+P009D_phase1_openjarvis_core_01d,phase1_openjarvis_core,4,deep-runtime,closed: 3 clean; 1 needs-followup
+P009E_phase1_openjarvis_core_01e,phase1_openjarvis_core,4,deep-runtime,closed: 3 clean; 1 needs-followup
+P010A_phase1_openjarvis_core_02a,phase1_openjarvis_core,6,deep-runtime,closed: 6 clean
+P010B_phase1_openjarvis_core_02b,phase1_openjarvis_core,2,deep-runtime,closed: 1 clean; 1 needs-followup
+P010C_phase1_openjarvis_core_02c,phase1_openjarvis_core,3,deep-runtime,closed: 3 needs-followup
+P010D_phase1_openjarvis_core_02d,phase1_openjarvis_core,3,deep-runtime,closed: 2 clean; 1 needs-followup
+P010E_phase1_openjarvis_core_02e,phase1_openjarvis_core,4,deep-runtime,closed: 1 clean; 3 needs-followup
+P010F_phase1_openjarvis_core_02f,phase1_openjarvis_core,2,deep-runtime,closed: 2 needs-followup
+P011A_phase1_openjarvis_core_03a,phase1_openjarvis_core,1,deep-runtime,closed: 1 needs-followup
+P011B_phase1_openjarvis_core_03b,phase1_openjarvis_core,3,deep-runtime,closed: 3 needs-followup
+P011C_phase1_openjarvis_core_03c,phase1_openjarvis_core,1,deep-runtime,closed: 1 needs-followup
+P011D_phase1_openjarvis_core_03d,phase1_openjarvis_core,1,deep-runtime,closed: 1 needs-followup
+P011E_phase1_openjarvis_core_03e,phase1_openjarvis_core,1,deep-runtime,closed: 1 needs-followup
+P012A_phase1_titan_non_pipeline_01a,phase1_titan_non_pipeline,3,deep-runtime,closed: 1 clean; 2 needs-followup
+P012B_phase1_titan_non_pipeline_01b,phase1_titan_non_pipeline,4,deep-runtime,closed: 1 clean; 3 needs-followup
+P012C_phase1_titan_non_pipeline_01c,phase1_titan_non_pipeline,1,deep-runtime,closed: 1 needs-followup
+P012D_phase1_titan_non_pipeline_01d,phase1_titan_non_pipeline,4,deep-runtime,closed: 4 needs-followup
+P012E_phase1_titan_non_pipeline_01e,phase1_titan_non_pipeline,3,deep-runtime,closed: 3 needs-followup
+P013_phase2_active_tools_01,phase2_active_tools,7,deep-runtime,closed: 2 clean; 5 needs-followup
+P014_phase2_pipeline_close_build_deploy_invoice_01,phase2_pipeline_close_build_deploy_invoice,5,deep-runtime,closed: 1 clean; 4 needs-followup
+P015_phase2_pipeline_compose_send_followup_01,phase2_pipeline_compose_send_followup,3,deep-runtime,closed: 3 needs-followup
+P016_phase2_pipeline_discovery_research_01,phase2_pipeline_discovery_research,2,deep-runtime,closed: 2 needs-followup
+P017A_phase2_scripts_01a,phase2_scripts,7,deep-support,closed: 7 needs-followup
+P017B_phase2_scripts_01b,phase2_scripts,6,deep-support,closed: 6 needs-followup
+P017C_phase2_scripts_01c,phase2_scripts,9,deep-support,closed: 9 needs-followup
+P017D_phase2_scripts_01d,phase2_scripts,8,deep-support,closed: 1 blocked; 7 needs-followup
+P018_phase2_scripts_02,phase2_scripts,6,deep-support,closed: 6 needs-followup
+P019_phase3_hermes_web___init__.py_01,phase3_hermes_web___init__.py,1,deep-runtime,closed: 1 clean
+P020_phase3_hermes_web_app.py_01,phase3_hermes_web_app.py,1,deep-runtime,closed: 1 needs-followup
+P021A_phase3_hermes_web_frontend_01a,phase3_hermes_web_frontend,11,deep-support,closed: 3 clean; 8 needs-followup
+P021B_phase3_hermes_web_frontend_01b,phase3_hermes_web_frontend,11,deep-support,closed: 4 clean; 7 needs-followup
+P021C_phase3_hermes_web_frontend_01c,phase3_hermes_web_frontend,8,deep-support,closed: 8 clean
+P022A_phase3_hermes_web_frontend_02a,phase3_hermes_web_frontend,10,deep-support,closed: 7 clean; 3 needs-followup
+P022B_phase3_hermes_web_frontend_02b,phase3_hermes_web_frontend,10,deep-support,closed: 7 clean; 3 needs-followup
+P022C_phase3_hermes_web_frontend_02c,phase3_hermes_web_frontend,10,deep-support,closed: 10 clean
+P023A_phase3_hermes_web_frontend_03a,phase3_hermes_web_frontend,16,deep-support,closed: 15 clean; 1 needs-followup
+P023B_phase3_hermes_web_frontend_03b,phase3_hermes_web_frontend,3,deep-support,closed: 3 needs-followup
+P023C_phase3_hermes_web_frontend_03c,phase3_hermes_web_frontend,8,deep-support,closed: 2 clean; 1 accepted-generated; 5 needs-followup
+P023D_phase3_hermes_web_frontend_03d,phase3_hermes_web_frontend,1,generated-review,closed: 1 accepted-generated
+P023E_phase3_hermes_web_frontend_03e,phase3_hermes_web_frontend,2,generated-review,closed: 2 accepted-generated
+P024A_phase3_hermes_web_frontend_04a,phase3_hermes_web_frontend,3,generated-review,closed: 3 accepted-generated
+P024B_phase3_hermes_web_frontend_04b,phase3_hermes_web_frontend,5,generated-review,closed: 5 needs-followup
+P024C_phase3_hermes_web_frontend_04c,phase3_hermes_web_frontend,2,deep-support,closed: 1 clean; 1 needs-followup
+P024D_phase3_hermes_web_frontend_04d,phase3_hermes_web_frontend,1,generated-review,closed: 1 accepted-generated
+P025_phase3_hermes_web_insights.py_01,phase3_hermes_web_insights.py,1,deep-runtime,closed: 1 needs-followup
+P026_phase3_hermes_web_operator_chat.py_01,phase3_hermes_web_operator_chat.py,1,deep-runtime,closed: 1 needs-followup
+P027_phase3_hermes_web_presenter.py_01,phase3_hermes_web_presenter.py,1,deep-runtime,closed: 1 needs-followup
+P028_phase3_hermes_web_preview.html_01,phase3_hermes_web_preview.html,1,deep-support,closed: 1 needs-followup
+P029_phase3_hermes_web_static_01,phase3_hermes_web_static,1,deep-support,closed: 1 needs-followup
+P030_phase3_hermes_web_templates_01,phase3_hermes_web_templates,1,deep-support,closed: 1 needs-followup
+P031_phase4_openjarvis___init__.py_01,phase4_openjarvis___init__.py,1,deep-runtime,closed: 1 clean
+P032_phase4_openjarvis__rust_bridge.py_01,phase4_openjarvis__rust_bridge.py,1,deep-runtime,closed: 1 needs-followup
+P033A_phase4_openjarvis_agents_01a,phase4_openjarvis_agents,8,deep-runtime,closed: 6 clean; 2 needs-followup
+P033B_phase4_openjarvis_agents_01b,phase4_openjarvis_agents,5,deep-runtime,closed: 3 clean; 2 needs-followup
+P033C_phase4_openjarvis_agents_01c,phase4_openjarvis_agents,8,deep-runtime,closed: 5 clean; 3 needs-followup
+P033D_phase4_openjarvis_agents_01d,phase4_openjarvis_agents,3,deep-runtime,closed: 1 blocked; 2 needs-followup
+P034_phase4_openjarvis_bench_01,phase4_openjarvis_bench,6,deep-runtime,closed: 6 clean
+P035A_phase4_openjarvis_channels_01a,phase4_openjarvis_channels,5,deep-runtime,closed: 4 clean; 1 needs-followup
+P035B_phase4_openjarvis_channels_01b,phase4_openjarvis_channels,8,deep-runtime,closed: 4 clean; 4 needs-followup
+P035C_phase4_openjarvis_channels_01c,phase4_openjarvis_channels,9,deep-runtime,closed: 2 clean; 1 blocked; 6 needs-followup
+P035D_phase4_openjarvis_channels_01d,phase4_openjarvis_channels,8,deep-runtime,closed: 3 clean; 5 needs-followup
+P036A_phase4_openjarvis_cli_01a,phase4_openjarvis_cli,5,deep-runtime,closed: 3 clean; 2 needs-followup
+P036B_phase4_openjarvis_cli_01b,phase4_openjarvis_cli,5,deep-runtime,closed: 1 clean; 4 needs-followup
+P036C_phase4_openjarvis_cli_01c,phase4_openjarvis_cli,5,deep-runtime,closed: 1 clean; 4 needs-followup
+P036D_phase4_openjarvis_cli_01d,phase4_openjarvis_cli,5,deep-runtime,closed: 1 clean; 4 needs-followup
+P036E_phase4_openjarvis_cli_01e,phase4_openjarvis_cli,5,deep-runtime,closed: 2 clean; 3 needs-followup
+P036F_phase4_openjarvis_cli_01f,phase4_openjarvis_cli,5,deep-runtime,closed: 2 clean; 3 needs-followup
+P037_phase4_openjarvis_cli_02,phase4_openjarvis_cli,3,deep-runtime,closed: 1 clean; 2 needs-followup
+P038A_phase4_openjarvis_engine_01a,phase4_openjarvis_engine,5,deep-runtime,closed: 5 clean
+P038B_phase4_openjarvis_engine_01b,phase4_openjarvis_engine,6,deep-runtime,closed: 4 clean; 2 needs-followup
+P038C_phase4_openjarvis_engine_01c,phase4_openjarvis_engine,1,deep-runtime,closed: 1 clean
+P039A_phase4_openjarvis_evals_01a,phase4_openjarvis_evals,7,deep-support,closed: 5 clean; 2 needs-followup
+P039B_phase4_openjarvis_evals_01b,phase4_openjarvis_evals,1,deep-support,closed: 1 needs-followup
+P039C_phase4_openjarvis_evals_01c,phase4_openjarvis_evals,22,deep-support,closed: 6 clean; 16 needs-followup
+P040A_phase4_openjarvis_evals_02a,phase4_openjarvis_evals,21,deep-support,closed: 17 clean; 4 needs-followup
+P040B_phase4_openjarvis_evals_02b,phase4_openjarvis_evals,6,deep-support,closed: 5 clean; 1 needs-followup
+P040C_phase4_openjarvis_evals_02c,phase4_openjarvis_evals,3,deep-support,closed: 2 clean; 1 needs-followup
+P041A_phase4_openjarvis_evals_03a,phase4_openjarvis_evals,6,deep-support,closed: 6 clean
+P041B_phase4_openjarvis_evals_03b,phase4_openjarvis_evals,1,deep-support,closed: 1 needs-followup
+P041C_phase4_openjarvis_evals_03c,phase4_openjarvis_evals,10,deep-support,closed: 10 needs-followup
+P041D_phase4_openjarvis_evals_03d,phase4_openjarvis_evals,3,deep-support,closed: 2 clean; 1 needs-followup
+P041E_phase4_openjarvis_evals_03e,phase4_openjarvis_evals,2,deep-support,closed: 1 clean; 1 needs-followup
+P041F_phase4_openjarvis_evals_03f,phase4_openjarvis_evals,4,deep-support,closed: 3 clean; 1 needs-followup
+P041G_phase4_openjarvis_evals_03g,phase4_openjarvis_evals,4,deep-support,closed: 4 clean
+P042A_phase4_openjarvis_evals_04a,phase4_openjarvis_evals,3,deep-support,closed: 2 clean; 1 needs-followup
+P042B_phase4_openjarvis_evals_04b,phase4_openjarvis_evals,4,deep-support,closed: 3 clean; 1 needs-followup
+P042C_phase4_openjarvis_evals_04c,phase4_openjarvis_evals,4,deep-support,closed: 2 clean; 2 needs-followup
+P042D_phase4_openjarvis_evals_04d,phase4_openjarvis_evals,5,deep-support,closed: 2 clean; 3 needs-followup
+P042E_phase4_openjarvis_evals_04e,phase4_openjarvis_evals,7,deep-support,closed: 3 clean; 4 needs-followup
+P042F_phase4_openjarvis_evals_04f,phase4_openjarvis_evals,7,deep-support,closed: 3 clean; 4 needs-followup
+P043A_phase4_openjarvis_evals_05a,phase4_openjarvis_evals,4,deep-support,closed: 0 clean; 4 needs-followup
+P043B_phase4_openjarvis_evals_05b,phase4_openjarvis_evals,3,deep-support,closed: 1 clean; 2 needs-followup
+P043C_phase4_openjarvis_evals_05c,phase4_openjarvis_evals,4,deep-support,closed: 0 clean; 4 needs-followup
+P043D_phase4_openjarvis_evals_05d,phase4_openjarvis_evals,8,deep-support,closed: 5 clean; 3 needs-followup
+P043E_phase4_openjarvis_evals_05e,phase4_openjarvis_evals,6,deep-support,closed: 3 clean; 3 needs-followup
+P043F_phase4_openjarvis_evals_05f,phase4_openjarvis_evals,5,deep-support,closed: 1 clean; 4 needs-followup
+P044_phase4_openjarvis_evals_06,phase4_openjarvis_evals,4,deep-support,closed: 0 clean; 4 needs-followup
+P045_phase4_openjarvis_intelligence_01,phase4_openjarvis_intelligence,4,deep-runtime,closed: 3 clean; 1 needs-followup
+P046A_phase4_openjarvis_learning_01a,phase4_openjarvis_learning,7,deep-runtime,closed: 3 clean; 4 needs-followup
+P046B_phase4_openjarvis_learning_01b,phase4_openjarvis_learning,4,deep-runtime,closed: 2 clean; 2 needs-followup
+P046C_phase4_openjarvis_learning_01c,phase4_openjarvis_learning,8,deep-runtime,closed: 4 clean; 4 needs-followup
+P046D_phase4_openjarvis_learning_01d,phase4_openjarvis_learning,11,deep-runtime,closed: 9 clean; 3 needs-followup
+P047A_phase4_openjarvis_learning_02a,phase4_openjarvis_learning,6,deep-runtime,closed: 2 clean; 4 needs-followup
+P047B_phase4_openjarvis_learning_02b,phase4_openjarvis_learning,9,deep-runtime,closed: 8 clean; 1 needs-followup
+P048_phase4_openjarvis_mcp_01,phase4_openjarvis_mcp,5,deep-runtime,closed: 4 clean; 1 needs-followup
+P049_phase4_openjarvis_operators_01,phase4_openjarvis_operators,8,deep-runtime,closed: 6 clean; 2 needs-followup
+P050_phase4_openjarvis_optimize_01,phase4_openjarvis_optimize,15,deep-runtime,closed: 11 clean; 4 needs-followup
+P051_phase4_openjarvis_prompt_01,phase4_openjarvis_prompt,2,deep-runtime,closed: 2 clean
+P052A_phase4_openjarvis_recipes_01a,phase4_openjarvis_recipes,11,deep-runtime,closed: 5 clean; 6 needs-followup
+P052B_phase4_openjarvis_recipes_01b,phase4_openjarvis_recipes,10,deep-runtime,closed: 4 clean; 6 needs-followup
+P053_phase4_openjarvis_sandbox_01,phase4_openjarvis_sandbox,4,deep-runtime,closed: 1 clean; 3 needs-followup
+P054_phase4_openjarvis_sdk.py_01,phase4_openjarvis_sdk.py,1,deep-runtime,closed: 1 needs-followup
+P055_phase4_openjarvis_security_01,phase4_openjarvis_security,17,deep-runtime,closed: 14 clean; 3 needs-followup
+P056_phase4_openjarvis_sessions_01,phase4_openjarvis_sessions,3,deep-runtime,closed: 1 clean; 2 needs-followup
+P057A_phase4_openjarvis_skills_01a,phase4_openjarvis_skills,13,deep-runtime,closed: 9 clean; 4 needs-followup
+P057B_phase4_openjarvis_skills_01b,phase4_openjarvis_skills,12,deep-runtime,closed: 1 clean; 11 needs-followup; 0 blocked
+P058_phase4_openjarvis_speech_01,phase4_openjarvis_speech,6,deep-runtime,closed: 4 clean; 2 needs-followup; 0 blocked
+P059_phase4_openjarvis_system.py_01,phase4_openjarvis_system.py,1,deep-runtime,closed: 1 needs-followup
+P060_phase4_openjarvis_telemetry_01,phase4_openjarvis_telemetry,20,deep-runtime,closed: 18 clean; 2 needs-followup; 0 blocked
+P061_phase4_openjarvis_templates_01,phase4_openjarvis_templates,18,deep-support,closed: 13 clean; 5 needs-followup; 0 blocked
+P062A_phase4_openjarvis_tools_01a,phase4_openjarvis_tools,8,deep-runtime,closed: 4 clean; 4 needs-followup; 0 blocked
+P062B_phase4_openjarvis_tools_01b,phase4_openjarvis_tools,8,deep-runtime,orchestrator
+P062C_phase4_openjarvis_tools_01c,phase4_openjarvis_tools,14,deep-runtime,orchestrator
+P063A_phase4_openjarvis_tools_02a,phase4_openjarvis_tools,9,deep-runtime,orchestrator
+P063B_phase4_openjarvis_tools_02b,phase4_openjarvis_tools,15,deep-runtime,orchestrator
+P064_phase4_openjarvis_traces_01,phase4_openjarvis_traces,4,deep-runtime,orchestrator
+P065_phase4_openjarvis_workflow_01,phase4_openjarvis_workflow,6,deep-runtime,orchestrator
+P066_phase5_tests_openjarvis_01,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P067_phase5_tests_openjarvis_02,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P068_phase5_tests_openjarvis_03,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P069_phase5_tests_openjarvis_04,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P070_phase5_tests_openjarvis_05,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P071_phase5_tests_openjarvis_06,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P072_phase5_tests_openjarvis_07,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P073_phase5_tests_openjarvis_08,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P074_phase5_tests_openjarvis_09,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P075_phase5_tests_openjarvis_10,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P076_phase5_tests_openjarvis_11,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P077_phase5_tests_openjarvis_12,phase5_tests_openjarvis,30,deep-support,orchestrator-tests
+P078_phase5_tests_openjarvis_13,phase5_tests_openjarvis,5,deep-support,orchestrator-tests
+P079_phase5_tests_product_01,phase5_tests_product,30,deep-support,product-tests
+P080_phase5_tests_product_02,phase5_tests_product,30,deep-support,product-tests
+P081_phase5_tests_product_03,phase5_tests_product,18,deep-support,product-tests
+P082_phase6_.agent_skills_01,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P083_phase6_.agent_skills_02,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P084_phase6_.agent_skills_03,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P085_phase6_.agent_skills_04,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P086_phase6_.agent_skills_05,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P087_phase6_.agent_skills_06,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P088_phase6_.agent_skills_07,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P089_phase6_.agent_skills_08,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P090_phase6_.agent_skills_09,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P091_phase6_.agent_skills_10,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P092_phase6_.agent_skills_11,phase6_.agent_skills,30,third-party-governance,embedded-skills
+P093_phase6_.agent_skills_12,phase6_.agent_skills,14,third-party-governance,embedded-skills
+P094_phase6_.claude_commands_01,phase6_.claude_commands,16,deep-support,repo-support
+P095_phase6_.claude_hooks_01,phase6_.claude_hooks,4,deep-support,repo-support
+P096_phase6_.claude_plans_01,phase6_.claude_plans,4,deep-support,repo-support
+P097_phase6_.claude_scripts_01,phase6_.claude_scripts,3,deep-support,repo-support
+P098_phase6_.claude_skills_01,phase6_.claude_skills,6,deep-support,repo-support
+P099_phase6_configs_openjarvis_01,phase6_configs_openjarvis,1,deep-support,repo-support
+P100_phase6_conway___init__.py_01,phase6_conway___init__.py,1,deep-support,economics-subsystem
+P101_phase6_conway_cloud.py_01,phase6_conway_cloud.py,1,deep-support,economics-subsystem
+P102_phase6_conway_identity.py_01,phase6_conway_identity.py,1,deep-support,economics-subsystem
+P103_phase6_conway_ledger.py_01,phase6_conway_ledger.py,1,deep-support,economics-subsystem
+P104_phase6_conway_registry.py_01,phase6_conway_registry.py,1,deep-support,economics-subsystem
+P105_phase6_conway_runtime.py_01,phase6_conway_runtime.py,1,deep-support,economics-subsystem
+P106_phase6_conway_survival.py_01,phase6_conway_survival.py,1,deep-support,economics-subsystem
+P107_phase6_conway_terminal.py_01,phase6_conway_terminal.py,1,deep-support,economics-subsystem
+P108_phase6_conway_wallet.py_01,phase6_conway_wallet.py,1,deep-support,economics-subsystem
+P109_phase6_conway_x402_client.py_01,phase6_conway_x402_client.py,1,deep-support,economics-subsystem
+P110_phase6_desktop_README.md_01,phase6_desktop_README.md,1,deep-support,desktop-surface
+P111_phase6_desktop_index.html_01,phase6_desktop_index.html,1,deep-support,desktop-surface
+P112_phase6_desktop_package-lock.json_01,phase6_desktop_package-lock.json,1,deep-support,desktop-surface
+P113_phase6_desktop_package.json_01,phase6_desktop_package.json,1,deep-support,desktop-surface
+P114_phase6_desktop_scripts_01,phase6_desktop_scripts,1,deep-support,desktop-surface
+P115_phase6_desktop_src_01,phase6_desktop_src,13,deep-support,desktop-surface
+P116_phase6_desktop_src-tauri_01,phase6_desktop_src-tauri,16,deep-support,desktop-surface
+P117_phase6_desktop_tsconfig.json_01,phase6_desktop_tsconfig.json,1,deep-support,desktop-surface
+P118_phase6_desktop_tsconfig.tsbuildinfo_01,phase6_desktop_tsconfig.tsbuildinfo,1,deep-support,desktop-surface
+P119_phase6_desktop_vite.config.ts_01,phase6_desktop_vite.config.ts,1,deep-support,desktop-surface
+P120_phase6_examples_browser_assistant_01,phase6_examples_browser_assistant,2,third-party-governance,repo-support
+P121_phase6_examples_code_companion_01,phase6_examples_code_companion,4,third-party-governance,repo-support
+P122_phase6_examples_daily_digest_01,phase6_examples_daily_digest,2,third-party-governance,repo-support
+P123_phase6_examples_deep_research_01,phase6_examples_deep_research,3,third-party-governance,repo-support
+P124_phase6_examples_doc_qa_01,phase6_examples_doc_qa,2,third-party-governance,repo-support
+P125_phase6_examples_messaging_hub_01,phase6_examples_messaging_hub,3,third-party-governance,repo-support
+P126_phase6_examples_multi_model_router_01,phase6_examples_multi_model_router,2,third-party-governance,repo-support
+P127_phase6_examples_scheduled_ops_01,phase6_examples_scheduled_ops,5,third-party-governance,repo-support
+P128_phase6_examples_security_scanner_01,phase6_examples_security_scanner,2,third-party-governance,repo-support
+P129_phase6_misc_01,phase6_misc,17,deep-support,repo-support
+P130_phase6_ruflo___init__.py_01,phase6_ruflo___init__.py,1,deep-support,self-audit-subsystem
+P131_phase6_ruflo_agent.py_01,phase6_ruflo_agent.py,1,deep-support,self-audit-subsystem
+P132_phase6_ruflo_bottleneck_detector.py_01,phase6_ruflo_bottleneck_detector.py,1,deep-support,self-audit-subsystem
+P133_phase6_rust_Cargo.lock_01,phase6_rust_Cargo.lock,1,deep-support,rust-runtime
+P134_phase6_rust_Cargo.toml_01,phase6_rust_Cargo.toml,1,deep-support,rust-runtime
+P135_phase6_rust_crates_01,phase6_rust_crates,30,deep-support,rust-runtime
+P136_phase6_rust_crates_02,phase6_rust_crates,30,deep-support,rust-runtime
+P137_phase6_rust_crates_03,phase6_rust_crates,30,deep-support,rust-runtime
+P138_phase6_rust_crates_04,phase6_rust_crates,30,deep-support,rust-runtime
+P139_phase6_rust_crates_05,phase6_rust_crates,23,deep-support,rust-runtime
+P140_phase6_templates__base_01,phase6_templates__base,3,deep-support,repo-support
+P141_phase6_templates_dentist_01,phase6_templates_dentist,1,deep-support,repo-support
+P142_phase6_templates_plumber_01,phase6_templates_plumber,1,deep-support,repo-support
+P143_phase6_templates_restaurant_01,phase6_templates_restaurant,1,deep-support,repo-support
+P144_phase7_tools_browser-use_.dockerignore_01,phase7_tools_browser-use_.dockerignore,1,third-party-governance,third-party-browser-tooling
+P145_phase7_tools_browser-use_.env.example_01,phase7_tools_browser-use_.env.example,1,third-party-governance,third-party-browser-tooling
+P146_phase7_tools_browser-use_.gitattributes_01,phase7_tools_browser-use_.gitattributes,1,third-party-governance,third-party-browser-tooling
+P147_phase7_tools_browser-use_.github_01,phase7_tools_browser-use_.github,19,third-party-governance,third-party-browser-tooling
+P148_phase7_tools_browser-use_.gitignore_01,phase7_tools_browser-use_.gitignore,1,third-party-governance,third-party-browser-tooling
+P149_phase7_tools_browser-use_.pre-commit-config.yaml_01,phase7_tools_browser-use_.pre-commit-config.yaml,1,third-party-governance,third-party-browser-tooling
+P150_phase7_tools_browser-use_.python-version_01,phase7_tools_browser-use_.python-version,1,third-party-governance,third-party-browser-tooling
+P151_phase7_tools_browser-use_AGENTS.md_01,phase7_tools_browser-use_AGENTS.md,1,third-party-governance,third-party-browser-tooling
+P152_phase7_tools_browser-use_CLAUDE.md_01,phase7_tools_browser-use_CLAUDE.md,1,third-party-governance,third-party-browser-tooling
+P153_phase7_tools_browser-use_CLOUD.md_01,phase7_tools_browser-use_CLOUD.md,1,third-party-governance,third-party-browser-tooling
+P154_phase7_tools_browser-use_Dockerfile_01,phase7_tools_browser-use_Dockerfile,1,third-party-governance,third-party-browser-tooling
+P155_phase7_tools_browser-use_Dockerfile.fast_01,phase7_tools_browser-use_Dockerfile.fast,1,third-party-governance,third-party-browser-tooling
+P156_phase7_tools_browser-use_LICENSE_01,phase7_tools_browser-use_LICENSE,1,third-party-governance,third-party-browser-tooling
+P157_phase7_tools_browser-use_README.md_01,phase7_tools_browser-use_README.md,1,third-party-governance,third-party-browser-tooling
+P158_phase7_tools_browser-use_UPSTREAM.md_01,phase7_tools_browser-use_UPSTREAM.md,1,third-party-governance,third-party-browser-tooling
+P159_phase7_tools_browser-use_bin_01,phase7_tools_browser-use_bin,3,third-party-governance,third-party-browser-tooling
+P160_phase7_tools_browser-use_browser_use_01,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P161_phase7_tools_browser-use_browser_use_02,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P162_phase7_tools_browser-use_browser_use_03,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P163_phase7_tools_browser-use_browser_use_04,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P164_phase7_tools_browser-use_browser_use_05,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P165_phase7_tools_browser-use_browser_use_06,phase7_tools_browser-use_browser_use,30,third-party-governance,third-party-browser-tooling
+P166_phase7_tools_browser-use_browser_use_07,phase7_tools_browser-use_browser_use,28,third-party-governance,third-party-browser-tooling
+P167_phase7_tools_browser-use_docker_01,phase7_tools_browser-use_docker,5,third-party-governance,third-party-browser-tooling
+P168_phase7_tools_browser-use_examples_01,phase7_tools_browser-use_examples,30,third-party-governance,third-party-browser-tooling
+P169_phase7_tools_browser-use_examples_02,phase7_tools_browser-use_examples,30,third-party-governance,third-party-browser-tooling
+P170_phase7_tools_browser-use_examples_03,phase7_tools_browser-use_examples,30,third-party-governance,third-party-browser-tooling
+P171_phase7_tools_browser-use_examples_04,phase7_tools_browser-use_examples,30,third-party-governance,third-party-browser-tooling
+P172_phase7_tools_browser-use_examples_05,phase7_tools_browser-use_examples,3,third-party-governance,third-party-browser-tooling
+P173_phase7_tools_browser-use_pyproject.toml_01,phase7_tools_browser-use_pyproject.toml,1,third-party-governance,third-party-browser-tooling
+P174_phase7_tools_browser-use_skills_01,phase7_tools_browser-use_skills,2,third-party-governance,third-party-browser-tooling
+P175_phase7_tools_browser-use_static_01,phase7_tools_browser-use_static,3,third-party-governance,third-party-browser-tooling
+P176_phase7_tools_browser-use_tests_01,phase7_tools_browser-use_tests,30,third-party-governance,third-party-browser-tooling
+P177_phase7_tools_browser-use_tests_02,phase7_tools_browser-use_tests,30,third-party-governance,third-party-browser-tooling
+P178_phase7_tools_browser-use_tests_03,phase7_tools_browser-use_tests,18,third-party-governance,third-party-browser-tooling
+P179_phase7_tools_firecrawl_.gitattributes_01,phase7_tools_firecrawl_.gitattributes,1,third-party-governance,third-party-firecrawl
+P180_phase7_tools_firecrawl_.github_01,phase7_tools_firecrawl_.github,28,third-party-governance,third-party-firecrawl
+P181_phase7_tools_firecrawl_.gitignore_01,phase7_tools_firecrawl_.gitignore,1,third-party-governance,third-party-firecrawl
+P182_phase7_tools_firecrawl_.gitmodules_01,phase7_tools_firecrawl_.gitmodules,1,third-party-governance,third-party-firecrawl
+P183_phase7_tools_firecrawl_CLAUDE.md_01,phase7_tools_firecrawl_CLAUDE.md,1,third-party-governance,third-party-firecrawl
+P184_phase7_tools_firecrawl_CONTRIBUTING.md_01,phase7_tools_firecrawl_CONTRIBUTING.md,1,third-party-governance,third-party-firecrawl
+P185_phase7_tools_firecrawl_LICENSE_01,phase7_tools_firecrawl_LICENSE,1,third-party-governance,third-party-firecrawl
+P186_phase7_tools_firecrawl_README.md_01,phase7_tools_firecrawl_README.md,1,third-party-governance,third-party-firecrawl
+P187_phase7_tools_firecrawl_SELF_HOST.md_01,phase7_tools_firecrawl_SELF_HOST.md,1,third-party-governance,third-party-firecrawl
+P188_phase7_tools_firecrawl_UPSTREAM.md_01,phase7_tools_firecrawl_UPSTREAM.md,1,third-party-governance,third-party-firecrawl
+P189_phase7_tools_firecrawl_apps_01,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P190_phase7_tools_firecrawl_apps_02,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P191_phase7_tools_firecrawl_apps_03,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P192_phase7_tools_firecrawl_apps_04,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P193_phase7_tools_firecrawl_apps_05,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P194_phase7_tools_firecrawl_apps_06,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P195_phase7_tools_firecrawl_apps_07,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P196_phase7_tools_firecrawl_apps_08,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P197_phase7_tools_firecrawl_apps_09,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P198_phase7_tools_firecrawl_apps_10,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P199_phase7_tools_firecrawl_apps_11,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P200_phase7_tools_firecrawl_apps_12,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P201_phase7_tools_firecrawl_apps_13,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P202_phase7_tools_firecrawl_apps_14,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P203_phase7_tools_firecrawl_apps_15,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P204_phase7_tools_firecrawl_apps_16,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P205_phase7_tools_firecrawl_apps_17,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P206_phase7_tools_firecrawl_apps_18,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P207_phase7_tools_firecrawl_apps_19,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P208_phase7_tools_firecrawl_apps_20,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P209_phase7_tools_firecrawl_apps_21,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P210_phase7_tools_firecrawl_apps_22,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P211_phase7_tools_firecrawl_apps_23,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P212_phase7_tools_firecrawl_apps_24,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P213_phase7_tools_firecrawl_apps_25,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P214_phase7_tools_firecrawl_apps_26,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P215_phase7_tools_firecrawl_apps_27,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P216_phase7_tools_firecrawl_apps_28,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P217_phase7_tools_firecrawl_apps_29,phase7_tools_firecrawl_apps,30,third-party-governance,third-party-firecrawl
+P218_phase7_tools_firecrawl_apps_30,phase7_tools_firecrawl_apps,25,third-party-governance,third-party-firecrawl
+P219_phase7_tools_firecrawl_docker-compose.yaml_01,phase7_tools_firecrawl_docker-compose.yaml,1,third-party-governance,third-party-firecrawl
+P220_phase7_tools_firecrawl_examples_01,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P221_phase7_tools_firecrawl_examples_02,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P222_phase7_tools_firecrawl_examples_03,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P223_phase7_tools_firecrawl_examples_04,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P224_phase7_tools_firecrawl_examples_05,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P225_phase7_tools_firecrawl_examples_06,phase7_tools_firecrawl_examples,30,third-party-governance,third-party-firecrawl
+P226_phase7_tools_firecrawl_examples_07,phase7_tools_firecrawl_examples,13,third-party-governance,third-party-firecrawl
+P227_phase7_tools_firecrawl_img_01,phase7_tools_firecrawl_img,3,third-party-governance,third-party-firecrawl

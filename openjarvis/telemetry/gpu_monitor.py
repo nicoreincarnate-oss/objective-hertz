@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, Generator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class GpuHardwareSpec:
     tdp_watts: float
 
 
-GPU_SPECS: Dict[str, GpuHardwareSpec] = {
+GPU_SPECS: dict[str, GpuHardwareSpec] = {
     # NVIDIA
     "B200-SXM": GpuHardwareSpec(tflops_fp16=2250, bandwidth_gb_s=8000, tdp_watts=1000),
     "H100-SXM": GpuHardwareSpec(tflops_fp16=990, bandwidth_gb_s=3350, tdp_watts=700),
@@ -53,7 +53,7 @@ GPU_SPECS: Dict[str, GpuHardwareSpec] = {
 }
 
 
-def lookup_gpu_spec(name: str) -> Optional[GpuHardwareSpec]:
+def lookup_gpu_spec(name: str) -> GpuHardwareSpec | None:
     """Return the :class:`GpuHardwareSpec` for *name*, or ``None`` if unknown.
 
     Matches are case-insensitive substring lookups against the keys in
@@ -119,7 +119,7 @@ class GpuMonitor:
 
     def __init__(self, poll_interval_ms: int = 50) -> None:
         self._poll_interval_s = poll_interval_ms / 1000.0
-        self._handles: List = []
+        self._handles: list = []
         self._device_count = 0
         self._initialized = False
 
@@ -151,9 +151,9 @@ class GpuMonitor:
 
     # -- polling thread internals ---------------------------------------------
 
-    def _poll_once(self) -> List[GpuSnapshot]:
+    def _poll_once(self) -> list[GpuSnapshot]:
         """Read current metrics from all GPU devices."""
-        snapshots: List[GpuSnapshot] = []
+        snapshots: list[GpuSnapshot] = []
         for idx, handle in enumerate(self._handles):
             try:
                 power_mw = pynvml.nvmlDeviceGetPowerUsage(handle)
@@ -177,8 +177,8 @@ class GpuMonitor:
 
     def _polling_loop(
         self,
-        snapshots_out: List[List[GpuSnapshot]],
-        timestamps_out: List[float],
+        snapshots_out: list[list[GpuSnapshot]],
+        timestamps_out: list[float],
         lock: threading.Lock,
         stop_event: threading.Event,
     ) -> None:
@@ -196,8 +196,8 @@ class GpuMonitor:
 
     @staticmethod
     def _aggregate(
-        all_snapshots: List[List[GpuSnapshot]],
-        timestamps: List[float],
+        all_snapshots: list[list[GpuSnapshot]],
+        timestamps: list[float],
         wall_duration: float,
     ) -> GpuSample:
         """Build a :class:`GpuSample` from collected snapshots.
@@ -209,10 +209,10 @@ class GpuMonitor:
             return GpuSample(duration_seconds=wall_duration)
 
         # Flatten per-tick aggregates (sum power across devices per tick)
-        tick_powers: List[float] = []
-        tick_utils: List[float] = []
-        tick_mems: List[float] = []
-        tick_temps: List[float] = []
+        tick_powers: list[float] = []
+        tick_utils: list[float] = []
+        tick_mems: list[float] = []
+        tick_temps: list[float] = []
 
         for tick_snaps in all_snapshots:
             total_power = sum(s.power_watts for s in tick_snaps)
@@ -267,8 +267,8 @@ class GpuMonitor:
             result.duration_seconds = time.monotonic() - t_start
             return
 
-        snapshots: List[List[GpuSnapshot]] = []
-        timestamps: List[float] = []
+        snapshots: list[list[GpuSnapshot]] = []
+        timestamps: list[float] = []
         lock = threading.Lock()
         stop_event = threading.Event()
 

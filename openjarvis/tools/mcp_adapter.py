@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 from openjarvis.core.types import ToolResult
 from openjarvis.mcp.client import MCPClient
@@ -68,7 +68,7 @@ class MCPToolProvider:
     def __init__(self, client: MCPClient) -> None:
         self._client = client
 
-    def discover(self) -> List[BaseTool]:
+    def discover(self) -> list[BaseTool]:
         """Discover available tools and return them as BaseTool adapters."""
         specs = self._client.list_tools()
         return [MCPToolAdapter(self._client, s) for s in specs]

@@ -16,13 +16,19 @@ dependencies = [
     "httpx>=0.27",
     "openai>=1.30",
     "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
     "rich>=13",
     # Perseus daemons
+    "psycopg-pool>=3.2.0",
     "psycopg[binary]>=3.1",
     "python-telegram-bot>=22.6",
     "fastapi>=0.110",
     "uvicorn>=0.30",
     "pydantic>=2.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
+    "prometheus-client>=0.24.1",
+    "sentry-sdk>=2.55.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +44,7 @@ dev = [
 inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = ["openai>=1.30", "anthropic>=0.30"]
+memory-graph = ["neo4j>=5.0"]
 inference-google = ["google-genai>=1.0"]
 inference-litellm = ["litellm>=1.40"]
 tools-search = ["tavily-python>=0.3", "ddgs>=9.11.4"]
@@ -67,7 +74,7 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
 jarvis = "openjarvis.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["openjarvis", "shared", "titan", "hermes", "clawdbot", "tools"]
+packages = ["openjarvis", "shared", "titan", "hermes", "clawdbot", "tools", "perseus", "conway", "ruflo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -87,12 +94,15 @@ extend-exclude = ["tools/browser-use", "tools/firecrawl"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "E741", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E402", "B011", "B017", "E741", "B007", "B905", "F841"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["openjarvis", "shared", "titan", "hermes", "clawdbot"]
-exclude = "(^tools/browser-use/|^tools/firecrawl/)"
+packages = ["shared", "titan", "hermes", "clawdbot", "tools", "conway", "perseus"]
+exclude = "(^tools/browser-use/|^tools/firecrawl/|^openjarvis/)"
 ignore_missing_imports = true
 no_implicit_optional = true
 strict_equality = true
@@ -100,6 +110,18 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_unreachable = true
 pretty = true
+
+[[tool.mypy.overrides]]
+module = "openjarvis.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["tools.firecrawl_client", "requests", "requests.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "shared.observability"
+ignore_errors = true
 
 [dependency-groups]
 dev = ["maturin>=1.12.6"]

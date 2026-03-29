@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, BaseAgent
 from openjarvis.core.registry import AgentRegistry
@@ -17,7 +17,7 @@ class SimpleAgent(BaseAgent):
     def run(
         self,
         input: str,
-        context: Optional[AgentContext] = None,
+        context: AgentContext | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Single-turn: build messages, call engine, return result."""

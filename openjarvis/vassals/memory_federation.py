@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class FederatedResult:
     source_node: str = ""       # "local", "titan", "hermes", "clawdbot"
     source_backend: str = ""    # "faiss", "postgres", "qdrant", "mem0", etc.
     confidence: float = 0.5
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = ""
 
     @property
@@ -50,8 +50,8 @@ class MemoryFederation:
 
     def __init__(
         self,
-        local_backends: Optional[List[Any]] = None,
-        vassal_discovery: Optional[Any] = None,
+        local_backends: list[Any] | None = None,
+        vassal_discovery: Any | None = None,
         merge_strategy: str = "confidence_weighted",
     ) -> None:
         self._local_backends = local_backends or []
@@ -60,7 +60,7 @@ class MemoryFederation:
 
     # ── Search ────────────────────────────────────────────────────────
 
-    async def search(self, query: str, top_k: int = 10) -> List[FederatedResult]:
+    async def search(self, query: str, top_k: int = 10) -> list[FederatedResult]:
         """Search ALL memory — local backends + every vassal."""
         tasks = []
 
@@ -77,7 +77,7 @@ class MemoryFederation:
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Flatten
-        merged: List[FederatedResult] = []
+        merged: list[FederatedResult] = []
         for result_set in all_results:
             if isinstance(result_set, Exception):
                 logger.debug("Memory search error: %s", result_set)
@@ -87,7 +87,7 @@ class MemoryFederation:
         # Deduplicate + rank
         return self._merge(merged, top_k)
 
-    async def _query_local(self, backend: Any, query: str, top_k: int) -> List[FederatedResult]:
+    async def _query_local(self, backend: Any, query: str, top_k: int) -> list[FederatedResult]:
         """Query a local memory backend."""
         try:
             results = backend.retrieve(query, top_k)
@@ -105,9 +105,9 @@ class MemoryFederation:
             logger.debug("Local backend %s failed: %s", type(backend).__name__, exc)
             return []
 
-    async def _query_vassal(self, name: str, query: str, top_k: int) -> List[FederatedResult]:
+    async def _query_vassal(self, name: str, query: str, top_k: int) -> list[FederatedResult]:
         """Query a vassal's memory via A2A."""
-        results: List[FederatedResult] = []
+        results: list[FederatedResult] = []
 
         # Try memory_search capability
         try:
@@ -147,7 +147,7 @@ class MemoryFederation:
 
     # ── Merge & rank ──────────────────────────────────────────────────
 
-    def _merge(self, results: List[FederatedResult], top_k: int) -> List[FederatedResult]:
+    def _merge(self, results: list[FederatedResult], top_k: int) -> list[FederatedResult]:
         """Deduplicate and rank results."""
         # Deduplicate by content hash
         seen = set()
@@ -168,9 +168,9 @@ class MemoryFederation:
 
         return unique[:top_k]
 
-    def _source_diverse_rank(self, results: List[FederatedResult]) -> List[FederatedResult]:
+    def _source_diverse_rank(self, results: list[FederatedResult]) -> list[FederatedResult]:
         """Rank favoring diversity of sources."""
-        by_source: Dict[str, List[FederatedResult]] = {}
+        by_source: dict[str, list[FederatedResult]] = {}
         for r in results:
             key = f"{r.source_node}:{r.source_backend}"
             by_source.setdefault(key, []).append(r)
@@ -189,9 +189,9 @@ class MemoryFederation:
                     del by_source[key]
         return ranked
 
-    def _round_robin(self, results: List[FederatedResult]) -> List[FederatedResult]:
+    def _round_robin(self, results: list[FederatedResult]) -> list[FederatedResult]:
         """Simple round-robin across source nodes."""
-        by_node: Dict[str, List[FederatedResult]] = {}
+        by_node: dict[str, list[FederatedResult]] = {}
         for r in results:
             by_node.setdefault(r.source_node, []).append(r)
         ranked = []
@@ -210,7 +210,7 @@ class MemoryFederation:
         content: str,
         target: str = "local",
         category: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Store memory to a specific target.
 
@@ -237,7 +237,7 @@ class MemoryFederation:
 
     # ── Info ──────────────────────────────────────────────────────────
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Return summary of all available memory backends."""
         local = [type(b).__name__ for b in self._local_backends]
         remote = {}

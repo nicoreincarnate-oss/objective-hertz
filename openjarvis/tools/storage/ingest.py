@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from openjarvis.tools.storage.chunking import Chunk, ChunkConfig, chunk_text
 
@@ -46,7 +45,7 @@ def detect_file_type(path: Path) -> str:
     return "text"
 
 
-def read_document(path: Path) -> Tuple[str, DocumentMeta]:
+def read_document(path: Path) -> tuple[str, DocumentMeta]:
     """Read a file and return ``(text, metadata)``.
 
     Raises
@@ -96,7 +95,7 @@ def _read_pdf(path: Path) -> str:
     """Extract text from a PDF via pdfplumber."""
     import pdfplumber
 
-    pages: List[str] = []
+    pages: list[str] = []
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
@@ -119,8 +118,8 @@ def _should_skip_dir(name: str) -> bool:
 def ingest_path(
     path: Path,
     *,
-    config: Optional[ChunkConfig] = None,
-) -> List[Chunk]:
+    config: ChunkConfig | None = None,
+) -> list[Chunk]:
     """Ingest a file or directory into chunks.
 
     If *path* is a file, reads and chunks it.
@@ -135,7 +134,7 @@ def ingest_path(
         return chunk_text(text, source=str(path), config=config)
 
     # Directory: recursive walk
-    all_chunks: List[Chunk] = []
+    all_chunks: list[Chunk] = []
     for child in sorted(path.rglob("*")):
         # Skip directories themselves — rglob yields files too
         if child.is_dir():

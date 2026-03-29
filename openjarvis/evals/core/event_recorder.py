@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 
 
 class EventType(str, Enum):
@@ -31,7 +31,7 @@ class AgentEvent:
 
     event_type: str
     timestamp: float  # Unix timestamp from time.time()
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return (
@@ -57,7 +57,7 @@ class EventRecorder:
 
     def __init__(self) -> None:
         """Initialize the event recorder."""
-        self._events: List[AgentEvent] = []
+        self._events: list[AgentEvent] = []
         self._lock = threading.Lock()
 
     def record(self, event_type: str, **metadata: Any) -> None:
@@ -75,7 +75,7 @@ class EventRecorder:
         with self._lock:
             self._events.append(event)
 
-    def get_events(self) -> List[AgentEvent]:
+    def get_events(self) -> list[AgentEvent]:
         """Return a copy of all recorded events.
 
         Returns:

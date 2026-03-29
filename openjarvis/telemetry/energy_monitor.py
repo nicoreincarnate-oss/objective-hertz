@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +102,8 @@ class EnergyMonitor(ABC):
 
 def create_energy_monitor(
     poll_interval_ms: int = 50,
-    prefer_vendor: Optional[str] = None,
-) -> Optional[EnergyMonitor]:
+    prefer_vendor: str | None = None,
+) -> EnergyMonitor | None:
     """Factory — auto-detect and return the best available EnergyMonitor.
 
     Detection order: NVIDIA > AMD > Apple > CPU RAPL.

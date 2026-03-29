@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#150e05"/>
+      <stop offset="100%" stop-color="#04080c"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffb347" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffb347" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur-glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="31" fill="url(#bg)" stroke="#ffb347" stroke-width="0.75" stroke-opacity="0.5"/>
+
+  <!-- Glow halo -->
+  <circle cx="32" cy="32" r="28" fill="url(#glow)"/>
+
+  <!-- Hermes wings + staff (caduceus-style) -->
+  <g filter="url(#blur-glow)" fill="none" stroke="#ffb347" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Staff -->
+    <line x1="32" y1="14" x2="32" y2="52" stroke-width="2.5"/>
+
+    <!-- Left wing (upper) -->
+    <path d="M32 20 Q24 16 16 19 Q20 22 24 24 Q28 26 32 26" stroke-width="1.8" fill="#ffb347" fill-opacity="0.15"/>
+    <!-- Left wing (lower feathers) -->
+    <path d="M32 25 Q25 23 18 27 Q22 29 26 29 Q29 29 32 30" stroke-width="1.4" fill="#ffb347" fill-opacity="0.1"/>
+
+    <!-- Right wing (upper) -->
+    <path d="M32 20 Q40 16 48 19 Q44 22 40 24 Q36 26 32 26" stroke-width="1.8" fill="#ffb347" fill-opacity="0.15"/>
+    <!-- Right wing (lower feathers) -->
+    <path d="M32 25 Q39 23 46 27 Q42 29 38 29 Q35 29 32 30" stroke-width="1.4" fill="#ffb347" fill-opacity="0.1"/>
+
+    <!-- Wing outline strokes -->
+    <path d="M32 20 Q24 16 16 19 Q20 22 24 24 Q28 26 32 26" stroke-width="1.8" fill="none"/>
+    <path d="M32 25 Q25 23 18 27 Q22 29 26 29 Q29 29 32 30" stroke-width="1.4" fill="none"/>
+    <path d="M32 20 Q40 16 48 19 Q44 22 40 24 Q36 26 32 26" stroke-width="1.8" fill="none"/>
+    <path d="M32 25 Q39 23 46 27 Q42 29 38 29 Q35 29 32 30" stroke-width="1.4" fill="none"/>
+
+    <!-- Caduceus snakes (simplified as two curves) -->
+    <path d="M32 32 Q28 35 32 38 Q36 41 32 44 Q28 47 32 50" stroke-width="1.5" fill="none" stroke-dasharray="0"/>
+    <path d="M32 32 Q36 35 32 38 Q28 41 32 44 Q36 47 32 50" stroke-width="1.5" fill="none"/>
+
+    <!-- Top orb -->
+    <circle cx="32" cy="14" r="2.5" fill="#ffb347" stroke="none"/>
+
+    <!-- Snake heads -->
+    <circle cx="32" cy="32" r="1.5" fill="#ffb347" stroke="none"/>
+  </g>
+</svg>

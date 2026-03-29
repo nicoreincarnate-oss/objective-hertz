@@ -10,7 +10,7 @@ Score: (items_mentioned/total) * 0.5 + ordering_score * 0.3 + checklist * 0.2
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openjarvis.evals.core.scorer import Scorer
 from openjarvis.evals.core.types import EvalRecord
@@ -21,11 +21,11 @@ LOGGER = logging.getLogger(__name__)
 
 def _phrase_match_score(
     model_answer: str,
-    must_mention: List[str],
-) -> Tuple[float, List[Dict[str, Any]]]:
+    must_mention: list[str],
+) -> tuple[float, list[dict[str, Any]]]:
     """Check which must-mention items appear in model output."""
     ans_norm = normalize_str(model_answer)
-    details: List[Dict[str, Any]] = []
+    details: list[dict[str, Any]] = []
 
     for item in must_mention:
         item_norm = normalize_str(item)
@@ -45,8 +45,8 @@ def _phrase_match_score(
 
 def _ordering_score(
     model_answer: str,
-    priority_order: List[str],
-) -> Tuple[float, List[Dict[str, Any]]]:
+    priority_order: list[str],
+) -> tuple[float, list[dict[str, Any]]]:
     """Check if high-priority items appear in the first half of response."""
     if not priority_order:
         return 1.0, []
@@ -55,7 +55,7 @@ def _ordering_score(
     midpoint = len(ans_norm) // 2
     first_half = ans_norm[:midpoint]
 
-    details: List[Dict[str, Any]] = []
+    details: list[dict[str, Any]] = []
     in_first_half = 0
 
     for item in priority_order:
@@ -85,7 +85,7 @@ class DailyDigestScorer(Scorer):
 
     def score(
         self, record: EvalRecord, model_answer: str,
-    ) -> Tuple[Optional[bool], Dict[str, Any]]:
+    ) -> tuple[bool | None, dict[str, Any]]:
         if not model_answer or not model_answer.strip():
             return False, {"reason": "empty_response"}
 
@@ -107,7 +107,7 @@ class DailyDigestScorer(Scorer):
 
         # --- Tier 2: Checklist ---
         checklist_score = 0.0
-        checklist_details: List[Dict[str, Any]] = []
+        checklist_details: list[dict[str, Any]] = []
 
         if self._judge_backend and self._judge_model:
             items = [

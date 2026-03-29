@@ -12,8 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import random
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 
 from openjarvis.evals.core.dataset import DatasetProvider
 from openjarvis.evals.core.types import EvalRecord
@@ -38,20 +39,20 @@ class PaperArenaDataset(DatasetProvider):
 
     def __init__(
         self,
-        cache_dir: Optional[str] = None,
+        cache_dir: str | None = None,
     ) -> None:
         self._cache_dir = (
             Path(cache_dir) if cache_dir
             else Path.home() / ".cache" / "paperarena"
         )
-        self._records: List[EvalRecord] = []
+        self._records: list[EvalRecord] = []
 
     def load(
         self,
         *,
-        max_samples: Optional[int] = None,
-        split: Optional[str] = None,
-        seed: Optional[int] = None,
+        max_samples: int | None = None,
+        split: str | None = None,
+        seed: int | None = None,
     ) -> None:
         data_dir = self._cache_dir / "qa"
 
@@ -91,9 +92,9 @@ class PaperArenaDataset(DatasetProvider):
             local_dir=str(self._cache_dir),
         )
 
-    def _load_records(self, data_dir: Path) -> List[EvalRecord]:
+    def _load_records(self, data_dir: Path) -> list[EvalRecord]:
         """Load QA records from JSON/JSONL files."""
-        records: List[EvalRecord] = []
+        records: list[EvalRecord] = []
 
         for p in sorted(data_dir.rglob("*.json")):
             try:
@@ -122,7 +123,7 @@ class PaperArenaDataset(DatasetProvider):
 
         return records
 
-    def _item_to_record(self, item: Dict[str, Any]) -> Optional[EvalRecord]:
+    def _item_to_record(self, item: dict[str, Any]) -> EvalRecord | None:
         """Convert a raw QA item to an EvalRecord."""
         question_id = item.get("question_id", item.get("id", ""))
         question_type = item.get("question_type", item.get("type", "OA")).upper()

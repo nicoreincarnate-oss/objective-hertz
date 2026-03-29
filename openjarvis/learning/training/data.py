@@ -13,7 +13,7 @@ Provides three extraction modes:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 from openjarvis.core.types import StepType, Trace
 from openjarvis.learning.routing._utils import classify_query
@@ -47,9 +47,9 @@ class TrainingDataMiner:
 
     # -- helpers ----------------------------------------------------------------
 
-    def _quality_traces(self, *, agent: str | None = None) -> List[Trace]:
+    def _quality_traces(self, *, agent: str | None = None) -> list[Trace]:
         """Return traces whose feedback meets the quality threshold."""
-        kwargs: Dict[str, Any] = {"limit": 10000}
+        kwargs: dict[str, Any] = {"limit": 10000}
         if agent is not None:
             kwargs["agent"] = agent
         all_traces = self._store.list_traces(**kwargs)
@@ -62,9 +62,9 @@ class TrainingDataMiner:
         ]
 
     @staticmethod
-    def _tools_from_trace(trace: Trace) -> List[str]:
+    def _tools_from_trace(trace: Trace) -> list[str]:
         """Extract tool names from TOOL_CALL steps in a trace."""
-        tools: List[str] = []
+        tools: list[str] = []
         for step in trace.steps:
             if step.step_type == StepType.TOOL_CALL:
                 tool_name = step.input.get("tool")
@@ -74,7 +74,7 @@ class TrainingDataMiner:
 
     # -- public API -------------------------------------------------------------
 
-    def extract_sft_pairs(self, *, agent: str | None = None) -> List[Dict[str, Any]]:
+    def extract_sft_pairs(self, *, agent: str | None = None) -> list[dict[str, Any]]:
         """Return SFT training pairs from high-quality traces.
 
         Each entry is a dict with keys: ``input``, ``output``,
@@ -85,7 +85,7 @@ class TrainingDataMiner:
         """
         traces = self._quality_traces(agent=agent)
         seen: set[tuple[str, str]] = set()
-        pairs: List[Dict[str, Any]] = []
+        pairs: list[dict[str, Any]] = []
 
         for t in traces:
             key = (t.query, t.result)
@@ -106,7 +106,7 @@ class TrainingDataMiner:
 
     def extract_routing_pairs(
         self, *, agent: str | None = None
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """Return per-query-class routing recommendations.
 
         Returns a dict mapping query class to:
@@ -119,20 +119,20 @@ class TrainingDataMiner:
         traces = self._quality_traces(agent=agent)
 
         # Accumulate per (query_class, model) feedback scores
-        class_model_scores: Dict[str, Dict[str, List[float]]] = defaultdict(
+        class_model_scores: dict[str, dict[str, list[float]]] = defaultdict(
             lambda: defaultdict(list)
         )
         for t in traces:
             qc = classify_query(t.query)
             class_model_scores[qc][t.model].append(t.feedback)  # type: ignore[arg-type]
 
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for qc, model_scores in class_model_scores.items():
             total_count = sum(len(scores) for scores in model_scores.values())
             if total_count < self._min_samples_per_class:
                 continue
 
-            all_models: Dict[str, Dict[str, Any]] = {}
+            all_models: dict[str, dict[str, Any]] = {}
             best_model = ""
             best_avg = -1.0
 
@@ -157,7 +157,7 @@ class TrainingDataMiner:
 
     def extract_agent_config_pairs(
         self, *, agent: str | None = None
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """Return per-query-class agent and tool recommendations.
 
         Returns a dict mapping query class to:
@@ -170,10 +170,10 @@ class TrainingDataMiner:
         traces = self._quality_traces(agent=agent)
 
         # Accumulate per (query_class, agent) feedback and tools
-        class_agent_scores: Dict[str, Dict[str, List[float]]] = defaultdict(
+        class_agent_scores: dict[str, dict[str, list[float]]] = defaultdict(
             lambda: defaultdict(list)
         )
-        class_agent_tools: Dict[str, Dict[str, List[List[str]]]] = defaultdict(
+        class_agent_tools: dict[str, dict[str, list[list[str]]]] = defaultdict(
             lambda: defaultdict(list)
         )
 
@@ -183,7 +183,7 @@ class TrainingDataMiner:
             tools = self._tools_from_trace(t)
             class_agent_tools[qc][t.agent].append(tools)
 
-        result: Dict[str, Dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {}
         for qc, agent_scores in class_agent_scores.items():
             total_count = sum(len(scores) for scores in agent_scores.values())
             if total_count < self._min_samples_per_class:
@@ -198,7 +198,7 @@ class TrainingDataMiner:
                     best_agent = agent
 
             # Collect tool frequency for best agent
-            tool_freq: Dict[str, int] = defaultdict(int)
+            tool_freq: dict[str, int] = defaultdict(int)
             for tool_list in class_agent_tools[qc].get(best_agent, []):
                 for tool in tool_list:
                     tool_freq[tool] += 1

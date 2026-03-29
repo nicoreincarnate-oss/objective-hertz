@@ -71,8 +71,8 @@ async def test_ensure_agent_runtime_provisions_cloud_identity_and_registry(monke
 
 @pytest.mark.asyncio
 async def test_conway_cloud_uses_x402_fallback_on_402(monkeypatch):
-    from conway.cloud import ConwayCloudClient
     import conway.cloud as cloud_mod
+    from conway.cloud import ConwayCloudClient
 
     class _Response:
         def __init__(self, status_code: int):

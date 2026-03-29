@@ -26,6 +26,7 @@ async def check_infrastructure() -> dict:
         _check_mem0(),
         _check_instantly(),
         _check_disk_space(),
+        _check_ruflo(),
         return_exceptions=True,
     )
 
@@ -33,6 +34,7 @@ async def check_infrastructure() -> dict:
     mem0_health = results[1] if not isinstance(results[1], Exception) else {"status": "error", "error": str(results[1])}
     instantly_health = results[2] if not isinstance(results[2], Exception) else {"status": "error", "error": str(results[2])}
     disk_health = results[3] if not isinstance(results[3], Exception) else {"status": "error", "error": str(results[3])}
+    ruflo_health = results[4] if not isinstance(results[4], Exception) else {"status": "error", "error": str(results[4])}
 
     # Postgres is implicitly healthy if we got here (we're using it)
     health = {
@@ -41,6 +43,7 @@ async def check_infrastructure() -> dict:
         "mem0": mem0_health,
         "instantly": instantly_health,
         "disk": disk_health,
+        "ruflo": ruflo_health,
         "checked_at": time.time(),
     }
 
@@ -130,6 +133,22 @@ async def _check_disk_space() -> dict:
     }
 
 
+async def _check_ruflo() -> dict:
+    """Check if the Ruflo engineering agent is reachable."""
+    from shared.config import config
+    if not config.ruflo.enabled:
+        return {"status": "not_configured"}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{config.ruflo.a2a_url}/a2a/health")
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"status": data.get("status", "ok")}
+            return {"status": "degraded", "http_status": resp.status_code}
+    except Exception as e:
+        return {"status": "down", "error": str(e)[:200]}
+
+
 async def _attempt_recovery(service: str) -> bool:
     """Try to auto-recover a down service. Returns True if recovery attempted."""
     now = time.time()
@@ -202,7 +221,8 @@ async def _recover_docker_service(service_name: str) -> bool:
 def is_service_ok(infra_health: dict, service: str) -> bool:
     """Helper for other agents: check if a specific service is usable."""
     if not infra_health:
-        return True  # Fail open if health data is missing
+        logger.warning("No health data — assuming service %s is degraded", service)
+        return False
     svc = infra_health.get(service, {})
     if not isinstance(svc, dict):
         return True
