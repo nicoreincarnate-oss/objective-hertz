@@ -63,8 +63,8 @@ Plans:
 - quality_scores table populated with per-content scores
 Plans:
 - [x] 02-01-PLAN.md -- Anti-Slop Scorer + Rewrite Loop + Secrets + DB (SLOP-01, SLOP-03, SLOP-04, SLOP-06, SLOP-07, SLOP-08)
-- [ ] 02-02-PLAN.md -- Pipeline integration (SLOP-02, SLOP-05)
-**Status:** In progress (Plan 01 complete)
+- [x] 02-02-PLAN.md -- Pipeline integration (SLOP-02, SLOP-05)
+**Status:** Complete
 
 ## Phase 3: DeerFlow Persistent Memory
 **Goal:** Daemons remember context across restarts. Three-tier memory with garbage collection.

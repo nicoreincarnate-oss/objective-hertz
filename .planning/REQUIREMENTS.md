@@ -30,10 +30,10 @@
 ### Anti-Slop (Phase 2)
 
 - [x] **SLOP-01**: 5-dimension quality scorer
-- [ ] **SLOP-02**: Email pipeline quality gate
+- [x] **SLOP-02**: Email pipeline quality gate
 - [x] **SLOP-03**: Best-of-N rewrite loop
 - [x] **SLOP-04**: Good-enough threshold
-- [ ] **SLOP-05**: ClawdBot site copy gate
+- [x] **SLOP-05**: ClawdBot site copy gate
 - [x] **SLOP-06**: Secret detection regex
 - [x] **SLOP-07**: quality_scores table
 - [x] **SLOP-08**: Per-context thresholds
@@ -124,7 +124,7 @@
 | DNA-01 through DNA-04 | Phase 1 | Complete (01-01) |
 | DNA-05 | Phase 1 | Complete (01-02) |
 | SLOP-01, 03, 04, 06, 07, 08 | Phase 2 Plan 01 | Complete |
-| SLOP-02, SLOP-05 | Phase 2 Plan 02 | Pending |
+| SLOP-02, SLOP-05 | Phase 2 Plan 02 | Complete |
 | MEM-01 through MEM-08 | Phase 3 | Pending |
 | MW-01 through MW-08 | Phase 4 | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
