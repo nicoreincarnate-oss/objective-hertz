@@ -181,3 +181,48 @@ async def memory_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult
             logger.warning("Memory post-save failed (non-fatal): %s", exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Task 4: DNAGuardMiddleware (MW-04)
+# ---------------------------------------------------------------------------
+
+
+async def dna_guard_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Validate stage actions against agent DNA boundaries.
+
+    Feature-flag gated by ``ENABLE_DNA_PROFILES``.
+    Blocks unauthorized tool usage with a logged warning.
+    """
+    if not _flag("ENABLE_DNA_PROFILES"):
+        return await next_fn(ctx)
+
+    daemon = ctx.get("daemon_name", "")
+    stage = ctx.get("stage_name", "")
+    tools_used: list[str] = ctx.get("tools", [])
+
+    if not tools_used:
+        return await next_fn(ctx)
+
+    try:
+        from shared.agent_dna import AgentDNA
+
+        dna = AgentDNA(daemon)
+        dna.load()
+
+        for tool in tools_used:
+            if not dna.check_action(stage, tool):
+                logger.warning(
+                    "DNA GUARD: %s blocked from using '%s' in stage '%s'",
+                    daemon,
+                    tool,
+                    stage,
+                )
+                return {
+                    "success": False,
+                    "output": f"DNA boundary violation: {tool} not permitted for {daemon}",
+                }
+    except Exception as exc:
+        logger.warning("DNA guard check failed (allowing): %s", exc)
+
+    return await next_fn(ctx)
