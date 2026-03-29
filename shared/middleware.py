@@ -226,3 +226,62 @@ async def dna_guard_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
         logger.warning("DNA guard check failed (allowing): %s", exc)
 
     return await next_fn(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: AntiSlopMiddleware (MW-05)
+# ---------------------------------------------------------------------------
+
+# Stages that produce outbound content requiring quality scoring
+_CONTENT_STAGES = frozenset({"email_compose", "site_build", "alert_compose"})
+
+
+async def anti_slop_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Quality-score content-producing stages and block secret leaks.
+
+    Feature-flag gated by ``ENABLE_ANTI_SLOP``.
+    Non-content stages pass through unaffected.
+    """
+    if not _flag("ENABLE_ANTI_SLOP"):
+        return await next_fn(ctx)
+
+    stage = ctx.get("stage_name", "")
+
+    # Non-content stages pass through
+    if stage not in _CONTENT_STAGES:
+        return await next_fn(ctx)
+
+    result = await next_fn(ctx)
+
+    if result.get("success") and result.get("output"):
+        output = result["output"]
+
+        # Secret detection — hard block
+        try:
+            from shared.anti_slop import detect_secrets
+
+            secrets = detect_secrets(str(output))
+            if secrets:
+                logger.critical(
+                    "SECRET DETECTED in stage '%s': %s",
+                    stage,
+                    secrets,
+                )
+                return {
+                    "success": False,
+                    "output": "BLOCKED: secret detected in output",
+                }
+        except Exception as exc:
+            logger.warning("Secret detection failed (allowing): %s", exc)
+
+        # Quality scoring
+        try:
+            from shared.anti_slop import AntiSlopScorer
+
+            scorer = AntiSlopScorer()
+            scores = await scorer.score(str(output), stage)
+            result["quality_scores"] = scores
+        except Exception as exc:
+            logger.warning("Anti-slop scoring failed (non-fatal): %s", exc)
+
+    return result
