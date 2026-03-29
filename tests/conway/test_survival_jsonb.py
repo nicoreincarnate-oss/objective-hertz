@@ -38,17 +38,17 @@ def mock_ledger():
 
 @pytest.fixture
 def mock_db_calls():
-    """Patch shared.db functions as used by conway.survival (module-level imports)."""
+    """Patch shared.db functions as used by conway.survival (module-level imports).
+
+    conway/survival.py imports: execute, insert_task, set_config — not fetch_one.
+    """
     with (
         patch("conway.survival.execute", new_callable=AsyncMock) as mock_exec,
-        patch("conway.survival.fetch_one", new_callable=AsyncMock) as mock_fetch,
         patch("conway.survival.set_config", new_callable=AsyncMock) as mock_set_cfg,
         patch("conway.survival.insert_task", new_callable=AsyncMock) as mock_ins_task,
     ):
-        mock_fetch.return_value = None
         yield {
             "execute": mock_exec,
-            "fetch_one": mock_fetch,
             "set_config": mock_set_cfg,
             "insert_task": mock_ins_task,
         }
@@ -66,7 +66,8 @@ async def test_jsonb_wrapper_used(mock_wallet, mock_wallet_manager, mock_ledger,
     mock_jsonb_instance = MagicMock()
     mock_jsonb_cls.return_value = mock_jsonb_instance
 
-    with patch("psycopg.types.json.Jsonb", mock_jsonb_cls):
+    # Patch the module-level _JsonbType directly (already imported at module load time)
+    with patch("conway.survival._JsonbType", mock_jsonb_cls):
         from conway.survival import SurvivalMonitor
 
         monitor = SurvivalMonitor(mock_wallet_manager, mock_ledger)

@@ -79,8 +79,13 @@ def test_decrypt_uses_env_password(tmp_path, monkeypatch):
     keystore_path = tmp_path / "hermes.json"
     keystore_path.write_text(json.dumps(keystore_data))
 
+    # Account.decrypt returns HexBytes whose .hex() includes "0x" prefix.
+    # Use a mock that replicates this behaviour so AgentWallet.__init__ accepts it.
+    mock_private_key = MagicMock()
+    mock_private_key.hex.return_value = "0x" + "bb" * 32
+
     mock_account = MagicMock()
-    mock_account.decrypt.return_value = bytes.fromhex("bb" * 32)
+    mock_account.decrypt.return_value = mock_private_key
 
     with patch.dict("sys.modules", {"eth_account": MagicMock(Account=mock_account)}):
         from conway.wallet import WalletManager
