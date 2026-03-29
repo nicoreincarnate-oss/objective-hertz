@@ -305,3 +305,79 @@ class DaemonMemoryStore:
                     "importance": float(row["importance"]),
                 })
             return merged
+
+
+# ---------------------------------------------------------------------------
+# Tier 2.5: JSON cache for fast startup
+# ---------------------------------------------------------------------------
+
+
+class MemoryCache:
+    """JSON file cache for fast daemon startup. Write-through to Postgres.
+
+    Cache files live at ``~/.objective-hertz/memory-cache/{daemon}.json``.
+    The startup path reads the local JSON file (< 500ms target) while a
+    background task reconciles with Postgres as the authoritative source.
+    """
+
+    CACHE_DIR = Path.home() / ".objective-hertz" / "memory-cache"
+
+    def __init__(self, store: DaemonMemoryStore | None = None) -> None:
+        self._store = store or DaemonMemoryStore()
+
+    def _cache_path(self, daemon_name: str) -> Path:
+        return self.CACHE_DIR / f"{daemon_name}.json"
+
+    async def load_cache(self, daemon_name: str) -> dict[str, Any]:
+        """Load cached memories from JSON file. Fast startup path."""
+        cache_file = self._cache_path(daemon_name)
+        if cache_file.exists():
+            try:
+                return json.loads(cache_file.read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Corrupt cache for %s, ignoring: %s", daemon_name, exc)
+        return {}
+
+    async def save_cache(self, daemon_name: str, memories: dict[str, Any]) -> None:
+        """Write memories to JSON cache file."""
+        self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file = self._cache_path(daemon_name)
+        try:
+            cache_file.write_text(json.dumps(memories, default=str, indent=2))
+        except OSError as exc:
+            logger.warning("Failed to write cache for %s: %s", daemon_name, exc)
+
+    async def save_with_cache(
+        self,
+        daemon_name: str,
+        key: str,
+        content: dict,
+        memory_type: str = "episodic",
+        **kwargs: Any,
+    ) -> None:
+        """Write to Postgres AND update JSON cache (write-through)."""
+        await self._store.save(
+            daemon_name, memory_type, {"key": key, "content": content, **kwargs}
+        )
+        # Update cache
+        cache = await self.load_cache(daemon_name)
+        cache[key] = content
+        await self.save_cache(daemon_name, cache)
+
+    async def rebuild_cache(self, daemon_name: str) -> dict[str, Any]:
+        """Rebuild the local JSON cache from Postgres (authoritative source)."""
+        memories: dict[str, Any] = {}
+        for mtype in ("episodic", "semantic"):
+            rows = await self._store.load(daemon_name, mtype)
+            for row in rows:
+                memories[row["key"]] = row["content"]
+        await self.save_cache(daemon_name, memories)
+        logger.info("Rebuilt cache for %s (%d entries)", daemon_name, len(memories))
+        return memories
+
+    async def invalidate(self, daemon_name: str) -> None:
+        """Delete the local cache file. Next load falls through to Postgres."""
+        cache_file = self._cache_path(daemon_name)
+        if cache_file.exists():
+            cache_file.unlink()
+            logger.info("Cache invalidated for %s", daemon_name)
