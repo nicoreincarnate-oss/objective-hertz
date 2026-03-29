@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-import time  # noqa: F401 — used by telemetry_middleware (Task 6)
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -283,5 +283,42 @@ async def anti_slop_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
             result["quality_scores"] = scores
         except Exception as exc:
             logger.warning("Anti-slop scoring failed (non-fatal): %s", exc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Task 6: TelemetryMiddleware (MW-06, MW-07)
+# ---------------------------------------------------------------------------
+
+
+async def telemetry_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Record stage timing and success to the ``stage_metrics`` table.
+
+    Fires-and-forgets the DB insert — telemetry never blocks the pipeline.
+    Also records middleware overhead (time outside the handler).
+    """
+    t0 = time.perf_counter()
+    result = await next_fn(ctx)
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+
+    # Fire-and-forget insert
+    try:
+        from shared.db import execute
+
+        await execute(
+            """INSERT INTO stage_metrics
+               (pipeline, stage, daemon, duration_ms, success)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (
+                ctx.get("pipeline", ""),
+                ctx.get("stage_name", ""),
+                ctx.get("daemon_name", ""),
+                duration_ms,
+                result.get("success", False),
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Telemetry insert failed (non-fatal): %s", exc)
 
     return result
