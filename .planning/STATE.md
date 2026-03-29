@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-29T20:05:59.387Z"
+last_updated: "2026-03-29T20:10:29.000Z"
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -22,8 +22,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 0b — Async Engine + Interface Contracts + Observability
-**Status:** Executing Phase 00B
-**Next action:** Run `/gsd:execute-phase 0b`
+**Status:** Executing Phase 00B (Plan 01 complete, Plan 02 pending)
+**Current Plan:** 00B-01 complete
+**Next action:** Execute 00B-02 (Observability baseline)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -39,7 +40,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | Phase | Name | Status | Plan | Quality Score |
 |-------|------|--------|------|--------------|
 | 0a | P0 Fixes + Skill Hardening | ✅ Complete | phases/00A-p0-bug-fixes-skill-hardening/ | 9.2 |
-| 0b | Async + Contracts + Observability | Planned | phases/0b/PLAN.md | 9.2 |
+| 0b | Async + Contracts + Observability | In Progress (1/2 plans) | phases/0b/PLAN.md | 9.2 |
 | 1 | Agent DNA | Planned | phases/1/PLAN.md | 9.0 |
 | 2 | Anti-Slop Quality Gate | Planned | phases/2/PLAN.md | 9.2 |
 | 3 | DeerFlow Persistent Memory | Planned | phases/3/PLAN.md | 9.0 |
@@ -97,5 +98,17 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 7: Final Quality Gate | Complete | Score: 9.3/10 |
 | 8: Compress to Memory | Pending | — |
 
+## Decisions
+
+- **00B-01:** Keep sync run() unchanged, add run_async() as new method for zero backward-compat risk
+- **00B-01:** Use inspect.isawaitable() for transparent sync/async system.ask() support
+- **00B-01:** All 7 Protocol contracts are @runtime_checkable for startup validation
+
+## Performance Metrics
+
+| Phase-Plan | Duration | Tasks | Files |
+|-----------|----------|-------|-------|
+| 00B-01 | 3min | 3 | 3 |
+
 ---
-*State updated: 2026-03-29 — all phases planned, ready for execution*
+*State updated: 2026-03-29 — 00B-01 complete, 00B-02 pending*

@@ -141,11 +141,12 @@ def build_pipeline_graph() -> WorkflowGraph:
     return g
 
 
-def run_pipeline():
-    """Execute the full revenue pipeline via WorkflowEngine.
+async def run_pipeline():
+    """Execute the full revenue pipeline via WorkflowEngine (async).
 
     This is the main entry point for running the pipeline as a DAG
-    instead of the old sequential loop.
+    instead of the old sequential loop.  Uses ``run_async()`` for
+    efficient async I/O on parallel stages.
     """
     from shared.oj_bridge import get_workflow_engine
     from titan.workflow_tools import PIPELINE_TOOLS
@@ -161,7 +162,7 @@ def run_pipeline():
         def __init__(self):
             self.tool_executor = tool_executor
 
-    result = engine.run(graph, _PipelineSystem(), initial_input="")
+    result = await engine.run_async(graph, _PipelineSystem(), initial_input="")
 
     logger.info(
         "Pipeline complete: success=%s, stages=%d, duration=%.1fs",
@@ -178,3 +179,15 @@ def run_pipeline():
         )
 
     return result
+
+
+def run_pipeline_sync():
+    """Synchronous wrapper for ``run_pipeline()``.
+
+    Use this from callers that cannot use ``await`` (e.g. CLI scripts).
+    Existing callers that used the old sync ``run_pipeline()`` should
+    migrate to ``await run_pipeline()`` or use this wrapper.
+    """
+    import asyncio
+
+    return asyncio.run(run_pipeline())

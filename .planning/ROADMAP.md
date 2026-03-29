@@ -29,7 +29,11 @@ Plans:
 - Sync wrapper works for existing callers
 - shared/contracts.py has Protocol types for DNAProvider, SlopScorer, MemoryStore, Middleware
 - Baseline metrics dashboard shows LLM calls/latency/errors/cost per daemon
-**Status:** Not started
+**Plans:** 2 plans
+Plans:
+- [x] 00B-01-PLAN.md -- Async WorkflowEngine + Interface Contracts (ASYNC-01, ASYNC-02, CONTRACT-01)
+- [ ] 00B-02-PLAN.md -- Observability baseline (OBS-01)
+**Status:** In Progress (1/2 plans complete, 2026-03-29)
 
 ## Phase 1: Agent DNA
 **Goal:** Universal engineering principles injected into every daemon's LLM calls via opt-in system parameter.
