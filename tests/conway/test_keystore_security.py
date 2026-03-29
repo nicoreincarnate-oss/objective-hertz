@@ -6,10 +6,9 @@ never the agent name, and that missing/empty password raises RuntimeError.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── _get_keystore_password tests ──────────────────────────────────
 

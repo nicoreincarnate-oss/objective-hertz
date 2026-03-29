@@ -6,7 +6,6 @@ column order (agent_name, chain, public_address, keystore_ref) matching
 the DB schema from 007-conway-tables.sql.
 """
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,10 +28,10 @@ def mock_account():
 
 @pytest.fixture
 def mock_db():
-    """Mock shared.db.execute and shared.db.fetch_one."""
+    """Mock shared.db functions as imported by conway.wallet (module-level imports)."""
     with (
-        patch("shared.db.execute", new_callable=AsyncMock) as mock_exec,
-        patch("shared.db.fetch_one", new_callable=AsyncMock) as mock_fetch,
+        patch("conway.wallet.execute", new_callable=AsyncMock) as mock_exec,
+        patch("conway.wallet.fetch_one", new_callable=AsyncMock) as mock_fetch,
     ):
         # Default: no existing wallet in DB
         mock_fetch.return_value = None
