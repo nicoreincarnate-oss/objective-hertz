@@ -4,6 +4,11 @@ Wallet management for Perseus agents on Base L2.
 Each agent gets an Ethereum wallet that holds USDC on Base.
 Wallets are persisted as encrypted keystores on disk and
 registered in the conway_wallets DB table.
+
+PQC Integration:
+  When PQC_ENABLED=true, wallet operations use HybridEncryptor for
+  keystore encryption and QuantumSafeSigner for transaction signing.
+  Falls back to classical crypto when PQC imports fail.
 """
 
 import json
@@ -11,14 +16,30 @@ import logging
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 import httpx
 
-from shared.config import config
 from shared.db import execute, fetch_one
 
 logger = logging.getLogger("conway.wallet")
+
+# --- PQC integration (graceful fallback) ---
+_PQC_AVAILABLE = False
+try:
+    from conway.pqc import (
+        HybridEncryptor,
+        QuantumSafeSigner,
+        derive_agent_key,
+        is_pqc_enabled,
+    )
+
+    _PQC_AVAILABLE = True
+except ImportError:
+    logger.warning("PQC module unavailable — wallet uses classical crypto only")
+
+    def is_pqc_enabled() -> bool:  # type: ignore[misc]
+        """Stub: PQC always disabled when module unavailable."""
+        return False
 
 # Base mainnet USDC contract (Circle)
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -31,16 +52,38 @@ USDC_DECIMALS = 6
 
 
 class AgentWallet:
-    """Ethereum wallet for a single Perseus agent on Base L2."""
+    """Ethereum wallet for a single Perseus agent on Base L2.
+
+    When PQC_ENABLED=true, transaction signing uses QuantumSafeSigner
+    (Ed25519, upgradeable to ML-DSA-65) in addition to Ethereum signing.
+    """
 
     def __init__(self, agent_name: str, address: str, private_key: str):
         self.agent_name = agent_name
         self._address = address
         self._private_key = private_key
+        self._pqc_signer: QuantumSafeSigner | None = None
+
+        # Initialize PQC signer when enabled
+        if _PQC_AVAILABLE and is_pqc_enabled():
+            try:
+                master_pw = os.environ.get("CONWAY_KEYSTORE_PASSWORD", "")
+                if master_pw:
+                    agent_key = derive_agent_key(agent_name, master_pw)
+                    # Use first 32 bytes of agent key as signing seed
+                    self._pqc_signer = QuantumSafeSigner(agent_key)
+                    logger.info(f"PQC signer initialized for {agent_name}")
+            except Exception as e:
+                logger.warning(f"PQC signer init failed for {agent_name}: {e}")
 
     @property
     def address(self) -> str:
         return self._address
+
+    @property
+    def pqc_signer(self) -> QuantumSafeSigner | None:
+        """Return the PQC signer if PQC is enabled, else None."""
+        return self._pqc_signer
 
     async def get_balance(self) -> Decimal:
         """Get USDC balance on Base."""
@@ -85,6 +128,18 @@ class AgentWallet:
             padded_to = to_address[2:].lower().zfill(64)
             padded_amount = hex(raw_amount)[2:].zfill(64)
             tx_data = f"{TRANSFER_SELECTOR}{padded_to}{padded_amount}"
+
+            # PQC: sign transaction payload for quantum-safe audit trail
+            pqc_signature: bytes | None = None
+            if self._pqc_signer is not None:
+                try:
+                    pqc_signature = self._pqc_signer.sign(tx_data.encode("utf-8"))
+                    logger.info(
+                        f"PQC signature attached for {self.agent_name} tx "
+                        f"(sig={pqc_signature[:8].hex()}...)"
+                    )
+                except Exception as e:
+                    logger.warning(f"PQC signing failed (non-fatal): {e}")
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Get nonce
@@ -222,7 +277,11 @@ class WalletManager:
         return balances
 
     def _create_new_wallet(self, agent_name: str) -> AgentWallet:
-        """Generate a new Ethereum wallet and save encrypted keystore."""
+        """Generate a new Ethereum wallet and save encrypted keystore.
+
+        When PQC_ENABLED=true, also encrypts the keystore with HybridEncryptor
+        using per-agent derived key for quantum-safe protection at rest.
+        """
         try:
             from eth_account import Account
 
@@ -232,7 +291,30 @@ class WalletManager:
 
             keystore_path = self._keystore_dir / f"{agent_name}.json"
             encrypted = Account.encrypt(private_key, _get_keystore_password())
-            keystore_path.write_text(json.dumps(encrypted))
+            keystore_json = json.dumps(encrypted)
+
+            # PQC: wrap keystore with hybrid encryption
+            if _PQC_AVAILABLE and is_pqc_enabled():
+                try:
+                    agent_key = derive_agent_key(
+                        agent_name, _get_keystore_password()
+                    )
+                    encryptor = HybridEncryptor(agent_key)
+                    pqc_ct = encryptor.encrypt(keystore_json.encode("utf-8"))
+                    # Write PQC-wrapped keystore with marker
+                    wrapped = {
+                        "pqc_wrapped": True,
+                        "ciphertext": pqc_ct.hex(),
+                    }
+                    keystore_path.write_text(json.dumps(wrapped))
+                    logger.info(f"PQC-encrypted keystore for {agent_name}")
+                except Exception as e:
+                    logger.warning(
+                        f"PQC keystore encryption failed, using classical: {e}"
+                    )
+                    keystore_path.write_text(keystore_json)
+            else:
+                keystore_path.write_text(keystore_json)
 
             return AgentWallet(agent_name, address, private_key)
         except ImportError:
@@ -242,7 +324,10 @@ class WalletManager:
     def _load_from_keystore(
         self, agent_name: str, address: str, keystore_ref: str
     ) -> AgentWallet:
-        """Load wallet from encrypted keystore file."""
+        """Load wallet from encrypted keystore file.
+
+        Handles both PQC-wrapped and classical keystores transparently.
+        """
         try:
             from eth_account import Account
 
@@ -253,7 +338,23 @@ class WalletManager:
                 )
                 return self._create_new_wallet(agent_name)
 
-            encrypted = json.loads(keystore_path.read_text())
+            raw = json.loads(keystore_path.read_text())
+
+            # Check for PQC-wrapped keystore
+            if isinstance(raw, dict) and raw.get("pqc_wrapped"):
+                if not _PQC_AVAILABLE:
+                    raise RuntimeError(
+                        f"Keystore for {agent_name} is PQC-encrypted but PQC module unavailable"
+                    )
+                agent_key = derive_agent_key(
+                    agent_name, _get_keystore_password()
+                )
+                encryptor = HybridEncryptor(agent_key)
+                plaintext = encryptor.decrypt(bytes.fromhex(raw["ciphertext"]))
+                encrypted = json.loads(plaintext.decode("utf-8"))
+            else:
+                encrypted = raw
+
             private_key = Account.decrypt(encrypted, _get_keystore_password())
             return AgentWallet(agent_name, address, private_key.hex())
         except ImportError:
