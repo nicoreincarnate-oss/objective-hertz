@@ -212,3 +212,44 @@ HANDOFF.md               → Context and status
 - Revenue generation accuracy > 98%
 - System availability > 99% uptime
 - Alert delivery < 5 second latency
+
+## Security & Compliance Rules (AEGIS Audit — 2026-03-30)
+
+These rules derive from the AEGIS diagnostic audit (91 findings, 11 agents). Full report: `.aegis/report/AEGIS-REPORT.md`.
+
+### SQL Safety
+- **Never** construct SQL with f-strings, `.format()`, or concatenation — use parameterized queries (`%s`) for values and `sql.Identifier()` for dynamic table/column names
+- Validate all dynamic identifiers against an explicit allowlist before use
+- Enforcement: `grep -rn "f\".*SELECT\|f\".*INSERT\|f\".*UPDATE\|f\".*DELETE" --include="*.py" shared/ titan/ hermes/ clawdbot/ conway/ openjarvis/` must return zero hits
+
+### Credential & Secret Safety
+- Credential stripper (`openjarvis/security/credential_stripper.py`) must cover ALL service token patterns: Stripe (`sk_live_`, `sk_test_`, `pk_live_`, `rk_live_`), Telegram bot tokens, Netlify tokens, Instantly API keys, database connection strings, JWT, GitHub tokens — minimum 15 patterns
+- When adding a new external service integration, add its token pattern to the credential stripper in the same PR
+- All `subprocess.run()` calls must use `shell=False` with list args, or be wrapped by the subprocess sandbox. Never remove `requires_confirmation=True` from ShellExecTool
+- No `eval()` or `exec()` in production code — use `simpleeval` library for expression evaluation
+- All `torch.load()` calls must use `weights_only=True`
+- Scraped web content must be truncated to 50KB max before LLM input
+
+### Financial Safety
+- Budget guard (`shared/llm_client.py`) must **fail closed** — DB errors reject the API call and fall back to Ollama, never allow the call through
+- Review mode transition (True→False) must never happen automatically — require Telegram operator confirmation
+- `/api/config` must not allow direct `review_mode` changes — use dedicated endpoint with confirmation token
+- Every function in `conway/wallet.py` and `tools/payment_router.py` must have integration tests
+
+### Email Compliance (CAN-SPAM)
+- Titan daemon must **refuse to send emails** if `physical_address` system config matches `[SET YOUR` or is empty — check at startup AND before each batch
+- Unsubscribe check must use `SELECT ... FOR UPDATE` inside the same transaction as the send call (prevent TOCTOU race)
+- Email simulation results must be stored in DB; send query must include `WHERE simulation_status = 'passed'`
+
+### Integration & Wiring
+- `shared/middleware.py` must be imported and called by `titan/daemon.py` — the middleware chain must execute in production, not just exist as dead code
+- `ENABLE_MIDDLEWARE` must default to `true` — disabling logs a WARNING at startup
+- CI pipeline must include security module tests (`openjarvis/security/`) — don't exclude them
+- A2A endpoints must validate a shared-secret token before dispatching any capability
+
+### Architecture
+- No `allow_origins=["*"]` in CORS configuration — use explicit allowed origins
+- Session cookies must default to `Secure=True` (development is the explicit exception, not the other way around)
+- `close_pool()` in `shared/db.py` must acquire `_pool_lock` before setting `_pool = None`
+- Docker containers must run as non-root (`USER` directive required in all Dockerfiles)
+- Config changes via `set_config()` must log to `config_audit_log` table with `changed_by` parameter

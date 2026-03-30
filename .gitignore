@@ -56,3 +56,6 @@ output/
 system_tour.md
 .claude/worktrees/
 tmp_*.py
+
+# AEGIS audit state (generated)
+.aegis/
