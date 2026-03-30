@@ -473,10 +473,10 @@ class TestPipelineConfig:
         assert "hermes" in PIPELINE_CONFIGS
         assert "perseus" in PIPELINE_CONFIGS
 
-    def test_titan_has_five_middlewares(self):
-        assert len(PIPELINE_CONFIGS["titan"]) == 5
+    def test_titan_has_six_middlewares(self):
+        assert len(PIPELINE_CONFIGS["titan"]) == 6
         assert PIPELINE_CONFIGS["titan"] == [
-            "budget_check", "dna_guard", "anti_slop", "memory", "telemetry",
+            "budget_check", "dna_guard", "anti_slop", "neuro_scorer", "memory", "telemetry",
         ]
 
     def test_perseus_has_two_middlewares(self):
@@ -504,9 +504,9 @@ class TestPipelineConfig:
             chain = build_chain("hermes")
         assert len(chain._middlewares) == 1  # only telemetry
 
-    def test_middleware_registry_has_all_five(self):
+    def test_middleware_registry_has_all_six(self):
         assert set(MIDDLEWARE_REGISTRY.keys()) == {
-            "budget_check", "dna_guard", "anti_slop", "memory", "telemetry",
+            "budget_check", "dna_guard", "anti_slop", "neuro_scorer", "memory", "telemetry",
         }
 
 
@@ -603,12 +603,13 @@ class TestFullChainIntegration:
                     }
                     _run(chain.execute(ctx, _identity_handler))
 
-        # Titan order: budget_check, dna_guard, anti_slop, memory, telemetry
+        # Titan order: budget_check, dna_guard, anti_slop, neuro_scorer, memory, telemetry
         enters = [e for e in execution_order if e.endswith("_enter")]
         assert enters == [
             "budget_check_enter",
             "dna_guard_enter",
             "anti_slop_enter",
+            "neuro_scorer_enter",
             "memory_enter",
             "telemetry_enter",
         ]
