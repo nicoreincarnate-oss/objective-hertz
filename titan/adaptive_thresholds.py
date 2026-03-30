@@ -13,13 +13,11 @@ Zero HyperAgents code — all logic derived from textbook references only.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -334,7 +332,7 @@ async def run_daily_training() -> int:
     Designed to be called from Perseus scheduler.
     Returns the number of signals processed.
     """
-    if not os.environ.get("ENABLE_BANDIT_EXPANSION", "").lower() in ("1", "true"):
+    if os.environ.get("ENABLE_BANDIT_EXPANSION", "").lower() not in ("1", "true"):
         logger.info("Bandit expansion disabled, skipping daily training")
         return 0
 
@@ -372,7 +370,7 @@ class Experiment:
     variant_alpha: float
     variant_beta: float
     status: str = "active"  # active, concluded, cancelled
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class ExperimentManager:
@@ -396,7 +394,6 @@ class ExperimentManager:
 
         Returns the experiment ID.
         """
-        from psycopg.types.json import Jsonb
 
         row = await fetch_one(
             """INSERT INTO meta_evaluations
