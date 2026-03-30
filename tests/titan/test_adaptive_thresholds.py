@@ -136,11 +136,12 @@ class TestAdaptiveThresholds:
         assert val == 1.5  # default fallback
 
     def test_get_threshold_from_loaded_bandit(self):
-        """After loading, get_threshold samples from bandit."""
+        """After loading, get_threshold samples from bandit and scales."""
         at = AdaptiveThresholds()
-        at._bandits["test"] = BetaBandit("test", alpha=100.0, beta=1.0)
-        val = at.get_threshold("test")
-        assert 0.0 <= val <= 1.0
+        at._bandits["reply_rate_threshold"] = BetaBandit("reply_rate_threshold", alpha=100.0, beta=1.0)
+        val = at.get_threshold("reply_rate_threshold")
+        # Scale factor for reply_rate_threshold is 5.0
+        assert 0.0 <= val <= 5.0
 
     def test_update_creates_bandit_if_missing(self):
         """update() with unknown name creates new bandit."""
@@ -541,3 +542,117 @@ class TestThresholdNames:
             "missing_email_threshold",
         }
         assert set(THRESHOLD_NAMES) == expected
+
+
+# ---------------------------------------------------------------------------
+# Expansion.py integration tests (feature flag)
+# ---------------------------------------------------------------------------
+
+
+class TestExpansionIntegration:
+    """Test that expansion.py wiring respects feature flag."""
+
+    def test_flag_off_uses_hardcoded_thresholds(self):
+        """ENABLE_BANDIT_EXPANSION=off -> original hardcoded values."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENABLE_BANDIT_EXPANSION", None)
+            from titan.expansion import _detect_revenue_bottlenecks
+
+            metrics = {"emails_sent_14d": 200, "reply_rate_14d": 1.0}
+            bottlenecks = _detect_revenue_bottlenecks(metrics)
+            # Hardcoded threshold is 1.5; 1.0 < 1.5 -> bottleneck detected
+            assert any(b["bottleneck"] == "low_reply_rate" for b in bottlenecks)
+
+    def test_flag_on_uses_adaptive_thresholds(self):
+        """ENABLE_BANDIT_EXPANSION=true -> adaptive bandits used."""
+        with patch.dict(os.environ, {"ENABLE_BANDIT_EXPANSION": "true"}):
+            from titan.expansion import _detect_revenue_bottlenecks
+
+            # With adaptive thresholds, results depend on bandit sampling
+            metrics = {"emails_sent_14d": 200, "reply_rate_14d": 1.0}
+            bottlenecks = _detect_revenue_bottlenecks(metrics)
+            assert isinstance(bottlenecks, list)
+
+    def test_flag_off_empty_metrics_no_bottlenecks(self):
+        """No metrics -> no bottlenecks regardless of flag."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENABLE_BANDIT_EXPANSION", None)
+            from titan.expansion import _detect_revenue_bottlenecks
+
+            assert _detect_revenue_bottlenecks({}) == []
+
+    def test_instant_rollback(self):
+        """Feature flag toggles cleanly without code changes."""
+        from titan.expansion import _detect_revenue_bottlenecks, _is_bandit_expansion_enabled
+
+        metrics = {"emails_sent_14d": 200, "reply_rate_14d": 1.0}
+
+        with patch.dict(os.environ, {"ENABLE_BANDIT_EXPANSION": "true"}):
+            assert _is_bandit_expansion_enabled() is True
+            _detect_revenue_bottlenecks(metrics)  # should not crash
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENABLE_BANDIT_EXPANSION", None)
+            assert _is_bandit_expansion_enabled() is False
+            _detect_revenue_bottlenecks(metrics)  # should not crash
+
+
+# ---------------------------------------------------------------------------
+# License audit script tests
+# ---------------------------------------------------------------------------
+
+
+class TestLicenseAuditScript:
+    """Verify license-audit.sh passes."""
+
+    def test_license_audit_script_passes(self):
+        """scripts/license-audit.sh exits 0."""
+        import subprocess
+
+        result = subprocess.run(
+            ["bash", "scripts/license-audit.sh"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+        )
+        assert result.returncode == 0, (
+            f"License audit failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "CLEAN" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Bandit convergence with stochastic outcomes
+# ---------------------------------------------------------------------------
+
+
+class TestBanditConvergenceStochastic:
+    """Test convergence with random outcomes (complementing deterministic tests)."""
+
+    def test_bandit_converges_100_random_outcomes(self):
+        """With 80% success rate, bandit mean converges near 0.8 after 100 random outcomes."""
+        import numpy as np
+
+        np.random.seed(42)
+        b = BetaBandit("test", alpha=1.0, beta=1.0)  # uninformative prior
+
+        for _ in range(100):
+            outcome = 1.0 if np.random.random() < 0.8 else 0.0
+            b.update(outcome)
+
+        # Mean should be near 0.8 (within tolerance)
+        assert abs(b.mean - 0.8) < 0.1, f"Mean {b.mean} not near 0.8"
+
+    def test_warm_start_washes_out(self):
+        """Beta(10,2) prior washes out after ~50 observations with 50% rate."""
+        import numpy as np
+
+        np.random.seed(99)
+        b = BetaBandit("test", alpha=DEFAULT_ALPHA, beta=DEFAULT_BETA)
+
+        for _ in range(50):
+            outcome = 1.0 if np.random.random() < 0.5 else 0.0
+            b.update(outcome)
+
+        # Mean should have moved away from prior (0.833) toward 0.5
+        assert b.mean < 0.75, f"Prior still dominates: mean={b.mean}"

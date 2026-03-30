@@ -132,16 +132,28 @@ class AdaptiveThresholds:
 
     # -- ThresholdProvider Protocol methods ----------------------------------
 
-    def get_threshold(self, name: str) -> float:
-        """Return the current sampled threshold for *name*.
+    # Scale factors: bandit samples are in [0,1], multiply to get natural range
+    _SCALE: dict[str, float] = {
+        "reply_rate_threshold": 5.0,       # max ~5% reply rate
+        "interest_rate_threshold": 25.0,   # max ~25% interest rate
+        "proposal_backlog_threshold": 5.0, # max ~5 proposals
+        "uninvoiced_threshold": 5.0,       # max ~5 uninvoiced
+        "missing_email_threshold": 15.0,   # max ~15 missing emails
+    }
 
-        If the bandit is not yet loaded, returns a default from the
-        in-memory cache (no DB hit in sync context).
+    def get_threshold(self, name: str) -> float:
+        """Return the current threshold for *name* in its natural range.
+
+        If the bandit is not yet loaded, returns the original hardcoded
+        default (no DB hit in sync context).  When loaded, samples from
+        the bandit posterior and scales to the metric's natural range.
         """
         if name not in self._bandits:
             # Return default; async load should be called first
             return self._default_for(name)
-        return self._bandits[name].sample()
+        raw = self._bandits[name].sample()
+        scale = self._SCALE.get(name, 1.0)
+        return raw * scale
 
     def update(self, name: str, outcome: float) -> None:
         """Update the bandit for *name* with an observed *outcome*.
