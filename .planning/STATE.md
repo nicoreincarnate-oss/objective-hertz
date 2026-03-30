@@ -8,7 +8,7 @@ progress:
   total_phases: 20
   completed_phases: 7
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 08
-**Status:** Executing Phase 08 Plan 01 complete
-**Next action:** Execute Phase 08 Plan 02 (Pipeline Integration + Tests)
+**Status:** Phase 08 complete (2/2 plans)
+**Next action:** Phase 08 complete -- all plans executed
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -48,7 +48,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Complete (2/2 plans) | phases/06-post-quantum-crypto/ | 9.0 |
 | 7 | Adaptive Thresholds | Complete (3/3 plans) | phases/7/PLAN.md | 9.4 |
-| 8 | TRIBE v2 Neuro-Scorer | Executing (1/2 plans) | phases/8/PLAN.md | 9.0 |
+| 8 | TRIBE v2 Neuro-Scorer | Complete (2/2 plans) | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
 
 ## Migration Sequence
@@ -160,6 +160,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **08-01:** Synthetic atlas maps 4 dimension columns for fallback activation arrays
 - **08-01:** Shared RunningNormalizer instance across NeuroScorer calls for running percentile
 - **08-01:** NaN guard in pearsonr fallback for constant-value dimensions
+- **08-02:** First 100 scored emails are log-only (no gating) for normalizer baseline warmup
+- **08-02:** Max 2 re-draft attempts per email, keeps best-scoring version
+- **08-02:** neuro_scorer_middleware placed after anti_slop in chain ordering
+- **08-02:** Neural reflection and segment profiles are non-skippable scheduler jobs
 
 ## Performance Metrics
 
@@ -182,8 +186,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 07-02 | 4min | 3 | 3 |
 | 08-01 | 7min | 6 | 8 |
 | 07-03 | 2min | 2 | 2 |
+| 08-02 | 8min | 4 | 5 |
 
 ---
+*State updated: 2026-03-30 -- Phase 08 Plan 02 complete (pipeline integration: neural gating in email compose, neuro_scorer_middleware, scheduler jobs, 58 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 01 complete (neuro-scorer core: TribeService, ROIExtractor, RunningNormalizer, NeuroScorer, learning loop, migration 024)*
 *State updated: 2026-03-30 -- Phase 07 Plan 03 complete (gap closure: backtest function, concurrent experiment tests, 58 total tests)*
 *State updated: 2026-03-30 -- Phase 07 Plan 02 re-executed (53 tests, scaling fix, 4-check license audit, DB round-trip tests)*
