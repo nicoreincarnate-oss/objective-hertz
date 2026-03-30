@@ -656,3 +656,125 @@ class TestBanditConvergenceStochastic:
 
         # Mean should have moved away from prior (0.833) toward 0.5
         assert b.mean < 0.75, f"Prior still dominates: mean={b.mean}"
+
+
+# ---------------------------------------------------------------------------
+# Expansion wiring details (07-02 additions)
+# ---------------------------------------------------------------------------
+
+
+class TestExpansionWiringDetails:
+    """Detailed tests for expansion.py adaptive threshold wiring."""
+
+    def test_all_five_thresholds_queried_from_adaptive(self):
+        """When flag is on, all 5 threshold names are queried."""
+        from titan.expansion import _detect_revenue_bottlenecks
+
+        with patch.dict(os.environ, {"ENABLE_BANDIT_EXPANSION": "true"}):
+            with patch("titan.adaptive_thresholds.AdaptiveThresholds") as MockAT:
+                mock_at = MockAT.return_value
+                mock_at.get_threshold.return_value = 0.0
+                _detect_revenue_bottlenecks({})
+                queried = {call[0][0] for call in mock_at.get_threshold.call_args_list}
+                assert queried == set(THRESHOLD_NAMES)
+
+    def test_no_hyperagents_in_expansion_py(self):
+        """expansion.py must not reference HyperAgents."""
+        import pathlib
+
+        expansion = pathlib.Path(__file__).parent.parent.parent / "titan" / "expansion.py"
+        content = expansion.read_text()
+        assert "hyperagent" not in content.lower()
+        assert "arXiv:2603.19461" not in content
+
+
+# ---------------------------------------------------------------------------
+# DB round-trip integration (07-02)
+# ---------------------------------------------------------------------------
+
+
+class TestDBRoundTrip:
+    """Test save/load cycle preserves bandit state."""
+
+    @pytest.mark.asyncio
+    async def test_save_then_load_preserves_state(self):
+        """Bandit state survives a save->load cycle."""
+        at = AdaptiveThresholds()
+        at._bandits["test_rt"] = BetaBandit("test_rt", alpha=25.0, beta=7.0)
+
+        saved_params: dict = {}
+
+        async def mock_execute(sql, params):
+            if "UPDATE" in sql:
+                saved_params["alpha"] = params[0]
+                saved_params["beta"] = params[1]
+
+        async def mock_fetch_one(sql, params):
+            if saved_params:
+                return {"alpha": str(saved_params["alpha"]), "beta": str(saved_params["beta"])}
+            return None
+
+        with (
+            patch("titan.adaptive_thresholds.execute", side_effect=mock_execute),
+            patch("titan.adaptive_thresholds.fetch_one", side_effect=mock_fetch_one),
+        ):
+            await at.save_to_db("test_rt")
+
+            at2 = AdaptiveThresholds()
+            await at2.load_from_db("test_rt")
+
+        b = at2.get_bandit("test_rt")
+        assert b is not None
+        assert b.alpha == 25.0
+        assert b.beta == 7.0
+
+    @pytest.mark.asyncio
+    async def test_update_and_persist_round_trip(self):
+        """update_and_persist saves state that can be loaded back."""
+        saved_state: dict = {}
+
+        async def mock_execute(sql, params):
+            if "UPDATE adaptive_thresholds" in sql:
+                saved_state["alpha"] = params[0]
+                saved_state["beta"] = params[1]
+
+        async def mock_fetch_one(sql, params):
+            if "SELECT alpha, beta" in sql and saved_state:
+                return {"alpha": str(saved_state["alpha"]), "beta": str(saved_state["beta"])}
+            return {"alpha": "10.0", "beta": "2.0"}
+
+        at = AdaptiveThresholds()
+        with (
+            patch("titan.adaptive_thresholds.execute", side_effect=mock_execute),
+            patch("titan.adaptive_thresholds.fetch_one", side_effect=mock_fetch_one),
+        ):
+            await at.update_and_persist("reply_rate_threshold", 1.0)
+
+            at2 = AdaptiveThresholds()
+            await at2.load_from_db("reply_rate_threshold")
+
+        b = at2.get_bandit("reply_rate_threshold")
+        assert b is not None
+        assert b.alpha == 11.0
+        assert b.beta == 2.0
+
+    @pytest.mark.asyncio
+    async def test_meta_evaluation_logged_on_update(self):
+        """update_and_persist logs to meta_evaluations table."""
+        execute_calls: list = []
+
+        async def mock_execute(sql, params):
+            execute_calls.append(sql)
+
+        async def mock_fetch_one(sql, params):
+            return {"alpha": "10.0", "beta": "2.0"}
+
+        at = AdaptiveThresholds()
+        with (
+            patch("titan.adaptive_thresholds.execute", side_effect=mock_execute),
+            patch("titan.adaptive_thresholds.fetch_one", side_effect=mock_fetch_one),
+        ):
+            await at.update_and_persist("reply_rate_threshold", 1.0)
+
+        meta_inserts = [s for s in execute_calls if "INSERT INTO meta_evaluations" in s]
+        assert len(meta_inserts) == 1, "Should log exactly one meta_evaluation per update"
