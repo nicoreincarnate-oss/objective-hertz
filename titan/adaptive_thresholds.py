@@ -8,7 +8,7 @@ Observed outcomes (lead conversions) update the posterior, and thresholds
 are sampled from the current posterior for stochastic exploration.
 
 Feature flag: ENABLE_BANDIT_EXPANSION
-Zero HyperAgents code — all logic derived from textbook references only.
+Clean-room only — all logic derived from textbook references.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class BetaBandit:
     """Thompson sampling with Beta distribution.
 
     Reference: Sutton & Barto, Reinforcement Learning (2018), Ch. 2.7
-    Clean-room implementation — zero HyperAgents code.
+    Clean-room implementation from textbook only.
 
     Parameters
     ----------
