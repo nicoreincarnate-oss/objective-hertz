@@ -163,7 +163,8 @@ Plans:
 - Neural rules auto-extracted when significance reached (p < 0.05, n >= 30)
 - Segment-specific neural profiles computed after 100+ emails per segment
 - All content types scored: emails, site copy, follow-ups, alerts
-**Status:** Not started
+Plans: 2 (08-01: Core + ROI + Learning, 08-02: Pipeline Integration + Tests)
+**Status:** Executing (1/2 plans complete)
 
 ## Phase 9: Audit Gap Closure + Integration Fixes
 **Goal:** Fix all gaps identified by v1.0 milestone audit — broken test fixtures, missing logger, unwired memory cleanup handler, and checkbox drift.

@@ -94,16 +94,16 @@
 
 ### Phase 8: TRIBE v2 Neuro-Scorer
 
-- [ ] **NEURO-01**: MPS validation spike — TRIBE v2 inference benchmarked on M4 32GB
-- [ ] **NEURO-02**: TRIBE v2 model loading with lazy load/unload for memory management
-- [ ] **NEURO-03**: ROI extraction — fsaverage5 atlas regions mapped to 4 cognitive dimensions
-- [ ] **NEURO-04**: 4-dimension scoring (self-relevance, trust, cognitive ease, emotional resonance) with normalization
+- [x] **NEURO-01**: MPS validation spike — TRIBE v2 inference benchmarked on M4 32GB
+- [x] **NEURO-02**: TRIBE v2 model loading with lazy load/unload for memory management
+- [x] **NEURO-03**: ROI extraction — fsaverage5 atlas regions mapped to 4 cognitive dimensions
+- [x] **NEURO-04**: 4-dimension scoring (self-relevance, trust, cognitive ease, emotional resonance) with normalization
 - [ ] **NEURO-05**: Email pipeline integration — score after compose, gate low-scoring drafts
 - [ ] **NEURO-06**: All content types scored — emails, site copy, follow-ups, alerts
 - [ ] **NEURO-07**: neuro_scores JSONB stored on email_sequences table
-- [ ] **NEURO-08**: Closed-loop learning — daily outcome-correlation analysis
-- [ ] **NEURO-09**: Neural rule auto-extraction when statistical significance reached
-- [ ] **NEURO-10**: Segment-specific neural profiles computed and used in compose prompts
+- [x] **NEURO-08**: Closed-loop learning — daily outcome-correlation analysis
+- [x] **NEURO-09**: Neural rule auto-extraction when statistical significance reached
+- [x] **NEURO-10**: Segment-specific neural profiles computed and used in compose prompts
 
 ## Out of Scope
 
