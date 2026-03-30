@@ -158,6 +158,22 @@ Plans:
 - All content types scored: emails, site copy, follow-ups, alerts
 **Status:** Not started
 
+## Phase 9: Audit Gap Closure + Integration Fixes
+**Goal:** Fix all gaps identified by v1.0 milestone audit — broken test fixtures, missing logger, unwired memory cleanup handler, and checkbox drift.
+**Requirements:** FIX-02, FIX-03, MW-01, MW-08, MEM-03
+**Feature flag:** N/A (fixes to existing code)
+**Dependencies:** Phases 0a, 0b, 3, 4 (fixes artifacts from these phases)
+**Gap Closure:** Closes gaps from v1.0-MILESTONE-AUDIT.md
+**Success criteria:**
+- All 9 survival JSONB tests pass (fixture bug fixed)
+- All 5 keystore security tests pass (mock 0x prefix fixed)
+- engine.py logger defined — middleware fallback logs warning instead of crashing
+- memory_cleanup handler in TASK_HANDLERS — cleanup_expired() called daily
+- hermes/web/app.py F811 resolved (no duplicate function names)
+- REQUIREMENTS.md checkboxes match verification status
+Plans: TBD
+**Status:** Not started
+
 ## Buffer Week 2: Final Stabilization
 **Goal:** End-to-end integration testing with all features enabled. Fix any remaining issues.
 **Dependencies:** All phases

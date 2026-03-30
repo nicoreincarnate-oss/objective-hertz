@@ -7,17 +7,17 @@
 
 ### Prerequisites (Phase 0a)
 
-- [ ] **FIX-01**: Conway wallet INSERT column order fixed
+- [x] **FIX-01**: Conway wallet INSERT column order fixed
 - [ ] **FIX-02**: Conway keystore uses env-var password
 - [ ] **FIX-03**: Conway survival tier JSONB writes fixed
-- [ ] **FIX-04**: Signed skill manifests for loader
+- [x] **FIX-04**: Signed skill manifests for loader
 
 ### Infrastructure (Phase 0b)
 
-- [ ] **ASYNC-01**: WorkflowEngine.run() async with sync wrapper
-- [ ] **ASYNC-02**: All call sites migrated
-- [ ] **CONTRACT-01**: Interface contracts (shared/contracts.py)
-- [ ] **OBS-01**: Observability baseline metrics
+- [x] **ASYNC-01**: WorkflowEngine.run() async with sync wrapper
+- [x] **ASYNC-02**: All call sites migrated
+- [x] **CONTRACT-01**: Interface contracts (shared/contracts.py)
+- [x] **OBS-01**: Observability baseline metrics
 
 ### Agent DNA (Phase 1)
 
@@ -119,14 +119,17 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FIX-01 through FIX-04 | Phase 0a | Pending |
-| ASYNC-01, ASYNC-02, CONTRACT-01, OBS-01 | Phase 0b | Pending |
+| FIX-01 | Phase 0a | Complete |
+| FIX-02 | Phase 9 (gap closure) | Pending |
+| FIX-03 | Phase 9 (gap closure) | Pending |
+| FIX-04 | Phase 0a | Complete |
+| ASYNC-01, ASYNC-02, CONTRACT-01, OBS-01 | Phase 0b | Complete |
 | DNA-01 through DNA-04 | Phase 1 | Complete (01-01) |
 | DNA-05 | Phase 1 | Complete (01-02) |
 | SLOP-01, 03, 04, 06, 07, 08 | Phase 2 Plan 01 | Complete |
 | SLOP-02, SLOP-05 | Phase 2 Plan 02 | Complete |
 | MEM-01 through MEM-08 | Phase 3 | Complete |
-| MW-01 through MW-08 | Phase 4 | Pending |
+| MW-01 through MW-08 | Phase 4 + Phase 9 (logger fix) | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
 | PQC-01 through PQC-08 | Phase 6 | Pending |
 | ADAPT-01 through ADAPT-08 | Phase 7 | Pending |
@@ -135,6 +138,7 @@
 **Coverage:**
 - v1 requirements: 56 total
 - Mapped to phases: 56
+- Satisfied: 27/56 (FIX-02, FIX-03 pending gap closure)
 - Unmapped: 0
 
 ---
