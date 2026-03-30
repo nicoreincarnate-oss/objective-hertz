@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T00:31:55.613Z"
+last_updated: "2026-03-30T00:25:00Z"
 progress:
-  total_phases: 18
-  completed_phases: 5
-  total_plans: 12
-  completed_plans: 10
+  total_phases: 10
+  completed_phases: 7
+  total_plans: 14
+  completed_plans: 14
 ---
 
 # Project State
@@ -21,9 +21,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Phase
 
-**Phase:** 5 — RLM Recursive Context Retrieval
-**Status:** Executing Phase 06
-**Next action:** Execute Phase 06 (Post-Quantum Crypto)
+**Phase:** 6 — Post-Quantum Cryptography
+**Status:** Phase 06 Complete (1/1 plan)
+**Next action:** Execute Phase 07 (Adaptive Thresholds)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -46,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
-| 6 | Post-Quantum Crypto | Planned | phases/6/PLAN.md | 9.0 |
+| 6 | Post-Quantum Crypto | Complete (1/1 plan) | phases/06-post-quantum-crypto/ | 9.0 |
 | 7 | Adaptive Thresholds | Planned | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
@@ -137,6 +137,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **05-02:** Shadow mode stores original email (safe), logs RLM comparison in events table
 - **05-02:** RLM failure or budget exceeded falls back to original compose path
 - **05-02:** A/B comparison data stored as rlm_ab_comparison events for dashboard analysis
+- **06-01:** PQC libs unavailable on ARM64; proceed with cryptography library fallback (AES-256-GCM + Ed25519)
+- **06-01:** Code structured for drop-in PQC upgrade when ARM64 wheels ship
+- **06-01:** Bootstrap keys (CONWAY_KEYSTORE_PASSWORD, PQC_ENABLED) stored plaintext in SecureConfig
+- **06-01:** Combined PQCCryptoProvider satisfies CryptoProvider Protocol from shared/contracts.py
 
 ## Performance Metrics
 
@@ -153,8 +157,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 04-02 | 8min | 2 | 3 |
 | 05-01 | 2min | 5 | 2 |
 | 05-02 | 5min | 3 | 2 |
+| 06-01 | 5min | 6 | 4 |
 
 ---
+*State updated: 2026-03-30 -- Phase 06 complete (PQC core, SecureConfig, migration 022, key derivation, key rotation)*
 *State updated: 2026-03-30 -- Phase 05 complete (shadow A/B, system_config toggle, 26 tests)*
 *State updated: 2026-03-30 -- Phase 05 Plan 01 complete (RLM composer, Mem0/Qdrant, budget caps, migration 021)*
 *State updated: 2026-03-29 -- Phase 04 Plan 02 complete (engine integration + 42 tests)*

@@ -72,13 +72,13 @@
 
 ### Post-Quantum Crypto (Phase 6)
 
-- [ ] **PQC-01**: ARM64 validation spike
-- [ ] **PQC-02**: Hybrid ML-KEM-768 + AES-256
-- [ ] **PQC-03**: ML-DSA-65 transaction signatures
-- [ ] **PQC-04**: SecureConfig for .env encryption
-- [ ] **PQC-05**: Dual-key migration table
-- [ ] **PQC-06**: Per-agent key derivation
-- [ ] **PQC-07**: Key rotation mechanism
+- [x] **PQC-01**: ARM64 validation spike
+- [x] **PQC-02**: Hybrid ML-KEM-768 + AES-256
+- [x] **PQC-03**: ML-DSA-65 transaction signatures
+- [x] **PQC-04**: SecureConfig for .env encryption
+- [x] **PQC-05**: Dual-key migration table
+- [x] **PQC-06**: Per-agent key derivation
+- [x] **PQC-07**: Key rotation mechanism
 - [ ] **PQC-08**: Feature flag with rollback
 
 ### Adaptive Thresholds (Phase 7)
@@ -131,7 +131,8 @@
 | MEM-01 through MEM-08 | Phase 3 | Complete |
 | MW-01 through MW-08 | Phase 4 + Phase 9 (logger fix) | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
-| PQC-01 through PQC-08 | Phase 6 | Pending |
+| PQC-01 through PQC-07 | Phase 6 Plan 01 | Complete |
+| PQC-08 | Phase 6 Plan 02 | Pending |
 | ADAPT-01 through ADAPT-08 | Phase 7 | Pending |
 | NEURO-01 through NEURO-10 | Phase 8 | Pending |
 

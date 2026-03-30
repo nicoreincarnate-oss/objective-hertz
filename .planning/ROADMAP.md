@@ -124,7 +124,9 @@ Plans:
 - Dual-key period: both legacy and PQ keys work simultaneously
 - Key rotation produces new PQ keys without losing funds
 - .env secrets encrypted at rest via SecureConfig
-**Status:** Not started
+Plans:
+- [x] 06-01-PLAN.md -- PQC Core + SecureConfig + Migration (PQC-01, PQC-02, PQC-03, PQC-04, PQC-05, PQC-06, PQC-07)
+**Status:** ✅ Complete (2026-03-30) -- ARM64 spike passed (fallback), 4 files created, all acceptance criteria verified
 
 ## Phase 7: Adaptive Thresholds (Self-Modifying Expansion)
 **Goal:** Titan's expansion engine uses learnable thresholds that evolve from pipeline outcomes instead of hardcoded values.
