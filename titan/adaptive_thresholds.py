@@ -368,6 +368,69 @@ async def run_daily_training() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Backtest — replay historical outcomes through adaptive vs hardcoded
+# ---------------------------------------------------------------------------
+
+
+def backtest_adaptive_vs_hardcoded(
+    outcomes: list[tuple[str, float]],
+    decision_boundary: float = 0.5,
+) -> dict[str, dict[str, int | float]]:
+    """Compare adaptive bandit vs hardcoded thresholds on historical data.
+
+    Replays *outcomes* (same format as ``collect_training_signal`` returns)
+    through two decision paths:
+
+    * **Hardcoded:** normalise ``AdaptiveThresholds._default_for(name)`` by
+      dividing by ``_SCALE[name]`` and compare against *decision_boundary*.
+    * **Adaptive:** maintain a fresh ``BetaBandit`` per threshold that learns
+      as it replays, sampling before each decision and updating afterwards.
+
+    Returns ``{"hardcoded": {...}, "adaptive": {...}}`` where each dict has
+    keys ``correct`` (int), ``total`` (int), ``accuracy`` (float).
+    """
+    # Fresh bandits for adaptive path (no DB, pure in-memory)
+    bandits: dict[str, BetaBandit] = {}
+
+    hardcoded_correct = 0
+    adaptive_correct = 0
+    total = 0
+
+    for name, outcome in outcomes:
+        total += 1
+
+        # --- Hardcoded path ---
+        default_val = AdaptiveThresholds._default_for(name)
+        scale = AdaptiveThresholds._SCALE.get(name, 1.0)
+        normalised = default_val / scale if scale != 0 else 0.0
+        hardcoded_pred = 1 if normalised >= decision_boundary else 0
+        if hardcoded_pred == int(outcome):
+            hardcoded_correct += 1
+
+        # --- Adaptive path ---
+        if name not in bandits:
+            bandits[name] = BetaBandit(name=name, alpha=DEFAULT_ALPHA, beta=DEFAULT_BETA)
+        sampled = bandits[name].sample()
+        adaptive_pred = 1 if sampled >= decision_boundary else 0
+        if adaptive_pred == int(outcome):
+            adaptive_correct += 1
+        bandits[name].update(outcome)
+
+    return {
+        "hardcoded": {
+            "correct": hardcoded_correct,
+            "total": total,
+            "accuracy": hardcoded_correct / total if total else 0.0,
+        },
+        "adaptive": {
+            "correct": adaptive_correct,
+            "total": total,
+            "accuracy": adaptive_correct / total if total else 0.0,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # ExperimentManager — concurrent A/B shadow experiments (ADAPT-05)
 # ---------------------------------------------------------------------------
 

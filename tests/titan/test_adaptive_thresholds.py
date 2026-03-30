@@ -25,6 +25,7 @@ from titan.adaptive_thresholds import (
     AdaptiveThresholds,
     BetaBandit,
     ExperimentManager,
+    backtest_adaptive_vs_hardcoded,
     collect_training_signal,
     is_enabled,
     run_daily_training,
@@ -542,6 +543,50 @@ class TestThresholdNames:
             "missing_email_threshold",
         }
         assert set(THRESHOLD_NAMES) == expected
+
+
+# ---------------------------------------------------------------------------
+# Backtest tests (07-03 gap closure)
+# ---------------------------------------------------------------------------
+
+
+class TestBacktest:
+    """Test backtest comparing adaptive vs hardcoded thresholds."""
+
+    def test_backtest_adaptive_beats_hardcoded(self):
+        """Adaptive path should match or beat hardcoded on 200+ replayed outcomes."""
+        import numpy as np
+
+        np.random.seed(42)
+
+        # Generate 200 historical outcomes with 70% conversion rate
+        outcomes = []
+        for _ in range(200):
+            for name in THRESHOLD_NAMES:
+                outcome = 1.0 if np.random.random() < 0.7 else 0.0
+                outcomes.append((name, outcome))
+
+        result = backtest_adaptive_vs_hardcoded(outcomes)
+        assert result["adaptive"]["accuracy"] >= result["hardcoded"]["accuracy"], (
+            f"Adaptive ({result['adaptive']['accuracy']:.3f}) should >= "
+            f"hardcoded ({result['hardcoded']['accuracy']:.3f})"
+        )
+        assert result["adaptive"]["total"] == len(outcomes)
+        assert result["hardcoded"]["total"] == len(outcomes)
+
+    def test_backtest_empty_outcomes(self):
+        """Empty outcomes returns zero counts."""
+        result = backtest_adaptive_vs_hardcoded([])
+        assert result["adaptive"]["total"] == 0
+        assert result["hardcoded"]["total"] == 0
+
+    def test_backtest_returns_expected_keys(self):
+        """Result dict has the expected structure."""
+        result = backtest_adaptive_vs_hardcoded([("reply_rate_threshold", 1.0)])
+        for path in ("adaptive", "hardcoded"):
+            assert "correct" in result[path]
+            assert "total" in result[path]
+            assert "accuracy" in result[path]
 
 
 # ---------------------------------------------------------------------------
