@@ -52,6 +52,8 @@ SCHEDULES = [
     Schedule("graphrag_consolidation", 604800, "Weekly memory consolidation", skippable=False),
     Schedule("re_enrich_leads", 86400, "Re-enrich active leads with fresh data", skippable=True, pipeline_stage="top_of_funnel"),
     Schedule("magma_consolidate", 1800, "MAGMA causal graph consolidation", skippable=True, pipeline_stage="learning"),
+    # Adaptive thresholds (Phase 7)
+    Schedule("bandit_training", 86400, "Daily bandit training from pipeline outcomes", skippable=False, pipeline_stage="learning"),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}
