@@ -89,8 +89,8 @@
 - [x] **ADAPT-04**: Warm-start with current priors
 - [x] **ADAPT-05**: Concurrent A/B experiments
 - [x] **ADAPT-06**: meta_evaluations table
-- [ ] **ADAPT-07**: Feature flag
-- [ ] **ADAPT-08**: CC BY-NC-SA compliance verification
+- [x] **ADAPT-07**: Feature flag
+- [x] **ADAPT-08**: CC BY-NC-SA compliance verification
 
 ### Phase 8: TRIBE v2 Neuro-Scorer
 
@@ -134,7 +134,7 @@
 | PQC-01 through PQC-07 | Phase 6 Plan 01 | Complete |
 | PQC-08 | Phase 6 Plan 02 | Complete |
 | ADAPT-01 through ADAPT-06 | Phase 7 Plan 01 | Complete |
-| ADAPT-07 through ADAPT-08 | Phase 7 Plan 02 | Pending |
+| ADAPT-07 through ADAPT-08 | Phase 7 Plan 02 | Complete |
 | NEURO-01 through NEURO-10 | Phase 8 | Pending |
 
 **Coverage:**

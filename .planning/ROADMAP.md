@@ -140,7 +140,10 @@ Plans:
 - meta_evaluations table logs every criteria change with rationale
 - Concurrent experiments: 2+ shadow experiments run simultaneously
 - Zero HyperAgents code or artifacts in production paths (license audit)
-**Status:** In Progress (1/2 plans) -- Plan 01 complete: Thompson sampling bandits, migration 023, 41 tests
+Plans:
+- [x] 07-01-PLAN.md -- Thompson sampling bandits, DB persistence, training signal, experiments, migration 023 (ADAPT-01 through ADAPT-06)
+- [x] 07-02-PLAN.md -- Expansion wiring + License audit + Tests (ADAPT-07, ADAPT-08) -- 48 tests, bandit scaling fix
+**Status:** Complete (2026-03-30) -- 2/2 plans, 48 tests, expansion integration verified
 
 ## Phase 8: TRIBE v2 Neuro-Scorer
 **Goal:** Predict neural activation across 4 cognitive dimensions for every outbound email/site/message. Gate low-scoring drafts. Build closed-loop learning correlating brain predictions with conversion outcomes.

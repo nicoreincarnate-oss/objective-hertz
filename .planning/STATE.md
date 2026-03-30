@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T01:02:37.938Z"
+last_updated: "2026-03-30T01:07:36.000Z"
 progress:
   total_phases: 11
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 1
+  completed_phases: 7
+  total_plans: 15
+  completed_plans: 15
 ---
 
 # Project State
@@ -21,9 +21,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Phase
 
-**Phase:** 6 — Post-Quantum Cryptography
-**Status:** Executing Phase 07 (Plan 01 Complete)
-**Next action:** Execute Plan 07-02 (Feature Flag + Expansion Wiring)
+**Phase:** 7 — Adaptive Thresholds
+**Status:** Phase 07 Complete (2/2 plans)
+**Next action:** Execute Phase 08 (TRIBE v2 Neuro-Scorer)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -47,7 +47,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Complete (2/2 plans) | phases/06-post-quantum-crypto/ | 9.0 |
-| 7 | Adaptive Thresholds | In Progress (1/2 plans) | phases/7/PLAN.md | 9.4 |
+| 7 | Adaptive Thresholds | Complete (2/2 plans) | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
 
@@ -148,6 +148,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **07-01:** ExperimentManager stores experiment data in meta_evaluations table (single audit surface)
 - **07-01:** Training signal uses clients table status transitions (binary: converted vs lost/stale)
 - **07-01:** Warm-start Beta(10,2): ~50 observations to wash out prior (avoids cold-start randomness)
+- **07-02:** Bandit samples scaled to natural metric ranges inside get_threshold (not at call site)
+- **07-02:** License audit excludes compliance comments like "zero HyperAgents code"
+- **07-02:** Feature flag import deferred inside if-block to avoid loading adaptive code when off
 
 ## Performance Metrics
 
@@ -167,8 +170,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 06-01 | 5min | 6 | 4 |
 | 06-02 | 5min | 2 | 6 |
 | 07-01 | 6min | 6 | 4 |
+| 07-02 | 5min | 3 | 4 |
 
 ---
+*State updated: 2026-03-30 -- Phase 07 complete (expansion wiring, license audit, 48 tests, bandit scaling fix)*
 *State updated: 2026-03-30 -- Phase 07 Plan 01 complete (Thompson sampling bandits, migration 023, 41 tests)*
 *State updated: 2026-03-30 -- Phase 06 Plan 02 complete (wallet PQC integration, 73 tests, from_raw_bytes bug fix)*
 *State updated: 2026-03-30 -- Phase 06 complete (PQC core, SecureConfig, migration 022, key derivation, key rotation)*
@@ -180,4 +185,3 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
-| Phase 07 P01 | 3min | 6 tasks | 3 files |
