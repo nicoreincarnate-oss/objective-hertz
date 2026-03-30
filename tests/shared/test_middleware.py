@@ -210,8 +210,7 @@ class TestDNAGuardMiddleware:
     """Test DNA guard middleware for tool permission enforcement."""
 
     def test_flag_off_passes_through(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ENABLE_DNA_PROFILES", None)
+        with patch.dict(os.environ, {"ENABLE_DNA_PROFILES": "false"}):
             result = _run(dna_guard_middleware(
                 {"daemon_name": "titan", "stage_name": "test", "tools": ["browser"]},
                 _identity_handler,

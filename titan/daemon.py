@@ -33,6 +33,24 @@ from titan.training import run_lora_training
 
 logger = setup_logging("titan")
 
+# Middleware chain — wraps pipeline stage invocations with security,
+# budget, quality, and telemetry layers (AEGIS finding F-DA-002).
+_middleware_chain = None
+
+
+def _get_middleware_chain():
+    """Lazy-init the middleware chain for Titan pipeline stages."""
+    global _middleware_chain
+    if _middleware_chain is None:
+        try:
+            from shared.middleware import build_chain
+            _middleware_chain = build_chain("titan")
+            logger.info("Middleware chain initialized: %d layers", len(_middleware_chain._middlewares))
+        except Exception as e:
+            logger.warning("Failed to initialize middleware chain: %s — running unprotected", e)
+            _middleware_chain = None
+    return _middleware_chain
+
 
 async def _handle_health_check():
     """System-wide health check — verify all agents are alive, emit status."""
@@ -267,35 +285,53 @@ class TitanDaemon(AgentBase):
     async def _invoke_handler(self, handler, task_type: str, payload: dict) -> None:
         """Call a task handler, forwarding payload parameters it accepts.
 
-        Inspects the handler's signature and passes matching keys from
-        the task payload as keyword arguments. This ensures callers who
-        set batch_size, overrides, or other params in the payload actually
-        have them honored instead of silently dropped.
+        Wraps execution through the middleware chain (budget, DNA guard,
+        anti-slop, neuro-scorer, memory, telemetry) when ENABLE_MIDDLEWARE
+        is active. Falls back to direct invocation if middleware unavailable.
         """
         import inspect
 
         if task_type == "titan_operator_message":
-            # Operator messages pass the full payload as a single arg
             await handler(payload)
             return
 
-        if not payload:
-            await handler()
-            return
+        # Build the core invocation (with parameter forwarding)
+        async def _core_invoke(_ctx: dict) -> dict:
+            if not payload:
+                await handler()
+            else:
+                try:
+                    sig = inspect.signature(handler)
+                    accepted = set(sig.parameters.keys())
+                    kwargs = {k: v for k, v in payload.items() if k in accepted}
+                except (ValueError, TypeError):
+                    kwargs = {}
 
-        # Match payload keys to handler parameters
-        try:
-            sig = inspect.signature(handler)
-            accepted = set(sig.parameters.keys())
-            kwargs = {k: v for k, v in payload.items() if k in accepted}
-        except (ValueError, TypeError):
-            kwargs = {}
+                if kwargs:
+                    logger.debug("Forwarding payload params to %s: %s", task_type, list(kwargs.keys()))
+                    await handler(**kwargs)
+                else:
+                    await handler()
 
-        if kwargs:
-            logger.debug(f"Forwarding payload params to {task_type}: {list(kwargs.keys())}")
-            await handler(**kwargs)
+            return {"success": True, "output": f"{task_type} completed"}
+
+        # Route through middleware chain if available
+        chain = _get_middleware_chain()
+        if chain and chain._middlewares:
+            ctx = {
+                "daemon_name": "titan",
+                "stage_name": task_type,
+                "pipeline": "titan",
+                "tools": [],
+                "payload": payload,
+            }
+            try:
+                await chain.execute(ctx, _core_invoke)
+            except Exception as e:
+                logger.warning("Middleware chain error for %s (falling back to direct): %s", task_type, e)
+                await _core_invoke({})
         else:
-            await handler()
+            await _core_invoke({})
 
     async def _consume_recommendations(self) -> None:
         """Read and ACT on recommendations from other agents."""

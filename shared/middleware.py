@@ -34,8 +34,11 @@ NextFn = Callable[[dict[str, Any]], Awaitable[StageResult]]
 
 
 def _flag(name: str) -> bool:
-    """Check if an env-based feature flag is active."""
-    return os.environ.get(name, "").lower() in ("true", "1", "yes")
+    """Check if an env-based feature flag is active.
+
+    Defaults to TRUE for security-critical flags — explicitly set to "false" to disable.
+    """
+    return os.environ.get(name, "true").lower() in ("true", "1", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +121,14 @@ def build_chain(pipeline_name: str) -> MiddlewareChain:
         names = PIPELINE_CONFIGS.get(pipeline_name, ["telemetry"])
 
     _validate_ordering(names, pipeline_name)
+
+    if not _flag("ENABLE_MIDDLEWARE"):
+        logger.warning(
+            "ENABLE_MIDDLEWARE is OFF — all middleware protections are disabled. "
+            "Set ENABLE_MIDDLEWARE=true to activate budget checks, credential scanning, "
+            "and telemetry."
+        )
+        return MiddlewareChain()  # empty chain — passes through directly
 
     chain = MiddlewareChain()
     for name in names:
