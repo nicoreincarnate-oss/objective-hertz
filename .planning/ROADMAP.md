@@ -202,6 +202,7 @@ Phase 0a ──→ Phase 1 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5
 Phase 4 ──→ Phase 7 (needs telemetry data)
 Phase 2 + Phase 4 ──→ Phase 8 (neuro-scorer)
 Phase 7 ──→ Phase 8 (soft: bandit manages neuro gates)
+Phase 2 + Phase 4 ──→ Phase 10 (site builder pipeline)
 ```
 
 ## Feature Flags Summary
@@ -219,20 +220,22 @@ Phase 7 ──→ Phase 8 (soft: bandit manages neuro gates)
 
 ### Phase 10: 21st.dev + Recraft Pipeline Integration
 
-**Goal:** Wire real 21st.dev component library (via @21st-dev/magic MCP) and Recraft image generation into ClawdBot site builder. Replace text-only prompt references with actual component fetching, adaptation, and injection.
+**Goal:** Wire real 21st.dev component library (via REST API) and Recraft image generation into ClawdBot site builder. Replace text-only prompt references with actual component fetching, adaptation, and injection.
 **Requirements**: TWENTY1-01, TWENTY1-02, TWENTY1-03, RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02
 **Feature flag:** N/A (pipeline infrastructure)
 **Depends on:** Phase 2 (anti-slop), Phase 4 (middleware)
 **Success criteria:**
-- 21st.dev MCP configured and queryable from site builder
+- 21st.dev REST API configured and queryable from site builder
 - Real component code injected into variant prompts (not just text references)
 - Recraft generates logo + hero images with budget tracking
-- Full pipeline runs: strategy → assets → 5 variants → Opus review → synthesis → anti-slop → deploy
+- Full pipeline runs: strategy -> assets -> 5 variants -> Opus review -> synthesis -> anti-slop -> deploy
 - Built sites score higher on site_quality QA than text-reference-only builds
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 10 to break down)
+- [ ] 10-01-PLAN.md -- 21st.dev REST client + design_sources enrichment (TWENTY1-01, TWENTY1-02, TWENTY1-03)
+- [ ] 10-02-PLAN.md -- Pipeline wiring + Recraft verification + quality comparison (RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02)
 
 ---
 *Roadmap created: 2026-03-29 via mega-plan pipeline (full scope, Approach A with Beta corrections)*
+*Phase 10 planned: 2026-03-30 — 2 plans in 2 waves*
