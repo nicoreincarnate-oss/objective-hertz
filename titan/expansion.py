@@ -60,6 +60,11 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
         proposal_threshold = at.get_threshold("proposal_backlog_threshold") * 5.0  # ~3.0 default
         uninvoiced_threshold = at.get_threshold("uninvoiced_threshold") * 5.0  # ~2.0 default
         missing_email_threshold = at.get_threshold("missing_email_threshold") * 15.0  # ~10.0 default
+        logger.info(
+            "Bandit thresholds: reply=%.2f interest=%.2f proposal=%.2f uninvoiced=%.2f missing_email=%.2f",
+            reply_threshold, interest_threshold, proposal_threshold,
+            uninvoiced_threshold, missing_email_threshold,
+        )
     else:
         # Original hardcoded values
         reply_threshold = 1.5
