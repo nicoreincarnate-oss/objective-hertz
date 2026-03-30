@@ -79,14 +79,15 @@ TITAN_MIDDLEWARE = [
     "budget_check",
     "dna_guard",
     "anti_slop",
+    "neuro_scorer",
     "memory",
     "telemetry",
 ]
 
 PIPELINE_CONFIGS: dict[str, list[str]] = {
     "titan": list(TITAN_MIDDLEWARE),
-    "clawdbot": ["budget_check", "dna_guard", "anti_slop", "telemetry"],
-    "hermes": ["budget_check", "dna_guard", "telemetry"],
+    "clawdbot": ["budget_check", "dna_guard", "anti_slop", "neuro_scorer", "telemetry"],
+    "hermes": ["budget_check", "dna_guard", "neuro_scorer", "telemetry"],
     "perseus": ["budget_check", "telemetry"],
 }
 
@@ -288,6 +289,47 @@ async def anti_slop_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
 
 
 # ---------------------------------------------------------------------------
+# NeuroScorer Middleware (Phase 8 — NEURO-06)
+# ---------------------------------------------------------------------------
+
+# Content-producing stages eligible for neuro-scoring
+_NEURO_CONTENT_STAGES = frozenset({"email_compose", "site_build", "follow_up", "alert_compose"})
+
+
+async def neuro_scorer_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Score content-producing stages with TRIBE v2 neuro-scorer.
+
+    Feature-flag gated by ``ENABLE_NEURO_SCORER``.
+    Non-content stages pass through. Scores attached to result for downstream use.
+    Alert stages use relaxed thresholds (informational only).
+    """
+    if not _flag("ENABLE_NEURO_SCORER"):
+        return await next_fn(ctx)
+
+    stage = ctx.get("stage_name", "")
+
+    # Non-content stages pass through
+    if stage not in _NEURO_CONTENT_STAGES:
+        return await next_fn(ctx)
+
+    result = await next_fn(ctx)
+
+    if result.get("success") and result.get("output"):
+        try:
+            from titan.neuro.neuro_scorer import NeuroScorer
+
+            scorer = NeuroScorer()
+            neuro = await scorer.score(str(result["output"]))
+            result["neuro_scores"] = neuro.to_dict()
+        except ImportError:
+            logger.debug("NeuroScorer not available for middleware scoring")
+        except Exception as exc:
+            logger.warning("Neuro-scorer middleware failed (non-fatal): %s", exc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Task 6: TelemetryMiddleware (MW-06, MW-07)
 # ---------------------------------------------------------------------------
 
@@ -371,6 +413,7 @@ MIDDLEWARE_REGISTRY.update(
         "budget_check": budget_check_middleware,
         "dna_guard": dna_guard_middleware,
         "anti_slop": anti_slop_middleware,
+        "neuro_scorer": neuro_scorer_middleware,
         "memory": memory_middleware,
         "telemetry": telemetry_middleware,
     }
@@ -392,5 +435,6 @@ __all__ = [
     "build_chain",
     "dna_guard_middleware",
     "memory_middleware",
+    "neuro_scorer_middleware",
     "telemetry_middleware",
 ]
