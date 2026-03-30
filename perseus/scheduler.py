@@ -54,6 +54,9 @@ SCHEDULES = [
     Schedule("magma_consolidate", 1800, "MAGMA causal graph consolidation", skippable=True, pipeline_stage="learning"),
     # Adaptive thresholds (Phase 7)
     Schedule("bandit_training", 86400, "Daily bandit training from pipeline outcomes", skippable=False, pipeline_stage="learning"),
+    # Neuro-scorer learning loop (Phase 8)
+    Schedule("neural_reflection", 86400, "Daily neuro-score correlation analysis (3am)", skippable=False, pipeline_stage="learning"),
+    Schedule("segment_profiles", 604800, "Weekly neural segment profiles (Sunday 4am)", skippable=False, pipeline_stage="learning"),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}
