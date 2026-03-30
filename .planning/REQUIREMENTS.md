@@ -79,7 +79,7 @@
 - [x] **PQC-05**: Dual-key migration table
 - [x] **PQC-06**: Per-agent key derivation
 - [x] **PQC-07**: Key rotation mechanism
-- [ ] **PQC-08**: Feature flag with rollback
+- [x] **PQC-08**: Feature flag with rollback
 
 ### Adaptive Thresholds (Phase 7)
 
@@ -132,7 +132,7 @@
 | MW-01 through MW-08 | Phase 4 + Phase 9 (logger fix) | Pending |
 | RLM-01 through RLM-07 | Phase 5 | Pending |
 | PQC-01 through PQC-07 | Phase 6 Plan 01 | Complete |
-| PQC-08 | Phase 6 Plan 02 | Pending |
+| PQC-08 | Phase 6 Plan 02 | Complete |
 | ADAPT-01 through ADAPT-08 | Phase 7 | Pending |
 | NEURO-01 through NEURO-10 | Phase 8 | Pending |
 
