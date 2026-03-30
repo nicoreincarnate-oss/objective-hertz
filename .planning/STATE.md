@@ -8,7 +8,7 @@ progress:
   total_phases: 21
   completed_phases: 8
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -170,6 +170,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **10-01:** Component code framed as structural inspiration with React/TSX adaptation rule
 - **10-01:** _fetch_component thin wrapper enables clean test mocking without httpx internals
 
+- **10-02:** Async _resolve_design_sources_async wraps enriched call with sync fallback for resilience
+- **10-02:** Component snippets extracted from design_sources in build_plan, formatted as COMPONENT PATTERNS block
+- **10-02:** design_sources key added to _resolve_build_plan return dict to carry snippets through pipeline
+- **10-02:** Component blocks truncated to 1200 chars each to prevent prompt bloat
+
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
@@ -193,8 +198,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 07-03 | 2min | 2 | 2 |
 | 08-02 | 8min | 4 | 5 |
 | 10-01 | 2min | 2 | 4 |
+| 10-02 | 5min | 2 | 4 |
 
 ---
+*State updated: 2026-03-30 -- Phase 10 Plan 02 complete (pipeline integration: enriched components in variant prompts, Recraft budget tests, quality comparison, 29 tests)*
 *State updated: 2026-03-30 -- Phase 10 Plan 01 complete (21st.dev REST client + design_sources.py async enrichment, 15 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 02 complete (pipeline integration: neural gating in email compose, neuro_scorer_middleware, scheduler jobs, 58 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 01 complete (neuro-scorer core: TribeService, ROIExtractor, RunningNormalizer, NeuroScorer, learning loop, migration 024)*
