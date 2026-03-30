@@ -164,7 +164,9 @@ Plans:
 - Segment-specific neural profiles computed after 100+ emails per segment
 - All content types scored: emails, site copy, follow-ups, alerts
 Plans: 2 (08-01: Core + ROI + Learning, 08-02: Pipeline Integration + Tests)
-**Status:** Executing (1/2 plans complete)
+- [x] 08-01-PLAN.md -- NeuroScorer core: TribeService, ROIExtractor, RunningNormalizer, learning loop, migration 024
+- [x] 08-02-PLAN.md -- Pipeline integration: neural gating, neuro_scorer_middleware, scheduler jobs, 58 tests
+**Status:** Complete (2/2 plans)
 
 ## Phase 9: Audit Gap Closure + Integration Fixes
 **Goal:** Fix all gaps identified by v1.0 milestone audit — broken test fixtures, missing logger, unwired memory cleanup handler, and checkbox drift.

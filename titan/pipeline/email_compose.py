@@ -8,6 +8,13 @@ RLM Integration (Phase 5):
   - RLM_ENABLED + no shadow → full RLM compose (recursive draft-evaluate-refine)
   - RLM disabled → original single-pass compose
   Feature flags checked from system_config (runtime toggle) with env var fallback.
+
+Neuro-Scorer Integration (Phase 8):
+  - ENABLE_NEURO_SCORER → score every email on 4 cognitive dimensions
+  - First 100 scored emails: log only (no gating)
+  - After 100: gate low-scoring drafts, re-draft with dimension-specific guidance
+  - Max 2 re-draft attempts per email
+  - Scores stored as JSONB in email_sequences.neuro_scores
 """
 import json
 import logging
@@ -27,7 +34,7 @@ from shared.anti_slop import (
 from shared.anti_slop import (
     is_enabled as anti_slop_enabled,
 )
-from shared.db import fetch_all, fetch_one, get_config
+from shared.db import execute, fetch_all, fetch_one, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from shared.skill_loader import execute_skill, find_skill
@@ -109,6 +116,216 @@ async def set_rlm_shadow_mode(enabled: bool) -> None:
     from shared.db import set_config
     await set_config("rlm_shadow_mode", enabled)
     logger.info("RLM shadow mode set to %s via system_config", enabled)
+
+
+# ---------------------------------------------------------------------------
+# Neuro-Scorer Integration (Phase 8) — neural gating + dimension guidance
+# ---------------------------------------------------------------------------
+
+# Dimension-specific guidance for re-drafting weak dimensions
+NEURAL_GUIDANCE = {
+    "self_relevance": "Reference their specific business name, location, and situation. "
+                      "Use 'you' and 'your'. Connect to their daily reality.",
+    "trust": "Use peer-to-peer tone. Cite a specific fact from research. "
+             "Mention a real detail only someone who looked at their business would know.",
+    "cognitive_ease": "Shorter sentences. Single clear CTA. Remove jargon. "
+                      "One idea per paragraph. Under 80 words total.",
+    "emotional_resonance": "Connect to a real aspiration (growth, freedom, reputation) "
+                           "or pain point (losing customers, wasting time). Be specific, not generic.",
+}
+
+# Log-only phase: first N scored emails are scored but not gated
+_NEURO_GATE_THRESHOLD_COUNT = 100
+# Composite score below this triggers re-draft (after log-only phase)
+_NEURO_COMPOSITE_GATE = 0.40
+# Per-dimension threshold for identifying weak dimensions
+_NEURO_DIM_WEAK = 0.40
+# Max re-draft attempts
+_NEURO_MAX_REDRAFTS = 2
+
+
+def _is_neuro_enabled() -> bool:
+    """Check if neuro-scorer is active via feature flag."""
+    return os.environ.get("ENABLE_NEURO_SCORER", "").lower() in ("true", "1")
+
+
+def _build_neural_guidance(weak_dims: list[str]) -> str:
+    """Build dimension-specific guidance prompt for weak dimensions."""
+    parts = []
+    for dim in weak_dims:
+        if dim in NEURAL_GUIDANCE:
+            parts.append(f"- {dim.upper()}: {NEURAL_GUIDANCE[dim]}")
+    if not parts:
+        return ""
+    return "NEURAL IMPROVEMENT GUIDANCE (strengthen these dimensions):\n" + "\n".join(parts)
+
+
+async def _neuro_score_and_gate(
+    subject: str,
+    body: str,
+    lead: dict,
+    seq_id: int | str | None,
+    soul_copy: str = "",
+    learned_tips: str = "",
+    rules_block: str = "",
+) -> tuple[str, str]:
+    """Score email with NeuroScorer and optionally gate/re-draft.
+
+    Returns (final_subject, final_body) — may be re-drafted if gating is active.
+    Stores neuro_scores in email_sequences when seq_id is provided.
+    """
+    if not _is_neuro_enabled():
+        return subject, body
+
+    try:
+        from titan.neuro.neuro_scorer import NeuroScorer
+    except ImportError:
+        logger.debug("NeuroScorer not available, skipping neural scoring")
+        return subject, body
+
+    try:
+        scorer = NeuroScorer()
+        neuro = await scorer.score(body)
+    except Exception as exc:
+        logger.warning("Neuro scoring failed (non-fatal): %s", exc)
+        return subject, body
+
+    # Store scores on the email sequence row
+    if seq_id:
+        try:
+            await execute(
+                "UPDATE email_sequences SET neuro_scores = %s::jsonb WHERE id = %s",
+                (json.dumps(neuro.to_dict()), seq_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to store neuro_scores for seq %s: %s", seq_id, exc)
+
+    # Check how many emails have been scored so far
+    try:
+        count_row = await fetch_one(
+            "SELECT COUNT(*) as n FROM email_sequences WHERE neuro_scores IS NOT NULL"
+        )
+        scored_count = int(count_row["n"]) if count_row else 0
+    except Exception:
+        scored_count = 0
+
+    # Log-only phase: first N emails just get scored, no gating
+    if scored_count <= _NEURO_GATE_THRESHOLD_COUNT:
+        logger.info(
+            "Neuro score for lead %s: composite=%.3f (log-only, %d/%d to gate)",
+            lead.get("id", "?"),
+            neuro.composite,
+            scored_count,
+            _NEURO_GATE_THRESHOLD_COUNT,
+        )
+        return subject, body
+
+    # Gating phase: re-draft if composite is too low
+    if neuro.composite >= _NEURO_COMPOSITE_GATE:
+        logger.info(
+            "Neuro score for lead %s: composite=%.3f (passed gate)",
+            lead.get("id", "?"),
+            neuro.composite,
+        )
+        return subject, body
+
+    # Identify weak dimensions and re-draft
+    weak_dims = [
+        d for d in ["self_relevance", "trust", "cognitive_ease", "emotional_resonance"]
+        if getattr(neuro, d) < _NEURO_DIM_WEAK
+    ]
+    guidance = _build_neural_guidance(weak_dims)
+
+    if not guidance:
+        return subject, body
+
+    logger.info(
+        "Neuro gating lead %s: composite=%.3f, weak=%s — re-drafting",
+        lead.get("id", "?"),
+        neuro.composite,
+        weak_dims,
+    )
+
+    best_body = body
+    best_neuro = neuro
+
+    for attempt in range(_NEURO_MAX_REDRAFTS):
+        try:
+            redrafted = await _redraft_with_neural_guidance(
+                best_body, guidance, lead, soul_copy, learned_tips, rules_block
+            )
+            if not redrafted:
+                break
+
+            neuro2 = await scorer.score(redrafted)
+            if neuro2.composite > best_neuro.composite:
+                best_body = redrafted
+                best_neuro = neuro2
+                logger.info(
+                    "Neuro re-draft %d for lead %s: composite %.3f -> %.3f",
+                    attempt + 1,
+                    lead.get("id", "?"),
+                    neuro.composite,
+                    neuro2.composite,
+                )
+            else:
+                break  # No improvement, stop re-drafting
+        except Exception as exc:
+            logger.warning("Neuro re-draft attempt %d failed: %s", attempt + 1, exc)
+            break
+
+    # Update stored scores with the best version
+    if seq_id and best_neuro is not neuro:
+        try:
+            await execute(
+                "UPDATE email_sequences SET neuro_scores = %s::jsonb WHERE id = %s",
+                (json.dumps(best_neuro.to_dict()), seq_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to update neuro_scores after re-draft: %s", exc)
+
+    return subject, best_body
+
+
+async def _redraft_with_neural_guidance(
+    body: str,
+    guidance: str,
+    lead: dict,
+    soul_copy: str = "",
+    learned_tips: str = "",
+    rules_block: str = "",
+) -> str:
+    """Re-draft email body with neural guidance for weak dimensions."""
+    model = _compose_model_for_lead(lead)
+    prompt = f"""You are Titan's email copywriter. Rewrite this cold outreach email
+to improve specific neural engagement dimensions.
+
+ORIGINAL EMAIL:
+{body}
+
+{guidance}
+
+CONTEXT:
+- Business: {lead.get('business_name', '')}
+- Industry: {lead.get('industry', '')}
+- Research: {lead.get('research_summary', 'N/A')[:300]}
+
+RULES:
+- Keep it under 150 words
+- Maintain the same offer and CTA
+- Improve ONLY the weak dimensions listed above
+- Return the rewritten body text only (no JSON, no subject)
+"""
+
+    try:
+        result = await llm.generate(prompt, model=model, temperature=0.7, use_dna=True, daemon_name="titan")
+        result = result.strip()
+        if len(result) < 30:
+            return ""
+        return result
+    except Exception as exc:
+        logger.warning("Neural re-draft LLM call failed: %s", exc)
+        return ""
 
 
 async def _log_ab_comparison(
@@ -276,6 +493,20 @@ async def _compose_with_rlm(
     if not row:
         logger.debug("Email step 1 already exists for lead %s, skipping", lead_id)
         return True  # Already drafted, not an error
+
+    # Neuro-scorer: score and optionally re-draft (Phase 8)
+    seq_id = row.get("id") if isinstance(row, dict) else row
+    subject, body = await _neuro_score_and_gate(
+        subject, body, lead, seq_id, soul_copy, learned_tips, rules_block
+    )
+    if _is_neuro_enabled():
+        try:
+            await execute(
+                "UPDATE email_sequences SET body = %s WHERE id = %s",
+                (body, seq_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to update re-drafted body: %s", exc)
 
     await transition_lead(lead_id, "email_drafted")
     logger.info(
@@ -566,6 +797,21 @@ Return JSON: {{"subject": "...", "body": "...", "personalization_note": "..."}}"
     if not row:
         logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
         return
+
+    # Neuro-scorer: score and optionally re-draft (Phase 8)
+    seq_id = row.get("id") if isinstance(row, dict) else row
+    subject, body = await _neuro_score_and_gate(
+        subject, body, lead, seq_id, soul_copy, learned_tips, rules_block
+    )
+    if _is_neuro_enabled():
+        try:
+            await execute(
+                "UPDATE email_sequences SET body = %s WHERE id = %s",
+                (body, seq_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to update re-drafted body: %s", exc)
+
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email via skill '{skill_name}' for lead {lead_id} (prompt_v={prompt_hash[:8]})")
 
@@ -650,6 +896,21 @@ Return JSON:
     if not row:
         logger.debug(f"Email step 1 already exists for lead {lead_id}, skipping")
         return
+
+    # Neuro-scorer: score and optionally re-draft (Phase 8)
+    seq_id = row.get("id") if isinstance(row, dict) else row
+    subject, body = await _neuro_score_and_gate(
+        subject, body, lead, seq_id, soul_copy, learned_tips, rules_block
+    )
+    # If body was re-drafted by neuro gating, update the stored email
+    if _is_neuro_enabled():
+        try:
+            await execute(
+                "UPDATE email_sequences SET body = %s WHERE id = %s",
+                (body, seq_id),
+            )
+        except Exception as exc:
+            logger.warning("Failed to update re-drafted body: %s", exc)
 
     await transition_lead(lead_id, "email_drafted")
     logger.info(f"Composed email for lead {lead_id}: {lead['business_name']} (prompt_v={prompt_hash[:8]})")
