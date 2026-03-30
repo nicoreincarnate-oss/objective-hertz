@@ -198,10 +198,10 @@ def test_resolve_design_sources_calls_enriched_version():
 
     lead = {"industry": "dentist"}
 
+    mock_enriched = AsyncMock(return_value=enriched_result)
     with patch(
-        "clawdbot.site_builder.resolve_design_sources_with_components",
-        new_callable=lambda: AsyncMock,
-        return_value=enriched_result,
+        "clawdbot.design_sources.resolve_design_sources_with_components",
+        mock_enriched,
     ):
         result = run(sb._resolve_design_sources_async(lead))
 
