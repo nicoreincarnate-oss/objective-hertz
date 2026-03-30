@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T01:09:39.000Z"
+last_updated: "2026-03-30T01:19:37Z"
 progress:
-  total_phases: 11
-  completed_phases: 7
-  total_plans: 15
+  total_phases: 20
+  completed_phases: 6
+  total_plans: 17
   completed_plans: 15
 ---
 
@@ -17,12 +17,12 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 07 — adaptive-thresholds
+**Current focus:** Phase 08 — TRIBE v2 Neuro-Scorer
 
 ## Current Phase
 
 **Phase:** 7 — Adaptive Thresholds
-**Status:** Phase 07 Complete (2/2 plans)
+**Status:** Executing Phase 08
 **Next action:** Execute Phase 08 (TRIBE v2 Neuro-Scorer)
 
 ## Milestone: Intel Integration (Full Scope)
@@ -47,7 +47,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Complete (2/2 plans) | phases/06-post-quantum-crypto/ | 9.0 |
-| 7 | Adaptive Thresholds | Complete (2/2 plans) | phases/7/PLAN.md | 9.4 |
+| 7 | Adaptive Thresholds | Complete (3/3 plans) | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
 
@@ -152,6 +152,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **07-02:** License audit excludes compliance comments like "zero HyperAgents code"
 - **07-02:** Feature flag import deferred inside if-block to avoid loading adaptive code when off
 - **07-02:** Added 4th license audit check for HyperAgents-specific identifiers
+- **07-03:** Backtest uses fresh in-memory bandits (no DB) for pure replay comparison
+- **07-03:** Hardcoded path normalises defaults by _SCALE to get [0,1] for fair comparison
 
 ## Performance Metrics
 
@@ -172,8 +174,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 06-02 | 5min | 2 | 6 |
 | 07-01 | 6min | 6 | 4 |
 | 07-02 | 4min | 3 | 3 |
+| 07-03 | 2min | 2 | 2 |
 
 ---
+*State updated: 2026-03-30 -- Phase 07 Plan 03 complete (gap closure: backtest function, concurrent experiment tests, 58 total tests)*
 *State updated: 2026-03-30 -- Phase 07 Plan 02 re-executed (53 tests, scaling fix, 4-check license audit, DB round-trip tests)*
 *State updated: 2026-03-30 -- Phase 07 Plan 01 complete (Thompson sampling bandits, migration 023, 41 tests)*
 *State updated: 2026-03-30 -- Phase 06 Plan 02 complete (wallet PQC integration, 73 tests, from_raw_bytes bug fix)*
