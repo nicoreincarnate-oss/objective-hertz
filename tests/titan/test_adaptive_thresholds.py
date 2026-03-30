@@ -470,6 +470,92 @@ class TestExperimentManager:
         assert results[0]["winner"] == "variant"
         assert results[0]["mean_variant"] > results[0]["mean_control"]
 
+    @pytest.mark.asyncio
+    async def test_assign_lead_two_concurrent_experiments(self):
+        """assign_lead returns assignments for 2+ simultaneous experiments."""
+        mgr = ExperimentManager()
+        mock_experiments = [
+            {
+                "id": 1,
+                "threshold_name": "reply_rate_threshold",
+                "old_value": 20.0,
+                "new_value": 5.0,
+                "change_reason": "experiment_created:exp_reply",
+                "sample_size": 0,
+            },
+            {
+                "id": 2,
+                "threshold_name": "interest_rate_threshold",
+                "old_value": 15.0,
+                "new_value": 3.0,
+                "change_reason": "experiment_created:exp_interest",
+                "sample_size": 0,
+            },
+        ]
+        with patch("titan.adaptive_thresholds.fetch_all", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_experiments
+            assignments = await mgr.assign_lead("lead_1")
+
+        assert "exp_reply" in assignments, f"Missing exp_reply in {assignments}"
+        assert "exp_interest" in assignments, f"Missing exp_interest in {assignments}"
+        for name in ("exp_reply", "exp_interest"):
+            assert assignments[name] in ("control", "variant"), (
+                f"{name} assignment should be control or variant, got {assignments[name]}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_evaluate_two_concurrent_experiments_independently(self):
+        """evaluate_experiments handles 2+ experiments independently with different winners."""
+        mgr = ExperimentManager()
+
+        # Control: 60% for exp_a, 75% for exp_b
+        # Variant: 80% for exp_a, 50% for exp_b
+        # -> exp_a winner=variant, exp_b winner=control
+        control_a = [{"outcome": 1.0}] * 18 + [{"outcome": 0.0}] * 12  # 60%
+        variant_a = [{"outcome": 1.0}] * 24 + [{"outcome": 0.0}] * 6   # 80%
+        control_b = [{"outcome": 1.0}] * 23 + [{"outcome": 0.0}] * 7   # ~77%
+        variant_b = [{"outcome": 1.0}] * 15 + [{"outcome": 0.0}] * 15  # 50%
+
+        with (
+            patch("titan.adaptive_thresholds.fetch_all", new_callable=AsyncMock) as mock_fetch,
+            patch("titan.adaptive_thresholds.execute", new_callable=AsyncMock),
+        ):
+            call_count = [0]
+
+            async def side_effect(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    # Active experiments
+                    return [
+                        {"change_reason": "experiment_created:exp_a"},
+                        {"change_reason": "experiment_created:exp_b"},
+                    ]
+                elif call_count[0] == 2:
+                    return control_a  # exp_a control
+                elif call_count[0] == 3:
+                    return variant_a  # exp_a variant
+                elif call_count[0] == 4:
+                    return control_b  # exp_b control
+                elif call_count[0] == 5:
+                    return variant_b  # exp_b variant
+                return []
+
+            mock_fetch.side_effect = side_effect
+            results = await mgr.evaluate_experiments()
+
+        assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+
+        # Find each experiment result
+        result_map = {r["name"]: r for r in results}
+        assert "exp_a" in result_map
+        assert "exp_b" in result_map
+
+        assert result_map["exp_a"]["status"] == "concluded"
+        assert result_map["exp_a"]["winner"] == "variant"
+
+        assert result_map["exp_b"]["status"] == "concluded"
+        assert result_map["exp_b"]["winner"] == "control"
+
 
 # ---------------------------------------------------------------------------
 # Feature flag tests
