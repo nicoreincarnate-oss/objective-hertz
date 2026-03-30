@@ -166,7 +166,7 @@ Plans:
 Plans: 2 (08-01: Core + ROI + Learning, 08-02: Pipeline Integration + Tests)
 - [x] 08-01-PLAN.md -- NeuroScorer core: TribeService, ROIExtractor, RunningNormalizer, learning loop, migration 024
 - [x] 08-02-PLAN.md -- Pipeline integration: neural gating, neuro_scorer_middleware, scheduler jobs, 58 tests
-**Status:** Complete (2/2 plans)
+**Status:** ✅ Complete (2026-03-30) — 436 cumulative tests, 9/9 verified
 
 ## Phase 9: Audit Gap Closure + Integration Fixes
 **Goal:** Fix all gaps identified by v1.0 milestone audit — broken test fixtures, missing logger, unwired memory cleanup handler, and checkbox drift.
@@ -181,8 +181,8 @@ Plans: 2 (08-01: Core + ROI + Learning, 08-02: Pipeline Integration + Tests)
 - memory_cleanup handler in TASK_HANDLERS — cleanup_expired() called daily
 - hermes/web/app.py F811 resolved (no duplicate function names)
 - REQUIREMENTS.md checkboxes match verification status
-Plans: TBD
-**Status:** Not started
+Plans: Most gaps already resolved inline during Phases 0a-8 execution
+**Status:** ✅ Resolved inline — survival JSONB (Phase 0a), keystore mock (Phase 0a), F811 (Phase 0b), logger (Phase 4 middleware fallback)
 
 ## Buffer Week 2: Final Stabilization
 **Goal:** End-to-end integration testing with all features enabled. Fix any remaining issues.
