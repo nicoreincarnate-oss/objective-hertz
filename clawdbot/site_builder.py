@@ -783,6 +783,15 @@ REQUIREMENTS:
 - Never use placeholder text, lorem ipsum, or stock image URLs.
 - If no real images are available, use gradients, SVG patterns, or strong typography instead.
 
+SEO REQUIREMENTS (mandatory):
+- Update <title> tag for this specific page (under 60 chars)
+- Update <meta name="description"> for this page's content (under 155 chars)
+- Update <link rel="canonical"> to this page's URL
+- Update Open Graph og:title, og:description, og:url for this page
+- Update Twitter twitter:title, twitter:description for this page
+- Add page-appropriate Schema.org JSON-LD (AboutPage, Service, CollectionPage, ContactPage)
+- Maintain semantic heading hierarchy (one <h1>, then <h2>, <h3>)
+
 Output ONLY the complete HTML. No explanation."""
 
     result = await llm.generate(
@@ -963,6 +972,29 @@ async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
     final_html, slop_passed = await _anti_slop_site_gate(final_html, lead.get("id", "unknown"))
     if not slop_passed:
         logger.error("Site build blocked by anti-slop gate for %s (secrets detected)", business_name)
+
+    # Neuro-scorer gate (behind ENABLE_NEURO_SCORER flag) — scores site copy on
+    # 4 cognitive dimensions: self-relevance, trust, cognitive ease, emotional resonance
+    try:
+        if os.environ.get("ENABLE_NEURO_SCORER", "").lower() in ("true", "1", "yes"):
+            from titan.neuro.neuro_scorer import NeuroScorer
+            scorer = NeuroScorer()
+            sections = _extract_text_sections(final_html)
+            for section in sections[:10]:  # Cap at 10 sections to limit latency
+                neuro = await scorer.score(section)
+                if neuro.composite < 0.3:
+                    logger.info(
+                        "Neuro-scorer: low composite (%.2f) on site section for %s — "
+                        "weak dims: %s",
+                        neuro.composite,
+                        business_name,
+                        [d for d in ("self_relevance", "trust", "cognitive_ease", "emotional_resonance")
+                         if getattr(neuro, d, 0.5) < 0.4],
+                    )
+    except ImportError:
+        pass  # Neuro-scorer not available — skip silently
+    except Exception as e:
+        logger.debug("Neuro-scorer gate skipped for %s: %s", business_name, e)
         return ""
 
     # Phase 4: Deploy
@@ -1460,6 +1492,17 @@ FALLBACK RULES:
 - If no real asset URL is provided, use gradients, SVG, layout, and typography instead of fake stock imagery
 - Never copy third-party branding, layouts, or markup directly
 - Do NOT assume npm, bundlers, or a build step inside this single-file output
+
+SEO REQUIREMENTS (mandatory for every page):
+- <title> tag: business name + primary keyword + location (under 60 chars)
+- <meta name="description"> with specific value prop (under 155 chars)
+- <meta name="robots" content="index, follow">
+- <link rel="canonical"> with full URL
+- Open Graph tags: og:type, og:title, og:description, og:url, og:site_name, og:locale
+- Twitter Card tags: twitter:card, twitter:title, twitter:description
+- Schema.org JSON-LD: LocalBusiness or ProfessionalService type with name, description, address, priceRange, serviceType, and Offer entries for each service with price
+- Semantic HTML: one <h1> per page, logical heading hierarchy (h1 > h2 > h3)
+- Alt text on all images and SVGs with meaningful descriptions
 
 Write the COMPLETE HTML. Start with <!DOCTYPE html> and end with </html>.
 Output ONLY the HTML code, no explanation."""

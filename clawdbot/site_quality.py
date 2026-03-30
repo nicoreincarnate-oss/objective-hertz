@@ -119,6 +119,12 @@ def analyze_site_markup(html: str, *, business_name: str = "", site_type: str = 
         "has_proof_signal": _contains_any(lower, PROOF_PATTERNS),
         "has_motion_signal": _contains_any(lower, MOTION_PATTERNS),
         "has_style_signal": _contains_any(lower, STYLE_PATTERNS),
+        # SEO checks (added by AEGIS remediation)
+        "has_meta_description": '<meta name="description"' in lower,
+        "has_og_tags": "og:title" in lower and "og:description" in lower,
+        "has_schema_json_ld": "application/ld+json" in lower,
+        "has_canonical": 'rel="canonical"' in lower,
+        "has_title_tag": "<title>" in lower and "</title>" in lower,
     }
 
     mandatory = ("has_content", "has_business_name", "not_error_page", "no_placeholder_copy", "no_placeholder_assets")
@@ -130,6 +136,12 @@ def analyze_site_markup(html: str, *, business_name: str = "", site_type: str = 
         "has_proof_signal",
         "has_motion_signal",
         "has_style_signal",
+        # SEO weighted checks — sites without these still pass but score lower
+        "has_meta_description",
+        "has_og_tags",
+        "has_schema_json_ld",
+        "has_canonical",
+        "has_title_tag",
     )
 
     mandatory_failures = [name for name in mandatory if not checks[name]]
