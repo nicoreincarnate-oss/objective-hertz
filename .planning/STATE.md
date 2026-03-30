@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T00:25:00Z"
+last_updated: "2026-03-30T01:01:52.549Z"
 progress:
-  total_phases: 10
-  completed_phases: 7
+  total_phases: 19
+  completed_phases: 6
   total_plans: 14
-  completed_plans: 15
+  completed_plans: 13
 ---
 
 # Project State
@@ -17,12 +17,12 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 06 — Post-Quantum Cryptography
+**Current focus:** Phase 07 — adaptive-thresholds
 
 ## Current Phase
 
 **Phase:** 6 — Post-Quantum Cryptography
-**Status:** Phase 06 Complete (2/2 plans)
+**Status:** Executing Phase 07
 **Next action:** Execute Phase 07 (Adaptive Thresholds)
 
 ## Milestone: Intel Integration (Full Scope)
@@ -144,6 +144,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **06-02:** PQC signer uses HKDF-derived agent key as Ed25519 seed (deterministic per agent)
 - **06-02:** PQC keystore wrapping uses pqc_wrapped:true marker for transparent classical/PQC detection
 - **06-02:** PQC tx signatures are non-fatal audit trail (warning on failure, never blocks send)
+- [Phase 07]: Combined sync ThresholdProvider methods + async DB-backed methods in single class for Protocol compliance
+- [Phase 07]: Deterministic SHA-256 hashing for consistent A/B lead assignment in ExperimentManager
 
 ## Performance Metrics
 
@@ -174,3 +176,4 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
+| Phase 07 P01 | 3min | 6 tasks | 3 files |

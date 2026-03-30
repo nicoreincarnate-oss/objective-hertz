@@ -83,12 +83,12 @@
 
 ### Adaptive Thresholds (Phase 7)
 
-- [ ] **ADAPT-01**: Thompson sampling bandit
-- [ ] **ADAPT-02**: DB-stored thresholds
-- [ ] **ADAPT-03**: Pipeline outcome training signal
-- [ ] **ADAPT-04**: Warm-start with current priors
-- [ ] **ADAPT-05**: Concurrent A/B experiments
-- [ ] **ADAPT-06**: meta_evaluations table
+- [x] **ADAPT-01**: Thompson sampling bandit
+- [x] **ADAPT-02**: DB-stored thresholds
+- [x] **ADAPT-03**: Pipeline outcome training signal
+- [x] **ADAPT-04**: Warm-start with current priors
+- [x] **ADAPT-05**: Concurrent A/B experiments
+- [x] **ADAPT-06**: meta_evaluations table
 - [ ] **ADAPT-07**: Feature flag
 - [ ] **ADAPT-08**: CC BY-NC-SA compliance verification
 
