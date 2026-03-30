@@ -142,8 +142,8 @@ Plans:
 - Zero HyperAgents code or artifacts in production paths (license audit)
 Plans:
 - [x] 07-01-PLAN.md -- Thompson sampling bandits, DB persistence, training signal, experiments, migration 023 (ADAPT-01 through ADAPT-06)
-- [x] 07-02-PLAN.md -- Expansion wiring + License audit + Tests (ADAPT-07, ADAPT-08) -- 48 tests, bandit scaling fix
-**Status:** Complete (2026-03-30) -- 2/2 plans, 48 tests, expansion integration verified
+- [x] 07-02-PLAN.md -- Expansion wiring + License audit + Tests (ADAPT-07, ADAPT-08) -- 53 tests, 4-check license audit, DB round-trip
+**Status:** Complete (2026-03-30) -- 2/2 plans, 53 tests, expansion integration verified
 
 ## Phase 8: TRIBE v2 Neuro-Scorer
 **Goal:** Predict neural activation across 4 cognitive dimensions for every outbound email/site/message. Gate low-scoring drafts. Build closed-loop learning correlating brain predictions with conversion outcomes.
