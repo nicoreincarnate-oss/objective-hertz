@@ -110,7 +110,7 @@ Plans:
 - Monthly RLM spend stays under $100 cap
 - Shadow mode captures comparison data for 1 week
 - Feature flag toggles cleanly between RLM and original compose
-**Status:** Not started
+**Status:** In Progress — Plan 05-01 complete (RLMComposer + context + budget + migration 021)
 
 ## Phase 6: Post-Quantum Cryptography
 **Goal:** Conway wallet keys and API secrets protected against harvest-now-decrypt-later quantum attacks with hybrid encryption.
