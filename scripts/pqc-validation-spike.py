@@ -83,13 +83,14 @@ def test_pqcrypto() -> bool:
 def test_cryptography_fallback() -> bool:
     """Test cryptography library fallback (AES-256-GCM + Ed25519 + HKDF)."""
     try:
+        import os
+
+        from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric.ed25519 import (
             Ed25519PrivateKey,
         )
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-        from cryptography.hazmat.primitives import hashes
-        import os
 
         results: dict[str, float] = {}
 

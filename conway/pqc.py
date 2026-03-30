@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
-import struct
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -149,11 +147,11 @@ class QuantumSafeSigner:
                 if not isinstance(loaded, Ed25519PrivateKey):
                     raise ValueError("Not an Ed25519 key")
                 self._private_key = loaded
-            except Exception:
+            except Exception as exc:
                 raise ValueError(
                     f"Cannot load Ed25519 key from {len(private_key_bytes)} bytes. "
                     "Provide 32-byte raw seed or DER-encoded PKCS8 key."
-                )
+                ) from exc
 
         self._public_key = self._private_key.public_key()
 
@@ -285,7 +283,7 @@ async def rotate_keys(agent_name: str, master_password: str | None = None) -> di
     Returns:
         Dict with new_public_key, valid_from, old_key_valid_until.
     """
-    from shared.db import execute, fetch_one
+    from shared.db import execute
 
     if master_password is None:
         master_password = os.environ.get("CONWAY_KEYSTORE_PASSWORD", "")
@@ -302,7 +300,7 @@ async def rotate_keys(agent_name: str, master_password: str | None = None) -> di
     encryptor = HybridEncryptor(agent_key)
     encrypted_private = encryptor.encrypt(new_private)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     overlap_end = now + timedelta(days=30)
     algorithm = "hybrid" if _PQC_NATIVE else "ed25519+aes256gcm"
     key_type = "pqc" if _PQC_NATIVE else "hybrid"
@@ -345,7 +343,7 @@ async def get_active_key(agent_name: str) -> dict | None:
     """
     from shared.db import fetch_one
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     row = await fetch_one(
         """SELECT id, agent_name, key_type, public_key, encrypted_private_key,
                   algorithm, valid_from, valid_until
