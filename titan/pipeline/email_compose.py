@@ -2,14 +2,24 @@
 Stage 3: Email Composition
 Write 100% custom email per lead using Claude API.
 Every email is unique — based on research, personalization hooks, and learnings.
+
+RLM Integration (Phase 5):
+  - RLM_ENABLED + RLM_SHADOW_MODE → run both paths, log comparison, return original
+  - RLM_ENABLED + no shadow → full RLM compose (recursive draft-evaluate-refine)
+  - RLM disabled → original single-pass compose
+  Feature flags checked from system_config (runtime toggle) with env var fallback.
 """
 import json
 import logging
+import os
 import re
+import time
 from pathlib import Path
+from typing import Any
 
 from shared.anti_slop import (
     AntiSlopScorer,
+    _composite_score,
     detect_secrets,
     record_quality_score,
     rewrite_loop,
@@ -17,17 +27,323 @@ from shared.anti_slop import (
 from shared.anti_slop import (
     is_enabled as anti_slop_enabled,
 )
-from shared.db import fetch_all, fetch_one
+from shared.db import fetch_all, fetch_one, get_config
 from shared.llm_client import llm
 from shared.pipeline_alerts import emit_pipeline_error
 from shared.skill_loader import execute_skill, find_skill
 from titan.memory import compute_prompt_version, get_relevant_learnings
+from titan.pipeline.rlm_composer import RLMComposer
 from titan.state_machine import transition_lead
 
 logger = logging.getLogger("perseus.titan.email_compose")
 
 # Anti-slop scorer singleton (created once, reused)
 _slop_scorer = AntiSlopScorer()
+
+# RLM composer singleton (lazy init)
+_rlm_composer: RLMComposer | None = None
+
+
+def _get_rlm_composer() -> RLMComposer:
+    """Get or create RLM composer singleton."""
+    global _rlm_composer
+    if _rlm_composer is None:
+        _rlm_composer = RLMComposer()
+    return _rlm_composer
+
+
+# ---------------------------------------------------------------------------
+# RLM Feature Flags — system_config (runtime) with env var fallback
+# ---------------------------------------------------------------------------
+
+async def is_rlm_enabled() -> bool:
+    """Check if RLM compose is enabled.
+
+    Checks system_config table first (runtime toggle via dashboard),
+    falls back to ENABLE_RLM env var.
+    """
+    try:
+        db_val = await get_config("rlm_enabled")
+        if db_val is not None:
+            if isinstance(db_val, bool):
+                return db_val
+            return str(db_val).lower() in ("true", "1")
+    except Exception:
+        pass  # DB unavailable, fall back to env
+    return os.environ.get("ENABLE_RLM", "").lower() in ("true", "1")
+
+
+async def is_rlm_shadow_mode() -> bool:
+    """Check if RLM is in shadow (A/B comparison) mode.
+
+    Shadow mode: run both original + RLM, log comparison, return original.
+    Checks system_config first, falls back to RLM_SHADOW_MODE env var.
+    """
+    try:
+        db_val = await get_config("rlm_shadow_mode")
+        if db_val is not None:
+            if isinstance(db_val, bool):
+                return db_val
+            return str(db_val).lower() in ("true", "1")
+    except Exception:
+        pass
+    return os.environ.get("RLM_SHADOW_MODE", "").lower() in ("true", "1")
+
+
+async def set_rlm_enabled(enabled: bool) -> None:
+    """Set RLM enabled flag in system_config (runtime toggle).
+
+    Instant rollback: set_rlm_enabled(False) takes effect on the next email batch.
+    Operator can call this from the dashboard or backprop.
+    """
+    from shared.db import set_config
+    await set_config("rlm_enabled", enabled)
+    logger.info("RLM enabled set to %s via system_config", enabled)
+
+
+async def set_rlm_shadow_mode(enabled: bool) -> None:
+    """Set RLM shadow mode in system_config (runtime toggle).
+
+    Shadow mode: run both original + RLM, log comparison, return original.
+    """
+    from shared.db import set_config
+    await set_config("rlm_shadow_mode", enabled)
+    logger.info("RLM shadow mode set to %s via system_config", enabled)
+
+
+async def _log_ab_comparison(
+    lead_id: int | str,
+    original_subject: str,
+    original_body: str,
+    rlm_result: dict[str, Any],
+) -> None:
+    """Log A/B comparison data between original and RLM compose paths.
+
+    Stores comparison in events table for analysis during shadow period.
+    """
+    # Score the original for fair comparison
+    original_scores = await _slop_scorer.score(
+        f"{original_subject}\n\n{original_body}", context="email"
+    )
+    original_composite = _composite_score(original_scores)
+
+    rlm_composite = rlm_result.get("composite", 0.0)
+    rlm_scores = rlm_result.get("scores", {})
+    improvement = rlm_composite - original_composite if original_composite > 0 else 0.0
+
+    comparison = {
+        "lead_id": str(lead_id),
+        "timestamp": time.time(),
+        "original": {
+            "composite": round(original_composite, 4),
+            "scores": {k: round(v, 4) for k, v in original_scores.items()},
+        },
+        "rlm": {
+            "composite": round(rlm_composite, 4),
+            "scores": {k: round(v, 4) for k, v in rlm_scores.items()},
+            "iterations": rlm_result.get("iterations", 0),
+            "budget_used": round(rlm_result.get("budget_used", 0.0), 4),
+        },
+        "improvement": round(improvement, 4),
+        "rlm_won": rlm_composite > original_composite,
+    }
+
+    logger.info(
+        "RLM A/B comparison for lead %s: original=%.3f, rlm=%.3f, improvement=%.3f, rlm_won=%s",
+        lead_id,
+        original_composite,
+        rlm_composite,
+        improvement,
+        rlm_composite > original_composite,
+    )
+
+    # Store in events for dashboard analysis
+    try:
+        from shared.db import emit_event
+        await emit_event("rlm_ab_comparison", comparison)
+    except Exception as exc:
+        logger.warning("Failed to store RLM A/B comparison event: %s", exc)
+
+
+async def _compose_with_rlm(
+    lead: dict,
+    soul_copy: str,
+    learned_tips: str,
+    rules_block: str = "",
+    prompt_hash: str = "",
+) -> bool:
+    """Compose email using RLM recursive composer.
+
+    Handles both shadow mode (A/B comparison) and full RLM mode.
+    Returns True if email was composed and stored, False otherwise.
+    """
+    lead_id = lead["id"]
+    shadow = await is_rlm_shadow_mode()
+
+    # Build research dict from lead data for RLM
+    research: dict[str, Any] = {
+        "research_summary": lead.get("research_summary", ""),
+        "industry": lead.get("industry", ""),
+        "business_name": lead.get("business_name", ""),
+        "city": lead.get("city", ""),
+        "country": lead.get("country", ""),
+    }
+
+    composer = _get_rlm_composer()
+
+    if shadow:
+        # Shadow mode: run BOTH paths, log comparison, return original
+        logger.info("RLM shadow mode: running both paths for lead %s", lead_id)
+
+        # Run original compose (don't store yet)
+        original_subject, original_body = await _original_compose_draft(
+            lead, soul_copy, learned_tips, rules_block
+        )
+
+        if not original_body:
+            logger.warning("Original compose failed for lead %s in shadow mode", lead_id)
+            return False
+
+        # Run RLM compose (for comparison only)
+        try:
+            rlm_result = await composer.compose(lead, research)
+        except Exception as exc:
+            logger.warning("RLM compose failed in shadow mode for lead %s: %s", lead_id, exc)
+            rlm_result = {"composite": 0.0, "scores": {}, "iterations": 0, "budget_used": 0.0}
+
+        # Log the comparison
+        await _log_ab_comparison(lead_id, original_subject, original_body, rlm_result)
+
+        # Store the ORIGINAL (shadow = safe)
+        subject, body = original_subject, original_body
+
+    else:
+        # Full RLM mode
+        logger.info("RLM full mode: recursive compose for lead %s", lead_id)
+        try:
+            rlm_result = await composer.compose(lead, research)
+        except Exception as exc:
+            logger.error("RLM compose failed for lead %s: %s", lead_id, exc)
+            return False
+
+        if rlm_result.get("budget_exceeded"):
+            logger.warning(
+                "RLM budget exceeded for lead %s: %s — falling back to single-pass",
+                lead_id, rlm_result.get("reason", "unknown"),
+            )
+            return False  # Caller will fall back to _compose_one
+
+        subject = rlm_result.get("subject", "")
+        body = rlm_result.get("body", "")
+
+        if not body:
+            logger.warning("RLM produced empty body for lead %s", lead_id)
+            return False
+
+        logger.info(
+            "RLM compose for lead %s: composite=%.3f, iterations=%d, budget=$%.4f",
+            lead_id,
+            rlm_result.get("composite", 0),
+            rlm_result.get("iterations", 0),
+            rlm_result.get("budget_used", 0),
+        )
+
+    # Validate content
+    passed, issues = validate_email_content(subject, body)
+    if not passed:
+        logger.warning("RLM email validation failed for lead %s: %s", lead_id, issues)
+        await emit_pipeline_error(
+            "email_compose.content_validation",
+            ValueError(f"Content issues: {', '.join(issues)}"),
+            lead_id=lead_id,
+        )
+        return False
+
+    # Anti-slop gate
+    subject, body, slop_passed = await _anti_slop_gate(subject, body, lead_id)
+    if not slop_passed:
+        return False
+
+    # Store the email draft
+    compose_method = "rlm_shadow" if shadow else "rlm"
+    row = await fetch_one(
+        """INSERT INTO email_sequences (client_id, step, subject, body, status, prompt_version_hash)
+           VALUES (%s, 1, %s, %s, 'pending', %s)
+           ON CONFLICT (client_id, step) DO NOTHING
+           RETURNING id""",
+        (lead_id, subject, body, prompt_hash),
+    )
+    if not row:
+        logger.debug("Email step 1 already exists for lead %s, skipping", lead_id)
+        return True  # Already drafted, not an error
+
+    await transition_lead(lead_id, "email_drafted")
+    logger.info(
+        "Composed email via %s for lead %s (prompt_v=%s)",
+        compose_method, lead_id, prompt_hash[:8] if prompt_hash else "none",
+    )
+    return True
+
+
+async def _original_compose_draft(
+    lead: dict,
+    soul_copy: str,
+    learned_tips: str,
+    rules_block: str = "",
+) -> tuple[str, str]:
+    """Generate an email draft using the original single-pass method.
+
+    Returns (subject, body) tuple. Used by shadow mode for comparison.
+    Does NOT store the email — caller decides what to store.
+    """
+    lang = lead.get("language", "en")
+    lang_instruction = f"Write in {'Spanish' if lang == 'es' else 'English'}."
+    model = _compose_model_for_lead(lead)
+
+    prompt = f"""You are Titan's email copywriter. Write a cold outreach email.
+
+COPYWRITING GUIDELINES:
+{soul_copy}
+
+WHAT WE'VE LEARNED WORKS:
+{learned_tips}
+
+{rules_block}
+
+LEAD INFORMATION:
+- Business: {lead['business_name']}
+- Contact: {lead.get('contact_name', 'Business Owner')}
+- Industry: {lead.get('industry', 'unknown')}
+- Location: {lead.get('city', '')}, {lead.get('country', '')}
+- Research: {lead.get('research_summary', 'No research available')}
+
+REQUIREMENTS:
+- {lang_instruction}
+- 100% unique — never a template
+- Short (under 150 words)
+- Personalized to their specific business
+- Clear value proposition (professional website under $325)
+- One clear CTA (reply to discuss)
+- No spam triggers, no ALL CAPS, no excessive punctuation
+- Subject line under 50 characters
+
+Return JSON:
+{{
+    "subject": "...",
+    "body": "...",
+    "personalization_note": "why this email is unique to them"
+}}"""
+
+    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan")
+
+    try:
+        start = result.find("{")
+        end = result.rfind("}") + 1
+        email_data = json.loads(result[start:end])
+    except (json.JSONDecodeError, ValueError):
+        return "", ""
+
+    return email_data.get("subject", ""), email_data.get("body", "")
 
 
 async def _anti_slop_gate(
@@ -160,8 +476,23 @@ async def compose_emails(batch_size: int = 20):
     ) if rules_block else []
     prompt_hash = compute_prompt_version(soul_copy, rules_for_hash)
 
+    # Check RLM feature flag once per batch (not per lead)
+    rlm_enabled = await is_rlm_enabled()
+    if rlm_enabled:
+        logger.info("RLM compose enabled — shadow=%s", await is_rlm_shadow_mode())
+
     for lead in leads:
         try:
+            # RLM path takes priority over skill path when enabled
+            if rlm_enabled:
+                success = await _compose_with_rlm(
+                    lead, soul_copy, learned_tips, rules_block, prompt_hash
+                )
+                if success:
+                    continue
+                # RLM failed or budget exceeded — fall through to original path
+                logger.info("RLM fallback to original compose for lead %s", lead["id"])
+
             if active_skill:
                 await _compose_with_skill(lead, active_skill, soul_copy, learned_tips, rules_block, prompt_hash)
             else:

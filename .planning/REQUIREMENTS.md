@@ -67,8 +67,8 @@
 - [ ] **RLM-03**: Qdrant read path
 - [ ] **RLM-04**: Per-email + monthly spend caps
 - [ ] **RLM-05**: Haiku evaluation (reuses anti-slop scorer)
-- [ ] **RLM-06**: Shadow mode A/B testing
-- [ ] **RLM-07**: Feature flag with instant rollback
+- [x] **RLM-06**: Shadow mode A/B testing
+- [x] **RLM-07**: Feature flag with instant rollback
 
 ### Post-Quantum Crypto (Phase 6)
 

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T00:16:00Z"
+last_updated: "2026-03-30T00:25:00Z"
 progress:
   total_phases: 10
-  completed_phases: 6
-  total_plans: 13
-  completed_plans: 13
+  completed_phases: 7
+  total_plans: 14
+  completed_plans: 14
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 5 — RLM Recursive Context Retrieval
-**Status:** Executing Phase 05 (Plan 01 complete)
-**Next action:** Execute Plan 05-02
+**Status:** Phase 05 Complete (2/2 plans)
+**Next action:** Execute Phase 06 (Post-Quantum Crypto)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -45,7 +45,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 3 | DeerFlow Persistent Memory | Complete | phases/03-deerflow-persistent-memory/ | 9.0 |
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
-| 5 | RLM Recursive Context | In Progress (1/2 plans) | phases/5/PLAN.md | 9.0 |
+| 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Planned | phases/6/PLAN.md | 9.0 |
 | 7 | Adaptive Thresholds | Planned | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
@@ -133,6 +133,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **05-01:** Budget check uses 720h window for monthly cap (same as Phase 4)
 - **05-01:** Returns highest-scoring version across iterations, not latest
 - **05-01:** Context expansion targets weakest non-slop dimension
+- **05-02:** system_config DB takes precedence over env var for RLM feature flags (enables dashboard control)
+- **05-02:** Shadow mode stores original email (safe), logs RLM comparison in events table
+- **05-02:** RLM failure or budget exceeded falls back to original compose path
+- **05-02:** A/B comparison data stored as rlm_ab_comparison events for dashboard analysis
 
 ## Performance Metrics
 
@@ -148,8 +152,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 04-01 | 3min | 7 | 2 |
 | 04-02 | 8min | 2 | 3 |
 | 05-01 | 2min | 5 | 2 |
+| 05-02 | 5min | 3 | 2 |
 
 ---
+*State updated: 2026-03-30 -- Phase 05 complete (shadow A/B, system_config toggle, 26 tests)*
 *State updated: 2026-03-30 -- Phase 05 Plan 01 complete (RLM composer, Mem0/Qdrant, budget caps, migration 021)*
 *State updated: 2026-03-29 -- Phase 04 Plan 02 complete (engine integration + 42 tests)*
 *State updated: 2026-03-29 -- Phase 03 complete (lifecycle hooks, scheduler cleanup, 41 tests)*
