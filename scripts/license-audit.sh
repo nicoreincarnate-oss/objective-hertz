@@ -49,6 +49,19 @@ else
     EXIT_CODE=1
 fi
 
+# Check 4: No HyperAgents-specific identifiers in production code
+echo "Scanning for HyperAgents-specific identifiers..."
+# These identifiers are unique to the HyperAgents codebase
+HA_IDENTIFIERS="HyperAgentSwarm\|hyper_agent_config\|HyperAgentPolicy"
+IDENT_MATCHES=$(grep -ri "$HA_IDENTIFIERS" --include="*.py" $PROD_DIRS 2>/dev/null || true)
+if [ -n "$IDENT_MATCHES" ]; then
+    echo "$IDENT_MATCHES"
+    echo "FAIL: HyperAgents-specific identifiers found in production code"
+    EXIT_CODE=1
+else
+    echo "CLEAN: No HyperAgents-specific identifiers found"
+fi
+
 echo ""
 echo "=== License audit complete (exit code: $EXIT_CODE) ==="
 exit $EXIT_CODE
