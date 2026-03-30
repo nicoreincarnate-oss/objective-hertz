@@ -140,7 +140,7 @@ Plans:
 - meta_evaluations table logs every criteria change with rationale
 - Concurrent experiments: 2+ shadow experiments run simultaneously
 - Zero HyperAgents code or artifacts in production paths (license audit)
-**Status:** ✅ Complete (2026-03-29) — 320 cumulative tests, 6/6 verified
+**Status:** Not started
 
 ## Phase 8: TRIBE v2 Neuro-Scorer
 **Goal:** Predict neural activation across 4 cognitive dimensions for every outbound email/site/message. Gate low-scoring drafts. Build closed-loop learning correlating brain predictions with conversion outcomes.
@@ -159,7 +159,7 @@ Plans:
 - Neural rules auto-extracted when significance reached (p < 0.05, n >= 30)
 - Segment-specific neural profiles computed after 100+ emails per segment
 - All content types scored: emails, site copy, follow-ups, alerts
-**Status:** ✅ Complete (2026-03-29) — 320 cumulative tests, 6/6 verified
+**Status:** Not started
 
 ## Phase 9: Audit Gap Closure + Integration Fixes
 **Goal:** Fix all gaps identified by v1.0 milestone audit — broken test fixtures, missing logger, unwired memory cleanup handler, and checkbox drift.
@@ -175,7 +175,7 @@ Plans:
 - hermes/web/app.py F811 resolved (no duplicate function names)
 - REQUIREMENTS.md checkboxes match verification status
 Plans: TBD
-**Status:** ✅ Complete (2026-03-29) — 320 cumulative tests, 6/6 verified
+**Status:** Not started
 
 ## Buffer Week 2: Final Stabilization
 **Goal:** End-to-end integration testing with all features enabled. Fix any remaining issues.
