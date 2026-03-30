@@ -233,8 +233,8 @@ Phase 2 + Phase 4 ──→ Phase 10 (site builder pipeline)
 **Plans:** 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md -- 21st.dev REST client + design_sources enrichment (TWENTY1-01, TWENTY1-02, TWENTY1-03)
-- [ ] 10-02-PLAN.md -- Pipeline wiring + Recraft verification + quality comparison (RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02)
+- [x] 10-01-PLAN.md -- 21st.dev REST client + design_sources enrichment (TWENTY1-01, TWENTY1-02, TWENTY1-03)
+- [x] 10-02-PLAN.md -- Pipeline wiring + Recraft verification + quality comparison (RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02)
 
 ---
 *Roadmap created: 2026-03-29 via mega-plan pipeline (full scope, Approach A with Beta corrections)*

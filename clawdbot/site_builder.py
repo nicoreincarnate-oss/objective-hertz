@@ -593,6 +593,7 @@ async def _resolve_build_plan(
         "cdn_deps": runtime_bundle["cdn_deps"],
         "runtime_hints": runtime_bundle["runtime_hints"],
         "fallback_rules": runtime_bundle["fallback_rules"],
+        "design_sources": strategy.get("design_sources", []),
     }
 
 
@@ -1182,7 +1183,7 @@ async def _generate_reference_strategy(lead: dict, site_type: str, page_count: i
     reference_urls = _extract_reference_urls(lead)
     reference_block = "\n".join(f"- {url}" for url in reference_urls) if reference_urls else "- None supplied"
     research_facts = _extract_research_facts(lead)
-    design_source_payload = _resolve_design_sources(lead)
+    design_source_payload = await _resolve_design_sources_async(lead)
     reference_patterns = research_facts.get("reference_patterns", [])
     anti_patterns = research_facts.get("anti_patterns", [])
     design_positioning = research_facts.get("design_positioning", "")
@@ -1293,7 +1294,7 @@ Return JSON:
 
 
 def _resolve_design_sources(lead: dict) -> dict[str, Any]:
-    """Resolve structured design sources from the local adapter."""
+    """Resolve structured design sources from the local adapter (sync, text-only)."""
     try:
         from clawdbot.design_sources import resolve_design_sources
     except Exception as e:
@@ -1305,6 +1306,40 @@ def _resolve_design_sources(lead: dict) -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"Design source resolution failed: {e}")
         return {"sources": [], "adaptation_rules": []}
+
+
+async def _resolve_design_sources_async(lead: dict) -> dict[str, Any]:
+    """Resolve design sources with real component code from 21st.dev.
+
+    Tries the enriched async version first; falls back to sync text-only
+    if the import or call fails.
+    """
+    try:
+        from clawdbot.design_sources import resolve_design_sources_with_components
+        return await resolve_design_sources_with_components(lead)
+    except Exception as e:
+        logger.warning("Enriched design source resolution failed, falling back to sync: %s", e)
+        return _resolve_design_sources(lead)
+
+
+def _format_component_snippets_block(snippets: list[dict[str, Any]]) -> str:
+    """Format component snippets into a prompt block for variant generation.
+
+    Returns a COMPONENT PATTERNS block if snippets exist, or empty string.
+    """
+    if not snippets:
+        return ""
+    lines = [
+        "COMPONENT PATTERNS (use as structural HTML+Tailwind inspiration, NOT React copy):"
+    ]
+    for snippet in snippets:
+        section = snippet.get("section", "unknown")
+        code = snippet.get("code", "")
+        if code:
+            # Truncate individual snippets to keep prompt lean
+            lines.append(f"\n--- {section.upper()} PATTERN ---")
+            lines.append(code[:1200])
+    return "\n".join(lines)
 
 
 async def _get_design_skill_guidance(
@@ -1434,6 +1469,16 @@ async def _build_one_variant(
     hero_url = asset_pack.get("hero_url", "")
     logo_line = f"\nLogo URL (use in the header): {logo_url}" if logo_url else ""
     hero_line = f"\nHero asset URL (use if it strengthens the concept): {hero_url}" if hero_url else ""
+
+    # Extract component snippets from design sources for richer variant prompts
+    all_snippets: list[dict[str, Any]] = []
+    for src in build_plan.get("design_sources", []):
+        if isinstance(src, dict):
+            for snippet in src.get("component_snippets", []):
+                if isinstance(snippet, dict) and snippet.get("code"):
+                    all_snippets.append(snippet)
+    component_block = _format_component_snippets_block(all_snippets)
+
     runtime_profile = build_plan.get("runtime_profile", "dom-motion")
     cdn_block = "\n".join(f"- {url}" for url in direction.get("cdn_deps", [])) or "- None required beyond standard HTML/CSS/JS"
     hint_block = "\n".join(f"- {hint}" for hint in direction.get("runtime_hints", [])) or "- Use tasteful light motion only where it helps."
@@ -1463,6 +1508,8 @@ Copy angle: {direction['copy_angle']}
 {hero_line}
 
 {brief}
+
+{component_block}
 
 TECHNICAL REQUIREMENTS:
 {file_requirement} with Tailwind CSS CDN + Google Fonts
