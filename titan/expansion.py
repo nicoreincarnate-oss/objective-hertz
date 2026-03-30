@@ -14,6 +14,7 @@ strict ROI gate. Discovery skills are the first concrete shadow-rollout path.
 
 import json
 import logging
+import os
 from decimal import Decimal
 
 try:
@@ -37,11 +38,39 @@ def _as_decimal(value: object) -> Decimal:
         return Decimal("0")
 
 
+def _is_bandit_expansion_enabled() -> bool:
+    """Check if adaptive bandit thresholds are enabled via feature flag."""
+    return os.environ.get("ENABLE_BANDIT_EXPANSION", "").lower() in ("1", "true")
+
+
 def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
-    """Translate raw metrics into money-linked bottlenecks worth solving."""
+    """Translate raw metrics into money-linked bottlenecks worth solving.
+
+    When ENABLE_BANDIT_EXPANSION is true, thresholds are sampled from Thompson
+    sampling bandits (adaptive). Otherwise, hardcoded values are used.
+    """
+    if _is_bandit_expansion_enabled():
+        from titan.adaptive_thresholds import AdaptiveThresholds
+
+        at = AdaptiveThresholds()
+        # Adaptive thresholds: sample from bandit posteriors (sync/in-memory).
+        # Scale bandit output [0,1] to the metric's natural range.
+        reply_threshold = at.get_threshold("reply_rate_threshold") * 5.0  # ~1.5 default
+        interest_threshold = at.get_threshold("interest_rate_threshold") * 25.0  # ~12.0 default
+        proposal_threshold = at.get_threshold("proposal_backlog_threshold") * 5.0  # ~3.0 default
+        uninvoiced_threshold = at.get_threshold("uninvoiced_threshold") * 5.0  # ~2.0 default
+        missing_email_threshold = at.get_threshold("missing_email_threshold") * 15.0  # ~10.0 default
+    else:
+        # Original hardcoded values
+        reply_threshold = 1.5
+        interest_threshold = 12.0
+        proposal_threshold = 3
+        uninvoiced_threshold = 2
+        missing_email_threshold = 10
+
     bottlenecks: list[dict] = []
 
-    if metrics.get("emails_sent_14d", 0) >= 100 and metrics.get("reply_rate_14d", 0.0) < 1.5:
+    if metrics.get("emails_sent_14d", 0) >= 100 and metrics.get("reply_rate_14d", 0.0) < reply_threshold:
         bottlenecks.append({
             "stage": "lead_discovery",
             "bottleneck": "low_reply_rate",
@@ -51,7 +80,7 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
             "impact": "Low reply rate limits revenue because more send volume is wasted.",
         })
 
-    if metrics.get("replies_14d", 0) >= 15 and metrics.get("interest_rate_14d", 0.0) < 12.0:
+    if metrics.get("replies_14d", 0) >= 15 and metrics.get("interest_rate_14d", 0.0) < interest_threshold:
         bottlenecks.append({
             "stage": "email_compose",
             "bottleneck": "low_interest_rate",
@@ -61,7 +90,7 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
             "impact": "Replies are happening, but too few become sales conversations.",
         })
 
-    if metrics.get("interested_open", 0) >= 5 and metrics.get("proposal_backlog", 0) >= 3:
+    if metrics.get("interested_open", 0) >= 5 and metrics.get("proposal_backlog", 0) >= proposal_threshold:
         bottlenecks.append({
             "stage": "close_deal",
             "bottleneck": "proposal_backlog",
@@ -71,7 +100,7 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
             "impact": "Interested leads are waiting too long to see demos and proposals.",
         })
 
-    if metrics.get("closed_uninvoiced", 0) >= 2:
+    if metrics.get("closed_uninvoiced", 0) >= uninvoiced_threshold:
         bottlenecks.append({
             "stage": "invoice",
             "bottleneck": "invoice_delay",
@@ -81,7 +110,7 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
             "impact": "Revenue is delayed because closed deals are waiting for invoice/payment routing.",
         })
 
-    if metrics.get("discovered_missing_email_7d", 0) >= 10:
+    if metrics.get("discovered_missing_email_7d", 0) >= missing_email_threshold:
         bottlenecks.append({
             "stage": "lead_discovery",
             "bottleneck": "missing_contact_data",
