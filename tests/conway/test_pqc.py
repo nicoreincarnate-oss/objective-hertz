@@ -423,7 +423,7 @@ class TestWalletPQCIntegration:
         with patch.dict(os.environ, {"PQC_ENABLED": "false"}):
             from conway.wallet import AgentWallet
 
-            w = AgentWallet("test", "0x1234", "0xprivkey")
+            w = AgentWallet("test", "0x" + "aa" * 20, "0x" + "bb" * 32)
             assert w.pqc_signer is None
 
     def test_wallet_pqc_enabled_with_password(self):
@@ -443,7 +443,7 @@ class TestWalletPQCIntegration:
             w._private_key = "0xprivkey"
             w._pqc_signer = None
             # Re-run init logic
-            AgentWallet.__init__(w, "test_agent", "0x1234", "0xprivkey")
+            AgentWallet.__init__(w, "test_agent", "0x" + "aa" * 20, "0x" + "bb" * 32)
             assert w.pqc_signer is not None
 
     def test_pqc_import_fallback(self):
