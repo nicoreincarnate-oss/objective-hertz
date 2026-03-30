@@ -143,7 +143,8 @@ Plans:
 Plans:
 - [x] 07-01-PLAN.md -- Thompson sampling bandits, DB persistence, training signal, experiments, migration 023 (ADAPT-01 through ADAPT-06)
 - [x] 07-02-PLAN.md -- Expansion wiring + License audit + Tests (ADAPT-07, ADAPT-08) -- 53 tests, 4-check license audit, DB round-trip
-**Status:** Complete (2026-03-30) -- 2/2 plans, 53 tests, expansion integration verified
+- [ ] 07-03-PLAN.md -- Gap closure: backtest function + concurrent experiment tests (ADAPT-05)
+**Status:** Gaps found (2026-03-30) -- 3 plans (2 complete, 1 gap closure pending)
 
 ## Phase 8: TRIBE v2 Neuro-Scorer
 **Goal:** Predict neural activation across 4 cognitive dimensions for every outbound email/site/message. Gate low-scoring drafts. Build closed-loop learning correlating brain predictions with conversion outcomes.
