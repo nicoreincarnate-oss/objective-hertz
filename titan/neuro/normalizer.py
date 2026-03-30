@@ -11,7 +11,22 @@ import logging
 from collections import defaultdict
 
 import numpy as np
-from scipy.stats import percentileofscore
+
+try:
+    from scipy.stats import percentileofscore as _scipy_percentileofscore
+
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
+
+
+def _percentileofscore(data: list[float], score: float) -> float:
+    """Compute percentile of score within data, with scipy fallback."""
+    if _SCIPY_AVAILABLE:
+        return float(_scipy_percentileofscore(data, score))
+    # Pure numpy fallback
+    arr = np.array(data)
+    return float(np.sum(arr <= score) / len(arr) * 100.0)
 
 logger = logging.getLogger("neuro.normalizer")
 
@@ -62,7 +77,7 @@ class RunningNormalizer:
 
             if len(self._history[dim]) >= self.BASELINE_SIZE:
                 # Percentile-based normalization
-                pct = percentileofscore(self._history[dim], value) / 100.0
+                pct = _percentileofscore(self._history[dim], value) / 100.0
                 normalized[dim] = float(np.clip(pct, 0.0, 1.0))
             else:
                 # Warm-start: sigmoid-like mapping centered at 0.5

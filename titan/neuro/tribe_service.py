@@ -40,8 +40,7 @@ except ImportError:
     pass
 
 if TYPE_CHECKING:
-    import torch
-    from tribev2 import TribeModel
+    pass
 
 
 def is_tribe_available() -> bool:

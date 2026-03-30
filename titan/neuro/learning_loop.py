@@ -15,7 +15,38 @@ import logging
 from typing import Any
 
 import numpy as np
-from scipy.stats import pearsonr
+
+try:
+    from scipy.stats import pearsonr as _scipy_pearsonr
+
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
+
+
+def _pearsonr(x: list[float], y: list[float]) -> tuple[float, float]:
+    """Compute Pearson correlation with scipy fallback to numpy."""
+    if _SCIPY_AVAILABLE:
+        r, p = _scipy_pearsonr(x, y)
+        return float(r), float(p)
+    # Pure numpy fallback (no p-value computation -- return 1.0)
+    arr_x = np.array(x, dtype=float)
+    arr_y = np.array(y, dtype=float)
+    if len(arr_x) < 3:
+        return 0.0, 1.0
+    corr_matrix = np.corrcoef(arr_x, arr_y)
+    r = float(corr_matrix[0, 1])
+    if np.isnan(r):
+        return 0.0, 1.0
+    # Approximate p-value using t-distribution approximation
+    n = len(arr_x)
+    if abs(r) >= 1.0:
+        return r, 0.0
+    t_stat = r * np.sqrt((n - 2) / (1 - r ** 2))
+    # Two-tailed p-value approximation (rough but functional)
+    p = float(2.0 * np.exp(-0.717 * abs(t_stat) - 0.416 * t_stat ** 2))
+    p = max(0.0, min(1.0, p))
+    return r, p
 
 logger = logging.getLogger("neuro.learning_loop")
 
@@ -71,7 +102,7 @@ async def neural_reflection() -> dict[str, Any]:
         try:
             scores = [float(r["neuro_scores"][dim]) for r in data]
             outcomes = [r["converted"] for r in data]
-            corr, p_value = pearsonr(scores, outcomes)
+            corr, p_value = _pearsonr(scores, outcomes)
             correlations[dim] = {
                 "r": round(float(corr), 4),
                 "p": round(float(p_value), 4),
@@ -251,7 +282,7 @@ def compute_correlations(
         if len(dim_scores) != len(outcomes) or len(dim_scores) < 3:
             correlations[dim] = {"r": 0.0, "p": 1.0, "n": 0}
             continue
-        corr, p_value = pearsonr(dim_scores, outcomes)
+        corr, p_value = _pearsonr(dim_scores, outcomes)
         correlations[dim] = {
             "r": round(float(corr), 4),
             "p": round(float(p_value), 4),
