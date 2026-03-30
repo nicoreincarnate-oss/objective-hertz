@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T22:12:21.377Z"
+last_updated: "2026-03-30T22:16:16.000Z"
 progress:
   total_phases: 21
   completed_phases: 8
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -165,6 +165,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **08-02:** neuro_scorer_middleware placed after anti_slop in chain ordering
 - **08-02:** Neural reflection and segment profiles are non-skippable scheduler jobs
 
+- **10-01:** Direct REST calls to magic.21st.dev instead of MCP protocol (simpler, mirrors recraft_client pattern)
+- **10-01:** Max 2 component fetches per curated source to stay within rate limits
+- **10-01:** Component code framed as structural inspiration with React/TSX adaptation rule
+- **10-01:** _fetch_component thin wrapper enables clean test mocking without httpx internals
+
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
@@ -187,8 +192,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 08-01 | 7min | 6 | 8 |
 | 07-03 | 2min | 2 | 2 |
 | 08-02 | 8min | 4 | 5 |
+| 10-01 | 2min | 2 | 4 |
 
 ---
+*State updated: 2026-03-30 -- Phase 10 Plan 01 complete (21st.dev REST client + design_sources.py async enrichment, 15 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 02 complete (pipeline integration: neural gating in email compose, neuro_scorer_middleware, scheduler jobs, 58 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 01 complete (neuro-scorer core: TribeService, ROIExtractor, RunningNormalizer, NeuroScorer, learning loop, migration 024)*
 *State updated: 2026-03-30 -- Phase 07 Plan 03 complete (gap closure: backtest function, concurrent experiment tests, 58 total tests)*
