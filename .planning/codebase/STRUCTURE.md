@@ -1,292 +1,422 @@
-# Codebase Structure
+# Project Structure
 
-**Analysis Date:** 2026-03-27
+**Analysis Date:** 2026-03-29
 
-## Directory Layout
+## Directory Tree
 
 ```
 objective-hertz/
-├── orchestrator.py              # Top-level entry point (THE boss)
+├── orchestrator.py              # Main entry point (OpenJarvis boss)
 ├── CLAUDE.md                    # Project memory and instructions
-├── HANDOFF.md                   # Context continuity between sessions
-├── Makefile                     # Standardized commands
-├── justfile                     # Alternative task runner
-├── docker-compose.yaml          # Postgres, Qdrant, Mem0, N8N
-├── .env                         # LIVE API keys (DO NOT READ)
+├── HANDOFF.md                   # Context continuity document
+├── Makefile / justfile           # Standardized commands
+├── docker-compose.yaml           # Postgres, Qdrant, Mem0, N8N
+├── .env                          # LIVE API KEYS (DO NOT READ)
 │
-├── openjarvis/                  # Orchestrator framework (reusable)
-│   ├── core/                    #   Registries, types, EventBus
-│   ├── a2a/                     #   Agent-to-Agent protocol (Google A2A)
-│   ├── security/                #   Scanners, RBAC, SSRF, audit
-│   ├── vassals/                 #   Supervisor, discovery, scheduler, relay
-│   ├── tools/                   #   OJ-native tools (file, git, http, think)
-│   ├── agents/                  #   Agent base classes, templates, loop guard
-│   ├── learning/                #   Optimization, routing, training, feedback
-│   ├── engine/                  #   Inference engine abstraction
-│   ├── scheduler/               #   Task scheduling primitives
-│   ├── server/                  #   OJ HTTP server
-│   ├── traces/                  #   Trace storage
-│   ├── bench/                   #   Benchmarking
-│   ├── evals/                   #   Evaluation framework
-│   └── optimize/                #   Configuration optimization
+├── openjarvis/                   # Orchestrator framework (447 py files)
+│   ├── a2a/                      # Agent-to-agent protocol (client, server, protocol, tool)
+│   ├── agents/                   # Agent base classes and loop guard
+│   ├── channels/                 # Communication channels
+│   ├── core/                     # EventBus, config, credentials, types, registry
+│   ├── daemon/                   # Daemon lifecycle management
+│   ├── engine/                   # Execution engine
+│   ├── intelligence/             # Intelligence gathering
+│   ├── learning/                 # Agent learning infrastructure
+│   ├── mcp/                      # Model Context Protocol integration
+│   ├── operators/                # Operator pattern (system_monitor, etc.)
+│   ├── prompt/                   # Prompt management
+│   ├── recipes/                  # Pre-built workflow recipes
+│   ├── sandbox/                  # Sandboxed execution
+│   ├── scheduler/                # Agent scheduling
+│   ├── security/                 # Injection scanner, SSRF, rate limiter, capabilities, audit
+│   ├── sessions/                 # Session management
+│   ├── skills/                   # Skill infrastructure
+│   ├── tools/                    # 30+ built-in tools (browser, file, git, http, shell, etc.)
+│   ├── vassals/                  # Vassal management (14 files)
+│   │   ├── supervisor.py         # Spawn/monitor daemon processes
+│   │   ├── discovery.py          # Discover A2A capabilities
+│   │   ├── perseus_scheduler.py  # Strategic brain (replaces Perseus daemon)
+│   │   ├── event_relay.py        # Bidirectional event bridge
+│   │   ├── sleep_cycle.py        # Nightly Alpha/Beta debate + backprop
+│   │   ├── backprop.py           # Behavioral file edit engine
+│   │   ├── cell_division.py      # Propose new specialized agents
+│   │   ├── memory_federation.py  # Cross-daemon memory
+│   │   ├── infra_health.py       # Infrastructure health checks
+│   │   ├── priorities.py         # Deterministic priority logic
+│   │   ├── schedules.py          # Schedule definitions
+│   │   └── registry.py           # Agent registry + heartbeat
+│   ├── workflow/                  # WorkflowGraph DAG execution
+│   └── system.py                 # SystemBuilder bootstrap
 │
-├── titan/                       # Revenue engine daemon
-│   ├── daemon.py                #   Main loop + A2A server
-│   ├── state_machine.py         #   Lead status transitions
-│   ├── memory.py                #   Learning and reflection
-│   ├── deliverability.py        #   Email deliverability monitoring
-│   ├── expansion.py             #   Revenue expansion proposals
-│   ├── training.py              #   LoRA fine-tuning pipeline
-│   └── pipeline/                #   10-stage revenue pipeline
-│       ├── lead_discovery.py    #     Stage 1: Find prospects
-│       ├── lead_research.py     #     Stage 2: Deep research
-│       ├── email_compose.py     #     Stage 3: Draft emails
-│       ├── email_send.py        #     Stage 4: Send via Instantly
-│       ├── follow_up.py         #     Stage 5: Follow-up management
-│       ├── close_deal.py        #     Stage 6-7: Demo + close
-│       ├── build_site.py        #     Stage 8: Full site build
-│       ├── deploy_site.py       #     Stage 9: Netlify deploy
-│       └── invoice.py           #     Stage 10: Payment collection
+├── perseus/                      # Legacy scheduler daemon (11 py files)
+│   ├── daemon.py                 # LEGACY — refuses to start if orchestrator running
+│   ├── scheduler.py              # 15 scheduled task definitions
+│   ├── agent_registry.py         # Agent registration
+│   └── health.py                 # Health checks
 │
-├── hermes/                      # Alerts + dashboard daemon
-│   ├── daemon.py                #   Main loop (Telegram + alerts + web)
-│   ├── alerts.py                #   Alert dispatch logic
-│   ├── telegram_bot.py          #   Telegram bot interface
-│   ├── a2a_server.py            #   A2A endpoint
-│   ├── skills/                  #   Hermes-specific skills
-│   └── web/                     #   Web dashboard
-│       ├── app.py               #     FastAPI backend (port 8500)
-│       ├── presenter.py         #     View model builder
-│       ├── operator_chat.py     #     Operator command dispatch
-│       ├── routes/              #     API route modules
-│       ├── templates/           #     Jinja2 HTML templates
-│       ├── static/              #     Static assets
-│       └── frontend/            #     Next.js War Room
-│           ├── app/             #       Next.js app router pages
-│           │   ├── page.tsx     #         Home/dashboard
-│           │   ├── pipeline/    #         Pipeline view
-│           │   ├── agents/      #         Agent monitoring
-│           │   ├── intel/       #         Intelligence view
-│           │   ├── settings/    #         Settings page
-│           │   └── api/         #         API routes (Next.js)
-│           ├── components/      #       React components
-│           │   ├── ui/          #         shadcn/ui primitives
-│           │   └── blocks/      #         Composite components
-│           ├── contexts/        #       React context providers
-│           ├── hooks/           #       Custom React hooks
-│           └── lib/             #       Utility functions
+├── titan/                        # Revenue engine (25 py files)
+│   ├── daemon.py                 # Main daemon loop (TitanDaemon)
+│   ├── pipeline/                 # 10-stage pipeline
+│   │   ├── lead_discovery.py     # Stage 1: Find businesses
+│   │   ├── lead_research.py      # Stage 2: Research leads
+│   │   ├── email_compose.py      # Stage 3: Write custom emails
+│   │   ├── email_send.py         # Stage 4: Send + Stage 5b: Sync analytics
+│   │   ├── follow_up.py          # Stage 5a: Process follow-ups
+│   │   ├── close_deal.py         # Stage 6: Close interested leads
+│   │   ├── build_site.py         # Stage 7: Build websites
+│   │   ├── deploy_site.py        # Stage 8: Deploy sites
+│   │   └── invoice.py            # Stage 9: Process invoices
+│   ├── expansion.py              # Revenue-gated self-expansion engine
+│   ├── workflow_pipeline.py      # DAG definition (WorkflowGraph)
+│   ├── state_machine.py          # Lead state transitions
+│   ├── memory.py                 # Titan's memory layer (Mem0, learnings, reflection)
+│   ├── compliance.py             # CAN-SPAM compliance (FATAL on failure)
+│   ├── deliverability.py         # Email deliverability monitoring
+│   ├── training.py               # LoRA training pipeline
+│   ├── a2a_server.py             # Titan A2A endpoint
+│   └── workflow_tools.py         # Pipeline tools for WorkflowEngine
 │
-├── clawdbot/                    # Site builder + browser automation
-│   ├── daemon.py                #   Main loop + skill execution
-│   ├── site_builder.py          #   AI site construction
-│   ├── netlify_deploy.py        #   Netlify deployment
-│   ├── brain.py                 #   Skill routing
-│   └── a2a_server.py            #   A2A endpoint
+├── hermes/                       # Alerts + dashboard (10 py files)
+│   ├── daemon.py                 # Main daemon (HermesDaemon)
+│   ├── alerts.py                 # Alert dispatch logic
+│   ├── telegram_bot.py           # Telegram bot integration
+│   ├── a2a_server.py             # Hermes A2A endpoint
+│   └── web/                      # FastAPI War Room dashboard
+│       ├── app.py                # FastAPI app (routes, API endpoints)
+│       └── frontend/             # React frontend
 │
-├── conway/                      # Agent economics
-│   ├── wallet.py                #   Base L2 USDC wallets
-│   ├── x402_client.py           #   Micropayment client
-│   ├── ledger.py                #   Transaction ledger
-│   └── survival.py              #   Survival-tier enforcement
+├── clawdbot/                     # Site builder + browser automation (11 py files)
+│   ├── daemon.py                 # Main daemon (ClawdBotDaemon)
+│   ├── site_builder.py           # AI site construction
+│   ├── netlify_deploy.py         # Netlify deployment
+│   ├── brain.py                  # Skill routing
+│   └── a2a_server.py             # ClawdBot A2A endpoint
 │
-├── shared/                      # Shared runtime (used by ALL agents)
-│   ├── config.py                #   Central config (loads .env)
-│   ├── db.py                    #   Postgres async pool (psycopg v3)
-│   ├── comms.py                 #   Inter-agent comms (A2A + DB fallback)
-│   ├── llm_client.py            #   Claude + Ollama unified client
-│   ├── agent_base.py            #   Base class for daemon agents
-│   ├── oj_bridge.py             #   OpenJarvis singleton bridge
-│   ├── task_routing.py          #   Task type -> agent name map
-│   ├── capability_router.py     #   Dynamic capability routing
-│   ├── skill_loader.py          #   Multi-directory skill loader
-│   ├── observability.py         #   Traces, Sentry, Prometheus
-│   ├── logging_config.py        #   Structured logging setup
-│   ├── magma.py                 #   MAGMA graph memory
-│   ├── pipeline.py              #   Pipeline state assessment
-│   ├── pipeline_alerts.py       #   Pipeline error events
-│   ├── pipeline_dag.py          #   DAG-based pipeline execution
-│   └── (20+ more modules)       #   Bandit, RAG, inference opt, etc.
+├── conway/                       # Agent economics (10 py files)
+│   ├── wallet.py                 # Base L2 USDC wallets (AgentWallet, WalletManager)
+│   ├── x402_client.py            # x402 micropayment protocol client
+│   ├── ledger.py                 # Transaction ledger (conway_ledger table)
+│   ├── survival.py               # Survival tier management
+│   ├── identity.py               # Agent identity
+│   ├── cloud.py                  # Cloud wallet integration
+│   ├── runtime.py                # Runtime economic controls
+│   ├── registry.py               # Economic registry
+│   └── terminal.py               # Terminal interface
 │
-├── tools/                       # External service integrations
-│   ├── instantly_client.py      #   Email campaigns (Instantly.ai)
-│   ├── firecrawl_client.py      #   Web scraping (Firecrawl)
-│   ├── recraft_client.py        #   AI image generation (Recraft)
-│   ├── payment_router.py        #   Stripe + Wise payments
-│   ├── budget_guard.py          #   Budget enforcement
-│   ├── domain_manager.py        #   Domain provisioning
-│   ├── n8n_client.py            #   N8N workflow automation
-│   ├── notebooklm_client.py     #   NotebookLM integration
-│   └── runtime_honesty.py       #   Runtime honesty checks
+├── shared/                       # Shared runtime layer (26 py files)
+│   ├── db.py                     # Postgres connection pool (23 tables)
+│   ├── comms.py                  # Inter-daemon communication API
+│   ├── llm_client.py             # Claude + Ollama client (fast/smart/genius tiers)
+│   ├── config.py                 # Configuration management
+│   ├── agent_base.py             # AgentBase ABC (all daemons extend this)
+│   ├── skill_loader.py           # Skill loading, vetting, execution
+│   ├── magma.py                  # MAGMA graph memory (Neo4j + Qdrant + Zep)
+│   ├── oj_bridge.py              # OpenJarvis singleton bootstrap
+│   ├── pipeline.py               # Pipeline state assessment
+│   ├── pipeline_alerts.py        # Pipeline error emission
+│   ├── task_routing.py           # Task type -> agent name routing
+│   ├── capability_router.py      # Dynamic capability routing
+│   ├── self_model.py             # Agent self-assessment metrics
+│   ├── observability.py          # Tracing, metrics, exception capture
+│   ├── logging_config.py         # Structured logging setup
+│   ├── test_time_learning.py     # Test-time learning hooks
+│   ├── weight_directives.py      # Weight/priority directives
+│   ├── inference_optimizer.py    # Inference cost optimization
+│   ├── execution_loop.py         # Execution loop utilities
+│   ├── adaptive_dashboard.py     # Adaptive dashboard data
+│   ├── bandit.py                 # Multi-armed bandit
+│   └── prospect_simulator.py     # Prospect simulation
 │
-├── scripts/                     # Ops scripts
-│   ├── init-db.sql              #   Production schema (23+ tables)
-│   ├── migrations/              #   DB migration scripts
-│   ├── health-check.sh          #   System health verification
-│   └── install-launchagents.sh  #   macOS LaunchAgent setup
+├── tools/                        # External integrations (532 py files - includes vendored SDKs)
+│   ├── instantly_client.py       # Email campaign API (Instantly.ai)
+│   ├── firecrawl_client.py       # Web scraping API
+│   ├── recraft_client.py         # AI image generation
+│   ├── payment_router.py         # Stripe + Wise payment routing
+│   ├── budget_guard.py           # Spend enforcement
+│   ├── domain_manager.py         # Custom domain management
+│   ├── n8n_client.py             # N8N workflow automation
+│   ├── notebooklm_client.py      # NotebookLM integration
+│   ├── runtime_honesty.py        # Runtime honesty checks
+│   ├── browser-use/              # Browser automation library (vendored)
+│   └── firecrawl/                # Firecrawl SDK (vendored)
 │
-├── tests/                       # Pytest test suite
-├── templates/                   # Website templates (dentist, plumber, etc.)
-├── soul/                        # Personality, autonomy rules, copywriting
-├── logs/                        # Daemon logs (not committed)
-├── data/                        # Runtime data directory
-├── design-system/               # Design mockups for War Room
-└── intel/                       # Intelligence/research data
+├── soul/                         # Personality and guidelines
+│   ├── soul_agent.md             # Agent behavioral rules
+│   ├── soul_copy.md              # Copywriting guidelines + compliance rules
+│   ├── soul_hermes.md            # Hermes-specific personality
+│   ├── soul_values.md            # Core values
+│   └── templates/                # Outreach templates
+│       ├── electrician_outreach.md
+│       ├── home_services_outreach.md
+│       └── plumber_outreach.md
+│
+├── .agent/skills/                # Installed skill packages
+│   ├── firecrawl-skill/          # Firecrawl search skill
+│   └── marketing/                # Marketing skill collection (40+ skills)
+│       └── skills/               # Individual skills (cold-email, ai-seo, copywriting, etc.)
+│
+├── scripts/                      # Operational scripts
+│   ├── init-db.sql               # Production schema (23 tables)
+│   ├── migrations/               # DB migration scripts
+│   ├── health-check.sh           # System health verification
+│   └── install-launchagents.sh   # macOS LaunchAgent setup
+│
+├── tests/                        # Pytest test suite (457 py files)
+│   ├── test_week*.py             # Weekly test suites
+│   ├── openjarvis/               # OpenJarvis framework tests
+│   └── helpers/                  # Test helpers
+│
+├── templates/                    # Industry website templates
+├── logs/                         # Daemon logs (not committed)
+├── intel/                        # Research intelligence documents
+│   ├── agent-dna/                # Agent DNA research
+│   ├── anti-slop/                # Anti-slop research
+│   ├── deerflow/                 # DeerFlow memory middleware research
+│   ├── hyperagents/              # HyperAgents research
+│   ├── post-quantum-crypto/      # PQC research
+│   ├── quantum-computing/        # Quantum computing research
+│   └── recursive-language-models/ # RLM research
+└── .planning/                    # GSD planning documents
 ```
 
-## Directory Purposes
+## Module Dependency Graph
 
-**`openjarvis/`:**
-- Purpose: The reusable orchestrator framework. Could theoretically be extracted as a library.
-- Contains: Core infrastructure (EventBus, registries, types), A2A protocol, security layer, vassal management, learning/optimization subsystem, evaluation framework
-- Key files: `core/events.py` (EventBus), `a2a/server.py` + `a2a/client.py` (protocol), `security/__init__.py` (security setup), `vassals/supervisor.py` (process management)
+### Cross-Daemon Dependencies (what imports what)
 
-**`titan/`:**
-- Purpose: The revenue engine. Discovers leads, nurtures them through email, closes deals, builds sites, collects payment.
-- Contains: 10 pipeline stages, state machine, learning/reflection, deliverability monitoring
-- Key files: `daemon.py` (entry point), `pipeline/lead_discovery.py` through `pipeline/invoice.py` (the full pipeline), `state_machine.py` (transition enforcement)
+```
+orchestrator.py
+  -> shared/config.py, shared/logging_config.py, shared/observability.py
+  -> shared/oj_bridge.py (EventBus, AgentManager, TraceStore, AuditLogger)
+  -> shared/db.py (init_pool, fetch_all, execute)
+  -> openjarvis/vassals/* (supervisor, discovery, perseus_scheduler, event_relay)
+  -> openjarvis/system.py (SystemBuilder)
+  -> openjarvis/operators/manager.py (OperatorManager)
+  -> tools/budget_guard.py
 
-**`hermes/`:**
-- Purpose: Communications and monitoring. Telegram bot, alert dispatch, web dashboard.
-- Contains: Daemon, alert logic, Telegram integration, FastAPI backend, Next.js frontend
-- Key files: `daemon.py` (entry point), `web/app.py` (FastAPI), `web/frontend/app/` (Next.js pages)
+titan/daemon.py
+  -> shared/agent_base.py (AgentBase)
+  -> shared/db.py, shared/logging_config.py, shared/observability.py
+  -> openjarvis/vassals/registry.py (heartbeat)
+  -> titan/pipeline/*.py (all stage handlers)
+  -> titan/expansion.py, titan/memory.py, titan/training.py, titan/deliverability.py
+  -> titan/compliance.py (assert_compliance_ready)
+  -> shared/comms.py (ask_agent, delegate_task, get_pending_recommendations)
 
-**`clawdbot/`:**
-- Purpose: Execution agent. Builds websites, runs browser automation, executes skills.
-- Contains: Daemon, site builder, Netlify deployer, skill brain
-- Key files: `daemon.py` (entry point), `site_builder.py` (AI site construction), `brain.py` (skill routing)
+hermes/daemon.py
+  -> shared/agent_base.py, shared/db.py, shared/config.py
+  -> hermes/alerts.py, hermes/telegram_bot.py
+  -> hermes/web/app.py (FastAPI dashboard)
+  -> shared/comms.py (ask_agent, send_alert)
+  -> shared/llm_client.py (LLM routing for operator messages)
 
-**`conway/`:**
-- Purpose: Agent economics. Manages Ethereum wallets on Base L2 for agent-to-agent micropayments.
-- Contains: Wallet management, x402 payment protocol, transaction ledger, survival tiers
-- Key files: `wallet.py` (Base L2 USDC wallets), `x402_client.py` (micropayments)
+clawdbot/daemon.py
+  -> shared/agent_base.py, shared/db.py, shared/config.py
+  -> shared/skill_loader.py (execute_skill, find_skill, list_installed_skills)
+  -> shared/comms.py (record_decision)
+  -> openjarvis/vassals/registry.py (heartbeat)
 
-**`shared/`:**
-- Purpose: Runtime glue used by every daemon. Database, comms, LLM, config, observability.
-- Contains: 35+ modules covering DB, comms, LLM, config, skills, memory, observability, and experimental features
-- Key files: `db.py` (Postgres pool), `comms.py` (A2A + DB comms), `llm_client.py` (Claude + Ollama), `config.py` (central config), `oj_bridge.py` (OJ singletons)
+shared/comms.py (central hub)
+  -> shared/db.py (all DB operations)
+  -> shared/oj_bridge.py (call_agent_async for A2A)
+  -> shared/task_routing.py (TASK_ROUTING)
+  -> shared/capability_router.py (dynamic routing)
+  -> shared/observability.py (enrich_payload_with_context)
+```
 
-**`tools/`:**
-- Purpose: External service client libraries
-- Contains: API clients for Instantly, Firecrawl, Recraft, Stripe, Wise, N8N, etc.
-- Key files: `budget_guard.py` (spend enforcement -- critical for autonomy), `payment_router.py` (revenue collection)
+### Key Shared Dependencies
 
-## Key File Locations
+All daemons depend on:
+- `shared/agent_base.py` — AgentBase ABC
+- `shared/db.py` — Postgres connection pool
+- `shared/comms.py` — Inter-daemon communication
+- `shared/config.py` — Configuration
+- `shared/logging_config.py` — Structured logging
+- `shared/observability.py` — Tracing and metrics
 
-**Entry Points:**
-- `orchestrator.py`: THE entry point. Starts everything.
-- `titan/daemon.py`: Titan revenue engine (spawned by orchestrator)
-- `hermes/daemon.py`: Hermes alerts + dashboard (spawned by orchestrator)
-- `clawdbot/daemon.py`: ClawdBot site builder (spawned by orchestrator)
+## Entry Points
 
-**Configuration:**
-- `shared/config.py`: Central typed config loaded from .env
-- `scripts/init-db.sql`: Database schema definition
-- `docker-compose.yaml`: Service dependencies (Postgres, Qdrant, Mem0, N8N)
-- `openjarvis/vassals/supervisor.py`: Vassal process configs (commands, ports, restart policy)
+### Daemon Startup
+| Daemon | Command | Entry Function |
+|--------|---------|----------------|
+| Orchestrator | `python orchestrator.py` | `Orchestrator.start()` |
+| Titan | `python -m titan.daemon` | `TitanDaemon.start()` via `main_with_a2a()` |
+| Hermes | `python -m hermes.daemon` | `HermesDaemon.start()` via `main_with_a2a()` |
+| ClawdBot | `python -m clawdbot.daemon` | `ClawdBotDaemon.start()` via `main_with_a2a()` |
+| Perseus (legacy) | `python -m perseus.daemon` | `PerseusDaemon.start()` (refuses if OJ running) |
 
-**Core Logic:**
-- `titan/pipeline/`: The 10-stage revenue pipeline (the money-making code)
-- `titan/state_machine.py`: Lead status transitions (enforces pipeline integrity)
-- `openjarvis/vassals/perseus_scheduler.py`: Strategic brain (tick loop, priorities, budget)
-- `shared/comms.py`: Inter-agent communication (A2A primary, DB fallback)
-- `shared/llm_client.py`: Budget-aware LLM routing
+### Pipeline Entry
+- **Task-queue mode:** Perseus scheduler inserts tasks -> `TitanDaemon._process_task_queue()` -> `TASK_HANDLERS[task_type]`
+- **DAG mode:** `titan/workflow_pipeline.py` -> `run_pipeline()` -> `WorkflowEngine.run(graph)`
+- **Direct A2A:** `shared/comms.py` -> `request_task()` / `delegate_task()` -> A2A endpoint
 
-**Testing:**
-- `tests/`: Pytest test suite (579+ tests)
+### A2A Handlers
+| Agent | A2A File | Port |
+|-------|----------|------|
+| Orchestrator | `orchestrator.py` `handle_a2a()` | 9000 |
+| Titan | `titan/a2a_server.py` `create_titan_a2a()` | 9001 |
+| Hermes | `hermes/a2a_server.py` `create_hermes_a2a()` | 9002 |
+| ClawdBot | `clawdbot/a2a_server.py` (inferred) | 9003 |
+| Ruflo | External (claude-flow) | 9004 |
 
-**Security:**
-- `openjarvis/security/`: Full security stack (scanners, RBAC, SSRF, audit)
-- `hermes/web/app.py`: Dashboard authentication (HMAC session cookies)
+## soul/ Directory (Agent DNA Location)
 
-## Naming Conventions
+The `soul/` directory contains behavioral files that the backprop engine can modify nightly.
 
-**Files:**
-- Python modules: `snake_case.py` (e.g., `lead_discovery.py`, `budget_guard.py`)
-- Daemon entry points: `daemon.py` in each agent directory
-- Config/schema: Descriptive names (`init-db.sql`, `docker-compose.yaml`)
+| File | Purpose | Backprop Editable |
+|------|---------|-------------------|
+| `soul/soul_agent.md` | Agent behavioral rules, autonomy boundaries | Yes (except immutable sections) |
+| `soul/soul_copy.md` | Copywriting guidelines, email tone, compliance rules | Yes (lines 34-42 are IMMUTABLE) |
+| `soul/soul_hermes.md` | Hermes-specific personality and communication style | Yes |
+| `soul/soul_values.md` | Core values and ethical guidelines | Yes |
+| `soul/templates/` | Industry-specific outreach email templates | Yes |
 
-**Directories:**
-- Agent directories: lowercase single word (`titan/`, `hermes/`, `clawdbot/`, `conway/`)
-- Framework directories: lowercase with underscores (`openjarvis/`, `shared/`)
-- Pipeline stages: `titan/pipeline/` with descriptive module names
+**Agent DNA placement:** New personality/behavioral files go in `soul/`. The backprop engine (`openjarvis/vassals/backprop.py`) reads from and edits files in this directory. New Agent DNA research docs go in `intel/agent-dna/`. Implementation artifacts (behavioral configs, identity files) belong in `soul/`.
 
-**Classes:**
-- PascalCase: `AgentBase`, `VassalSupervisor`, `PerseusScheduler`, `LLMClient`
-- Daemon classes: `{Name}Daemon` (e.g., `HermesDaemon`)
-- Config dataclasses: `{Name}Config` (e.g., `PostgresConfig`, `PerseusConfig`)
+## Configuration Files
+
+### Environment
+- `.env` — LIVE API keys (DO NOT READ). Contains: Claude API, Telegram, Instantly, Firecrawl, Stripe, Wise, Recraft, Base RPC, Conway keystore password, etc.
+- `CONWAY_KEYSTORE_PASSWORD` — required for wallet operations
+- `BASE_RPC_URL` — Base L2 RPC endpoint
+- `*_A2A_PORT` — A2A ports per daemon
+- `USE_A2A_DISPATCH` — feature flag for A2A vs DB polling
+
+### System Config (DB table: `system_config`)
+Runtime key/value config shared by all daemons. Accessed via `shared/db.py` -> `get_config()` / `set_config()`. Examples:
+- `titan_paused` — pause Titan processing
+- `expansion_enabled` — enable revenue expansion
+- `active_shadow_discovery_skill` — currently active shadow skill
+- `preferred_discovery_skill` — adopted skill preference
+
+### Docker Compose (`docker-compose.yaml`)
+Services: Postgres, Qdrant (vector DB), Mem0, N8N (workflow automation)
+
+### Build/Lint
+- `pyproject.toml` or `setup.cfg` — Python project config
+- `ruff` — linter (run via `make quality`)
+- `pytest` — test runner
+
+## Data Flow (Lead Lifecycle)
+
+```
+1. DISCOVER: lead_discovery.py
+   - Uses skills (apify, firecrawl, web search) to find businesses
+   - Inserts into `clients` table with status='discovered'
+   - Stores source_campaign for attribution
+
+2. RESEARCH: lead_research.py
+   - Enriches leads via ClawdBot (browser, Firecrawl)
+   - Updates `clients` with website_url, email, industry, research_data
+   - Transitions status: discovered -> researched
+
+3. COMPOSE: email_compose.py
+   - Loads soul/soul_copy.md for guidelines
+   - Uses installed skills (cold-email, etc.) or LLM directly
+   - Creates personalized email based on research
+   - Stores in email_drafts or directly on client record
+   - Transitions status: researched -> email_ready
+
+4. SEND: email_send.py
+   - Sends via Instantly.ai API (tools/instantly_client.py)
+   - Tracks in outreach_metrics table
+   - Transitions status: email_ready -> contacted
+
+5a. FOLLOW-UP: follow_up.py
+   - Checks reply status via Instantly analytics
+   - AI decides next action based on reply content
+   - Transitions: contacted -> interested/rejected/follow_up
+
+5b. SYNC ANALYTICS: email_send.py (sync_campaign_analytics)
+   - Pulls opens, clicks, replies from Instantly
+   - Updates outreach_metrics
+
+6. CLOSE: close_deal.py
+   - Handles interested leads: proposals, demos, negotiation
+   - Transitions: interested -> demo_built -> proposal_sent -> negotiating -> closed
+
+7. BUILD: build_site.py
+   - Delegates to ClawdBot for site construction
+   - Uses templates from templates/ directory
+   - Transitions: closed -> building
+
+8. DEPLOY: deploy_site.py
+   - Netlify deployment via clawdbot/netlify_deploy.py
+   - Custom domain setup via tools/domain_manager.py
+   - Transitions: building -> deployed
+
+9. INVOICE: invoice.py
+   - Routes payment via tools/payment_router.py (Stripe + Wise)
+   - Records in deals table
+   - Transitions: deployed -> invoiced -> paid
+```
 
 ## Where to Add New Code
 
-**New Pipeline Stage:**
-- Primary code: `titan/pipeline/new_stage.py`
-- Add transition in: `titan/state_machine.py` TRANSITIONS dict
-- Wire into daemon loop: `titan/daemon.py` (import and add to scheduled stages)
-- DB schema changes: `scripts/migrations/` (new migration file)
-- Tests: `tests/test_new_stage.py`
+### New Pipeline Stage
+- Implementation: `titan/pipeline/{stage_name}.py`
+- Register handler: `titan/daemon.py` `TASK_HANDLERS` dict
+- Add to DAG: `titan/workflow_pipeline.py` `build_pipeline_graph()`
+- Add task routing: `shared/task_routing.py` `TASK_ROUTING` dict
+- Add schedule: `perseus/scheduler.py` `SCHEDULES` list
 
-**New External Integration:**
-- Client library: `tools/new_client.py`
-- Config: Add dataclass in `shared/config.py`, add env vars
-- Task routing: Add task types to `shared/task_routing.py`
-- Tests: `tests/test_new_client.py`
+### New Daemon/Agent
+- Create directory: `{agent_name}/`
+- Create daemon: `{agent_name}/daemon.py` extending `AgentBase`
+- Create A2A server: `{agent_name}/a2a_server.py`
+- Register in orchestrator: `orchestrator.py` `VASSAL_CONFIG`
+- Add routing: `shared/task_routing.py`
+- Add to supervisor: `openjarvis/vassals/supervisor.py`
 
-**New Daemon/Agent:**
-- Daemon: `new_agent/daemon.py` (subclass `shared/agent_base.py`)
-- A2A server: `new_agent/a2a_server.py`
-- Register in supervisor: `openjarvis/vassals/supervisor.py` `register_defaults()`
-- Add A2A URL: `shared/oj_bridge.py` AGENT_URLS dict
-- Add port: Set env var `NEW_AGENT_A2A_PORT`
-- Task routing: `shared/task_routing.py`
+### New Skill
+- Place in `.agent/skills/{skill_name}/`
+- Must have TOML config (`skill.toml` or similar)
+- Loaded by `shared/skill_loader.py`
 
-**New Dashboard Page:**
-- Next.js page: `hermes/web/frontend/app/new-page/page.tsx`
-- API route: `hermes/web/frontend/app/api/new-endpoint/route.ts`
-- Components: `hermes/web/frontend/components/blocks/NewComponent.tsx`
-- Backend API: `hermes/web/routes/new_route.py` or add to `hermes/web/app.py`
+### New Tool Integration
+- Implementation: `tools/{service_name}_client.py`
+- Add env vars to `.env` (via operator)
+- Import from pipeline stages as needed
 
-**New Skill:**
-- Skill definition: `hermes/skills/new-skill/SKILL.md`
-- Alternative locations: `~/.openclaw/skills/new-skill/SKILL.md`
-- No code changes needed -- skill loader auto-discovers from SKILL_DIRS
+### New Soul/Behavioral File
+- Place in `soul/{filename}.md`
+- Will be read by pipeline stages (e.g., email_compose loads soul_copy.md)
+- Editable by backprop engine unless added to `IMMUTABLE_FILES`
 
-**New OpenJarvis Feature:**
-- Core primitive: `openjarvis/core/new_module.py`
-- Security feature: `openjarvis/security/new_scanner.py`
-- Learning feature: `openjarvis/learning/new_module.py`
-- Register in `__init__.py` of the relevant subpackage
+### New Intel Research
+- Place in `intel/{topic}/`
+- Reference from `.planning/` docs for integration planning
+
+### New Tests
+- Place in `tests/test_{module}.py`
+- Run with `PYTHONPATH=. python3 -m pytest tests/ -v`
 
 ## Special Directories
 
-**`logs/`:**
+### `logs/`
 - Purpose: Daemon log files (perseus.log, titan.log, hermes.log, clawdbot.log)
-- Generated: Yes, at runtime
-- Committed: No (in .gitignore)
-
-**`data/`:**
-- Purpose: Runtime data (OJ trace store, cached data)
-- Generated: Yes, at runtime
+- Generated: Yes (at runtime)
 - Committed: No
 
-**`MagicMock/`:**
-- Purpose: Artifact from test mocking (should be cleaned up)
-- Generated: Yes, accidentally
-- Committed: Should not be
+### `.agent/skills/`
+- Purpose: Installed skill packages for ClawdBot execution
+- Generated: No (installed manually or via skill manager)
+- Committed: Partially (large collections may be gitignored)
 
-**`soul/`:**
-- Purpose: Agent personality definitions, autonomy rules, copywriting guidelines
-- Generated: No (hand-authored)
+### `conway/data/keystores/`
+- Purpose: Encrypted agent wallet keystores
+- Generated: Yes (by WalletManager)
+- Committed: No (contains encrypted private keys)
+
+### `intel/`
+- Purpose: Research documents for future integration
+- Generated: No (written by operator/research sessions)
 - Committed: Yes
 
-**`templates/`:**
-- Purpose: Industry-specific website templates (dentist, plumber, restaurant, etc.)
-- Generated: No (designed templates)
-- Committed: Yes
-
-**`design-system/`:**
-- Purpose: Visual design mockups for the War Room dashboard
-- Generated: No
+### `.planning/`
+- Purpose: GSD planning and codebase analysis documents
+- Generated: Yes (by /gsd commands)
 - Committed: Yes
 
 ---
 
-*Structure analysis: 2026-03-27*
+*Structure analysis: 2026-03-29*

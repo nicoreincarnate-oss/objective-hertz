@@ -42,7 +42,7 @@ sys.modules["shared.comms"] = _fake_comms
 
 from ruflo.agent import dispatch, feedback_lookup, propose_change, record_outcome
 from ruflo.bottleneck_detector import detect_bottlenecks, score_bottleneck
-from shared.hybrid_rag import hybrid_retrieve, reward_chain_score
+from tests.helpers.hybrid_rag import hybrid_retrieve, reward_chain_score
 from shared.weight_directives import _seal_directives_enabled
 
 # ═══════════════════════════════════════════════════════════════

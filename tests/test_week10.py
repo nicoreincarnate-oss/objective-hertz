@@ -39,14 +39,14 @@ sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
 from shared.adaptive_dashboard import compute_dashboard_layout, detect_bottleneck
-from shared.dynamic_routing import (
+from tests.helpers.dynamic_routing import (
     classify_query_difficulty,
     get_model_for_difficulty,
     get_pipeline_config,
 )
 from shared.magma import meta_search_params
 from shared.metaclaw import fast_adapt, get_meta_stats, slow_consolidate
-from shared.scientific_loop import create_experiment, evaluate_experiments
+from tests.helpers.scientific_loop import create_experiment, evaluate_experiments
 
 # ═══════════════════════════════════════════════════════════════
 # MetaClaw

@@ -42,7 +42,7 @@ sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
 from perseus.sleep_cycle import _proposal_similarity
-from shared.deep_thinking import estimate_thinking_depth
+from tests.helpers.deep_thinking import estimate_thinking_depth
 from titan.lora_routing import (
     default_config,
     per_layer_multipliers,
@@ -242,7 +242,7 @@ def test_think_at_n_disabled():
     """When disabled, generates once without scoring."""
     os.environ["DEEP_THINKING_ENABLED"] = "0"
     # Re-import to pick up env var
-    from shared.deep_thinking import think_at_n
+    from tests.helpers.deep_thinking import think_at_n
     gen_fn = AsyncMock(return_value="simple output")
     result = asyncio.run(think_at_n(gen_fn, "test prompt"))
     assert result["candidates_tried"] == 1

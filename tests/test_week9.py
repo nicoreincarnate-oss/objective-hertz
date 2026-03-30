@@ -37,9 +37,9 @@ sys.modules["shared.config"] = _fake_config
 sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
-from shared.debate_qd import MAX_POPULATION, MIN_POPULATION, StrategyPool, get_strategy_pool
-from shared.email_enrichment import enrich_email_prompt, get_entity_context, inject_industry_stats
-from shared.skill_distiller import distill_trajectory, get_distilled_skills_for_industry
+from tests.helpers.debate_qd import MAX_POPULATION, MIN_POPULATION, StrategyPool, get_strategy_pool
+from tests.helpers.email_enrichment import enrich_email_prompt, get_entity_context, inject_industry_stats
+from tests.helpers.skill_distiller import distill_trajectory, get_distilled_skills_for_industry
 
 # ═══════════════════════════════════════════════════════════════
 # Skill Distillation
@@ -166,7 +166,7 @@ def test_enrich_disabled_passthrough():
     os.environ["DATA_INJECTION_ENABLED"] = "0"
     os.environ["ENTITY_EMAIL_ENABLED"] = "0"
     # Re-import to pick up env vars
-    from shared.email_enrichment import enrich_email_prompt as ep
+    from tests.helpers.email_enrichment import enrich_email_prompt as ep
     result = asyncio.run(ep("original prompt"))
     assert result == "original prompt"
     # Restore

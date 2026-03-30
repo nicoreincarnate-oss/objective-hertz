@@ -133,7 +133,8 @@
 | RLM-01 through RLM-07 | Phase 5 | Pending |
 | PQC-01 through PQC-07 | Phase 6 Plan 01 | Complete |
 | PQC-08 | Phase 6 Plan 02 | Complete |
-| ADAPT-01 through ADAPT-08 | Phase 7 | Pending |
+| ADAPT-01 through ADAPT-06 | Phase 7 Plan 01 | Complete |
+| ADAPT-07 through ADAPT-08 | Phase 7 Plan 02 | Pending |
 | NEURO-01 through NEURO-10 | Phase 8 | Pending |
 
 **Coverage:**

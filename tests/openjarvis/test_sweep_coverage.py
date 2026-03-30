@@ -878,12 +878,12 @@ def test_config_postgres_dsn():
 
 
 # ===========================================================================
-# 8. shared/deep_thinking.py
+# 8. tests/helpers/deep_thinking.py (relocated from shared/)
 # ===========================================================================
 
 def _import_deep_thinking():
-    sys.modules.pop("shared.deep_thinking", None)
-    return importlib.import_module("shared.deep_thinking")
+    sys.modules.pop("tests.helpers.deep_thinking", None)
+    return importlib.import_module("tests.helpers.deep_thinking")
 
 
 def test_deep_thinking_estimate_empty_text():
@@ -1211,10 +1211,10 @@ def _setup_hybrid_rag(hybrid_enabled: bool = True):
     ])
     sys.modules["shared.db"] = fake_db
 
-    sys.modules.pop("shared.hybrid_rag", None)
+    sys.modules.pop("tests.helpers.hybrid_rag", None)
 
     with patch.dict("os.environ", {"HYBRID_RAG": "1" if hybrid_enabled else "0"}):
-        mod = importlib.import_module("shared.hybrid_rag")
+        mod = importlib.import_module("tests.helpers.hybrid_rag")
 
     return saved, mod, fake_magma, fake_llm_mod.llm
 
@@ -1798,8 +1798,8 @@ def _setup_milestone_rewards():
     fake_bandit.get_bandit = MagicMock(return_value=mock_bandit_inst)
     sys.modules["shared.bandit"] = fake_bandit
 
-    sys.modules.pop("shared.milestone_rewards", None)
-    mod = importlib.import_module("shared.milestone_rewards")
+    sys.modules.pop("tests.helpers.milestone_rewards", None)
+    mod = importlib.import_module("tests.helpers.milestone_rewards")
     return saved, mod, fake_db, fake_ttl, fake_bandit
 
 
@@ -1948,8 +1948,8 @@ def _setup_scientific_loop():
     fake_db.fetch_all = AsyncMock(return_value=[])
     sys.modules["shared.db"] = fake_db
 
-    sys.modules.pop("shared.scientific_loop", None)
-    mod = importlib.import_module("shared.scientific_loop")
+    sys.modules.pop("tests.helpers.scientific_loop", None)
+    mod = importlib.import_module("tests.helpers.scientific_loop")
     return saved, mod, fake_db
 
 

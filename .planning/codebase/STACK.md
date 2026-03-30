@@ -1,204 +1,187 @@
 # Technology Stack
 
-**Analysis Date:** 2026-03-27
+**Analysis Date:** 2026-03-29
 
 ## Languages
 
 **Primary:**
-- Python 3.11+ - All backend daemons, orchestrator, pipeline, tools, shared libraries
-- TypeScript 5.7.3 - War Room frontend (`hermes/web/frontend/`)
+- Python 3.11+ — All daemon code, orchestrator, pipeline, tools, shared libraries
+- Rust — OpenJarvis framework core (`rust/crates/` workspace with 17 crates via `rust/Cargo.toml`)
+- TypeScript 5.7.3 — War Room frontend (`hermes/web/frontend/`)
 
 **Secondary:**
-- SQL - Database schema and migrations (`scripts/init-db.sql`, `scripts/migrations/`)
-- Bash - Operational scripts (`scripts/start-perseus.sh`, `scripts/stop-perseus.sh`, `scripts/health-check.sh`)
+- SQL — Postgres schema and migrations (`scripts/init-db.sql`, `scripts/migrations/`)
+- Bash — Operational scripts (`scripts/start-perseus.sh`, `scripts/health-check.sh`)
+- TOML — Skill definitions, config (`.agent/skills/`)
 
 ## Runtime
 
 **Environment:**
-- Python 3.11+ (target version in `pyproject.toml` line 10: `requires-python = ">=3.11"`)
-- Node.js (for frontend, version not pinned; no `.nvmrc` detected)
-- Ollama >= 0.6.2 (local LLM inference with TurboQuant KV cache compression)
+- Python 3.11+ (`pyproject.toml` line 10: `requires-python = ">=3.11"`)
+- Rust workspace resolver 2 (`rust/Cargo.toml`)
+- Node.js 22 (in sandbox Dockerfile: `deploy/docker/Dockerfile.sandbox`)
+- Ollama >= 0.6.2 (local LLM with TurboQuant KV cache compression)
 
 **Package Managers:**
-- pip with hatchling build backend (`pyproject.toml`)
-- pnpm (frontend, based on `node_modules/.pnpm` structure in `hermes/web/frontend/`)
-- Lockfile: `requirements.txt` present for pip; pnpm lockfile in frontend
+- pip with hatchling build backend + uv for production builds (`deploy/docker/Dockerfile`)
+- pnpm (frontend in `hermes/web/frontend/`)
+- Cargo (Rust workspace)
+- Lockfile: `rust/Cargo.lock` present; no Python lockfile (relies on `pyproject.toml` version ranges + `requirements.txt`)
 
 ## Frameworks
 
 **Core Backend:**
-- FastAPI >= 0.110 - Dashboard API and web server (`hermes/web/app.py`)
-- Uvicorn >= 0.30 - ASGI server for FastAPI
-- Pydantic >= 2.0 - Data validation and settings
-- Jinja2 >= 3.1 - Server-side HTML templates (`hermes/web/app.py`)
+- OpenJarvis — Custom orchestrator (Rust core + Python bindings via PyO3/maturin)
+  - `openjarvis/` Python package + `rust/crates/openjarvis-python/` bindings
+  - Provides: WorkflowEngine, A2A protocol, EventBus, AgentManager, CapabilityPolicy, TraceStore, AuditLogger
+- FastAPI >= 0.110 — Dashboard API and A2A HTTP endpoints (`hermes/web/app.py`)
+- psycopg v3 (async) + psycopg-pool — Postgres access (`shared/db.py`)
+- Pydantic >= 2.0 — Data validation
+- Jinja2 >= 3.1 — Server-side templates
 
 **Frontend:**
-- Next.js 16.2.0 - React framework for War Room (`hermes/web/frontend/package.json`)
-- React 19.2.4 - UI library
-- Tailwind CSS 4.2.0 - Utility-first CSS
-- Radix UI - Headless component primitives (full suite: dialog, dropdown, toast, etc.)
-- shadcn/ui pattern - Components built on Radix + Tailwind (class-variance-authority, tailwind-merge, clsx)
+- Next.js 16.2.0 — React framework for War Room (`hermes/web/frontend/`)
+- React 19.2.4, Tailwind CSS 4.2.0, Radix UI, shadcn/ui pattern
+- Recharts, @tanstack/react-table, Three.js/R3F for 3D visuals
 
 **Testing:**
-- pytest >= 8 - Test runner (`pyproject.toml`)
-- pytest-asyncio >= 0.24 - Async test support (mode: `auto`)
-- pytest-cov >= 5 - Coverage reporting
-- respx >= 0.22 - httpx request mocking
+- pytest >= 8 — Test runner (asyncio_mode: `auto`)
+- pytest-asyncio >= 0.24, pytest-cov >= 5, respx >= 0.22
 
 **Linting/Quality:**
-- ruff >= 0.4 - Linter and formatter (target: py311, line-length: 100, rules: E, F, I, B, UP)
-- mypy >= 1.11 - Type checking (packages: shared, titan, hermes, clawdbot, tools, conway, perseus)
-- pre-commit >= 3.0 - Git hooks
+- ruff >= 0.4 — target py311, line-length 100, rules: E, F, I, B, UP
+- mypy >= 1.11 — packages: shared, titan, hermes, clawdbot, tools, conway, perseus
+- pre-commit >= 3.0
 
 **Build/Dev:**
-- hatchling - Python build backend (`pyproject.toml`)
-- maturin >= 1.12.6 - Rust/Python hybrid builds (dev dependency, likely for Rust extensions)
-- Make - Infrastructure operations (`Makefile`)
-- just - Agentic/Claude Code operations (`justfile`)
+- hatchling — Python build backend
+- maturin >= 1.12.6 — Rust-Python bridge builder
+- Make/just — Standardized commands
 
 ## Key Dependencies
 
 **Critical (revenue path):**
-- `httpx >= 0.27` - Primary HTTP client for all API calls (Claude, Ollama, Stripe, Wise, Instantly, etc.)
-- `psycopg[binary] >= 3.1` + `psycopg-pool >= 3.2` - Async Postgres with connection pooling (`shared/db.py`)
-- `python-telegram-bot >= 22.6` - Telegram bot for operator alerts (`hermes/telegram_bot.py`)
-- `openai >= 1.30` - OpenAI-compatible client (used for Ollama's OpenAI-compatible endpoint)
-
-**Frontend Critical:**
-- `swr >= 2.2.5` - Data fetching/caching for War Room dashboard
-- `recharts 2.15.0` - Revenue and metrics charts
-- `@tanstack/react-table >= 8.21.3` - Data tables for leads/pipeline
-- `@vercel/analytics 1.6.1` - Analytics integration
-- `framer-motion >= 11.15.0` + `gsap >= 3.14.2` - Animations
-- `three >= 0.183.2` + `@react-three/fiber >= 9.5.0` + `@react-three/drei >= 10.7.7` - 3D visuals
-- `zod >= 3.24.1` - Schema validation
-- `react-hook-form >= 7.54.1` - Form handling
+- `httpx >= 0.27` — All async HTTP (Claude API, Ollama, Stripe, Wise, Instantly, Firecrawl, Recraft)
+- `psycopg[binary] >= 3.1` + `psycopg-pool >= 3.2` — Async Postgres with connection pooling
+- `python-telegram-bot >= 22.6` — Alert dispatch (`hermes/telegram_bot.py`)
+- `openai >= 1.30` — Ollama OpenAI-compatible endpoint access
 
 **Infrastructure:**
-- `python-dotenv >= 1.0.0` - Environment configuration (`shared/config.py`)
-- `rich >= 13` - Terminal output formatting
-- `click >= 8` - CLI framework (entry point: `jarvis = openjarvis.cli:main`)
-- `prometheus-client >= 0.24.1` - Metrics export (`shared/observability.py`)
-- `sentry-sdk >= 2.55.0` - Error tracking (`shared/observability.py`)
+- `python-dotenv >= 1.0.0` — Env config loading (`shared/config.py`)
+- `prometheus-client >= 0.24.1` — Metrics (`shared/observability.py`)
+- `sentry-sdk >= 2.55.0` — Error tracking (optional, graceful no-op)
+- `rich >= 13`, `click >= 8` — CLI
 
-**Optional Extensions (via extras):**
+**Optional Extensions (declared in `pyproject.toml`):**
 - `inference-mlx`: MLX-LM for Apple Silicon local inference
 - `inference-vllm`: vLLM for GPU inference
 - `inference-cloud`: Anthropic + OpenAI SDKs
 - `inference-google`: Google GenAI SDK
-- `inference-litellm`: LiteLLM unified client
-- `memory-graph`: Neo4j driver for graph memory
-- `memory-faiss`: FAISS + sentence-transformers for vector search
-- `memory-colbert`: ColBERT + PyTorch for retrieval
-- `browser`: Playwright for browser automation
+- `inference-litellm`: LiteLLM unified routing
+- `memory-graph`: Neo4j driver
+- `memory-faiss`: FAISS + sentence-transformers
+- `memory-colbert`: ColBERT + PyTorch
+- `memory-bm25`: BM25 ranking
+- `memory-pdf`: pdfplumber for PDF ingestion
+- `browser`: Playwright for automation
 - `scheduler`: croniter for cron expressions
-- `security-signing`: cryptography for agent key management
+- `security-signing`: cryptography for Ed25519 agent signing
 - `sandbox-wasm`: wasmtime for WASM sandboxing
 - `sandbox-docker`: Docker SDK for container sandboxing
-- `speech`: faster-whisper for speech-to-text
-- `orchestrator-training`: PyTorch + Transformers for GRPO/LoRA training
-- `learning-dspy`: DSPy for prompt optimization
-- `eval-wandb`: Weights & Biases for eval tracking
-- `docs`: MkDocs + Material theme
+- `speech`: faster-whisper for STT
+- `orchestrator-training`: PyTorch + Transformers for LoRA/GRPO
+- `learning-dspy`: DSPy prompt optimization
+- `eval-wandb`: W&B for eval tracking
+
+**Rust Workspace Key Dependencies (`rust/Cargo.toml`):**
+- `tokio 1` (full) — Async runtime
+- `reqwest 0.12` — HTTP client
+- `rusqlite 0.32` — SQLite (traces, audit, agent state)
+- `pyo3 0.23` — Python bindings
+- `ed25519-dalek 2` — Cryptographic signing (agent identity)
+- `rig-core 0.31` — AI agent framework
+- `schemars 1` — JSON schema generation
+- `sha2 0.10` — Hashing
 
 ## Configuration
 
 **Environment:**
 - All config loaded from `.env` via `python-dotenv` in `shared/config.py`
-- Typed dataclass config objects: `PostgresConfig`, `OllamaConfig`, `ClaudeConfig`, `TelegramConfig`, `InstantlyConfig`, `FirecrawlConfig`, `PaymentConfig`, `HostingConfig`, `MemoryConfig`, `BudgetConfig`, `PricingConfig`, `ConwayConfig`, `ObservabilityConfig`, `SiteBuildConfig`
-- Runtime config overrides stored in Postgres `system_config` table (queried via `shared/db.get_config()`)
-- `.env` file contains live API keys -- NEVER read or commit
+- Central `PerseusConfig` singleton with 16 frozen dataclass sub-configs
+- Dashboard overrides in Postgres `system_config` table (checked first via `shared/db.get_config()`)
+- Feature flags: `MAGMA_ENABLED`, `CONWAY_ENABLED`, `RUFLO_ENABLED`, `SEAL_DIRECTIVES`, `INFERENCE_OPTIMIZATION`, `USE_A2A_DISPATCH`
 
-**Key env var categories:**
-- `POSTGRES_*` - Database connection
-- `OLLAMA_*` - Local LLM (host, model, kv_cache_type, flash_attention)
-- `ANTHROPIC_API_KEY`, `CLAUDE_*_MODEL` - Claude API (primary: claude-sonnet-4-6, fast: claude-haiku-4-5, genius: claude-opus-4)
-- `TELEGRAM_*` - Bot token and chat ID
-- `INSTANTLY_API_KEY` - Email campaign automation
-- `FIRECRAWL_API_KEY` - Web scraping
-- `STRIPE_API_KEY`, `WISE_API_TOKEN`, `WISE_PROFILE_ID` - Payments
-- `NETLIFY_AUTH_TOKEN` - Site deployment
-- `RECRAFT_API_KEY` - AI image generation
-- `CONWAY_*` - Agent economics (Base L2, USDC, x402)
-- `SENTRY_DSN` - Error tracking
-- `MONTHLY_BUDGET_CAP` - Budget enforcement (default: $800)
+**Required env vars (minimum viable):**
+- `POSTGRES_PASSWORD` — Database
+- `ANTHROPIC_API_KEY` — Claude API (or falls back to Ollama-only)
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — Alerts
+- `DASHBOARD_SECRET` — Web auth
 
-**Build:**
-- `pyproject.toml` - Python project config, build, lint, test settings
-- `hermes/web/frontend/next.config.mjs` - Next.js config (unoptimized images, LAN dev access)
-- `hermes/web/frontend/tsconfig.json` - TypeScript strict mode, path alias `@/*`
-
-## Infrastructure (Docker Compose)
-
-**Services (`docker-compose.yaml`):**
-- Postgres 16.2 (Alpine) - Primary database, port 5432, schema auto-loaded from `scripts/init-db.sql`
-- Qdrant v1.8.4 - Vector database for memory/embeddings, port 6333
-- Mem0 (custom build from `tools/Dockerfile.mem0_compat`) - Semantic memory layer, port 8888, backed by Qdrant + Ollama embeddings
-- Neo4j 5 Community - Graph database for knowledge graphs, ports 7474/7687, APOC plugin
-- N8N 1.30.1 - Workflow automation, port 5678
-- Prometheus v2.54.1 - Metrics collection, port 9090, scrapes daemon metrics endpoints
-- Grafana OSS 11.2.0 - Dashboards, port 3001, provisioned from `ops/grafana/`
-
-**Deployment Docker (`deploy/docker/docker-compose.yml`):**
-- Separate compose for deployment with Ollama container
-- Dockerfiles: `deploy/docker/Dockerfile`, `Dockerfile.gpu`, `Dockerfile.gpu.rocm`, `Dockerfile.sandbox`
-
-**Network:** All services on `perseus-net` bridge network
-**Memory limits:** Postgres 384MB, Qdrant 512MB, Mem0 512MB, Neo4j 512MB, N8N 512MB, Prometheus 256MB, Grafana 256MB
+**Required for revenue pipeline:**
+- `INSTANTLY_API_KEY` — Email campaigns
+- `STRIPE_API_KEY` — Payment collection
+- `NETLIFY_AUTH_TOKEN` — Site deployment
+- `RECRAFT_API_KEY` — Image generation
 
 ## LLM Stack
 
 **Cloud (Claude API via Anthropic):**
-- Genius tier: `claude-opus-4` - Orchestration, complex reasoning
-- Smart tier: `claude-sonnet-4-6` - Proposals, strategy, quality work
-- Fast tier: `claude-haiku-4-5-20251001` - Primary workhorse
-- Budget-aware: auto-downgrades to Ollama at 80% budget threshold
-- Claude Max subscription ($200/mo) as primary brain
+- Genius: `claude-opus-4` — Orchestration, complex reasoning
+- Smart: `claude-sonnet-4-6` — Proposals, strategy
+- Fast: `claude-haiku-4-5-20251001` — Primary workhorse
+- Budget-gated: auto-downgrades at 80% of `MONTHLY_BUDGET_CAP` ($800 default)
+- Client: raw httpx to `https://api.anthropic.com/v1/messages` (no Anthropic SDK)
 
 **Local (Ollama):**
-- Primary: `qwen2.5:14b-instruct-q4_K_M` - General tasks
-- Secondary: `llama3.2:3b` - Simple classification
-- Embeddings: `nomic-embed-text` - Vector embeddings for Mem0/Qdrant
-- TurboQuant KV cache compression (turbo4 default: 3.8x memory reduction)
-- Flash attention enabled by default
+- Primary: `qwen2.5:14b-instruct-q4_K_M`
+- Secondary: `llama3.2:3b` (classification)
+- Embeddings: `nomic-embed-text` (768-dim, used by Mem0/Qdrant)
+- TurboQuant KV cache: `turbo4` default (3.8x memory reduction)
+- Flash attention: enabled by default
 
-**LLM Client:** Custom unified client (`shared/llm_client.py`) using raw `httpx` for both Claude API and Ollama HTTP endpoints (no Anthropic SDK import)
+## Infrastructure (Docker Compose)
 
-## Platform Requirements
+**Services (`docker-compose.yaml`):**
+| Service | Image | Port | Memory | Purpose |
+|---------|-------|------|--------|---------|
+| Postgres | postgres:16.2-alpine | 5432 | 384MB | Primary database (23+ tables) |
+| Qdrant | qdrant/qdrant:v1.8.4 | 6333 | 512MB | Vector database for embeddings |
+| Mem0 | Custom (`tools/Dockerfile.mem0_compat`) | 8888 | 512MB | Semantic memory (Qdrant + Ollama) |
+| Neo4j | neo4j:5-community | 7474/7687 | 512MB | Graph database (APOC plugin) |
+| N8N | n8nio/n8n:1.30.1 | 5678 | 512MB | Workflow automation |
+| Prometheus | prom/prometheus:v2.54.1 | 9090 | 256MB | Metrics collection |
+| Grafana | grafana/grafana-oss:11.2.0 | 3001 | 256MB | Dashboards |
 
-**Development:**
-- macOS (Apple Silicon M4 32GB primary target)
-- Docker Desktop for infrastructure services
-- Ollama for local LLM inference
-- Python 3.11+, Node.js for frontend
-- pnpm for frontend package management
+**Network:** `perseus-net` bridge. Total memory: ~2.9GB for Docker services.
 
-**Production:**
-- Docker Compose orchestration
-- macOS LaunchAgents for daemon management (`scripts/install-launchagents.sh`)
-- Postgres for state, Qdrant for vectors, Neo4j for graphs
-- Budget: $800/month (Claude API, hosting, external services)
+**Deployment Dockerfiles (`deploy/docker/`):**
+- `Dockerfile` — Standard (multi-stage, Python 3.12, uv pip install)
+- `Dockerfile.gpu` — NVIDIA GPU
+- `Dockerfile.gpu.rocm` — AMD ROCm GPU
+- `Dockerfile.sandbox` — Sandboxed agent execution (Python 3.12 + Node.js 22)
 
-## Monitoring Stack
+## Dependency Health
 
-**Prometheus** (`ops/prometheus/prometheus.yml`):
-- Scrapes dashboard at `host.docker.internal:8500`
-- Scrapes daemon metrics at ports 9100-9103
-- 15-second scrape interval
+**Issues:**
+- No Python lockfile — `requirements.txt` and `pyproject.toml` have version divergence (e.g., fastapi >= 0.115 vs >= 0.110)
+- `requests` used synchronously in `tools/firecrawl_client.py` while rest of codebase uses async `httpx` — inconsistent HTTP client
+- `mem0ai==1.0.6` pinned only in `tools/Dockerfile.mem0_compat`, not in project deps
+- `openai` package listed as dependency but only used for Ollama OpenAI-compat, not actual OpenAI calls
 
-**Grafana** (`ops/grafana/`):
-- Pre-provisioned datasource (Prometheus)
-- Dashboard: `ops/grafana/dashboards/objective-hertz-overview.json`
+## Intel Integration Dependencies
 
-**Sentry** (optional):
-- SDK integrated in `shared/observability.py`
-- Configurable traces and profiles sample rates
-- Graceful no-op when SDK not installed
+**What exists vs what each intel reference needs:**
 
-**Prometheus Client** (in-process):
-- Counters, Gauges, Histograms exposed per daemon
-- No-op stubs when prometheus_client not installed
+| Intel Reference | Code Injection Point | Existing Deps | Missing Deps |
+|----------------|---------------------|---------------|-------------|
+| **Agent DNA** (`intel/agent-dna/`) | `shared/llm_client.py` `system` param in `generate()` | httpx, config.py | None — injects via system prompt string |
+| **Recursive Language Models** (`intel/recursive-language-models/`) | `shared/magma.py` (4-graph memory), `titan/memory.py` (Mem0 read/write) | Qdrant (Docker), Mem0 (Docker), Neo4j (Docker), nomic-embed-text | None — multi-graph retrieval + vector store already wired |
+| **HyperAgents** (`intel/hyperagents/`) | `deploy/docker/Dockerfile.sandbox`, OpenJarvis agent lifecycle | Docker infra, wasmtime (optional extra) | `docker >= 7.0` SDK not installed by default; no agent isolation runtime active |
+| **Post-Quantum Crypto** (`intel/post-quantum-crypto/`) | `rust/crates/openjarvis-security/` (ed25519-dalek), `conway/wallet.py` | `ed25519-dalek 2`, `cryptography >= 43` (optional) | `liboqs-python` or `pqcrypto` — **completely absent** from all deps |
+| **DeerFlow** (`intel/deerflow/`) | `shared/pipeline_dag.py`, OpenJarvis WorkflowEngine | DAG runner, A2A protocol | None — existing engine supports the pattern |
+| **Anti-Slop** (`intel/anti-slop/`) | `shared/llm_client.py` system prompts, `shared/skill_loader.py` | LLM client | None — quality constraints inject via system prompts |
+| **Quantum Computing** (`intel/quantum-computing/`) | No direct code integration point | None | Everything — research-only, no implementation path |
 
 ---
 
-*Stack analysis: 2026-03-27*
+*Stack analysis: 2026-03-29*

@@ -35,7 +35,7 @@ sys.modules["shared.llm_client"] = _fake_llm
 sys.modules["shared.comms"] = _fake_comms
 
 from shared.bandit import BanditArm, BanditPolicy, Experiment, get_bandit
-from shared.milestone_rewards import (
+from tests.helpers.milestone_rewards import (
     STAGE_REWARDS,
     compute_discounted_future_reward,
     emit_milestone_reward,

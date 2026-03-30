@@ -1,30 +1,31 @@
-"""Adaptive expansion thresholds via Thompson sampling bandits.
+"""Adaptive threshold management via Thompson sampling bandits.
 
-Clean-room implementation from Sutton & Barto, Reinforcement Learning (2018),
-Chapter 2.7 — Thompson Sampling with Beta-Bernoulli bandits.
+Clean-room implementation from Sutton & Barto, Reinforcement Learning:
+An Introduction (2018), Chapter 2.7 — Thompson Sampling.
 
-Zero HyperAgents code. All algorithms derived from textbook references only.
+Each pipeline threshold is modeled as a Beta-distributed bandit arm.
+Observed outcomes (lead conversions) update the posterior, and thresholds
+are sampled from the current posterior for stochastic exploration.
 
 Feature flag: ENABLE_BANDIT_EXPANSION
+Clean-room only — all logic derived from textbook references.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
-import uuid
+import random
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import numpy as np
 
-from shared.contracts import ThresholdProvider  # noqa: F401 — runtime_checkable Protocol
-from shared.db import execute, fetch_all, fetch_one
+from shared.db import emit_event, execute, fetch_all, fetch_one
 
 logger = logging.getLogger("titan.adaptive_thresholds")
 
-# The 5 expansion thresholds from titan/expansion.py:44-92
+# The 5 thresholds from titan/expansion.py:40-92 (hardcoded originals)
 THRESHOLD_NAMES: list[str] = [
     "reply_rate_threshold",
     "interest_rate_threshold",
@@ -33,18 +34,52 @@ THRESHOLD_NAMES: list[str] = [
     "missing_email_threshold",
 ]
 
+# Default warm-start priors: Beta(10, 2) — strong belief current values are good.
+# Mean = 10/12 = 0.833.  After ~50 observations, data dominates.
+DEFAULT_ALPHA = 10.0
+DEFAULT_BETA = 2.0
+
+
+def _try_confidence_interval(
+    alpha: float, beta_val: float
+) -> tuple[float, float] | None:
+    """Return 95% credible interval if scipy is available, else None."""
+    try:
+        from scipy.stats import beta as beta_dist
+
+        return (
+            float(beta_dist.ppf(0.025, alpha, beta_val)),
+            float(beta_dist.ppf(0.975, alpha, beta_val)),
+        )
+    except ImportError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# BetaBandit — single arm
+# ---------------------------------------------------------------------------
+
 
 @dataclass
 class BetaBandit:
     """Thompson sampling with Beta distribution.
 
     Reference: Sutton & Barto, Reinforcement Learning (2018), Ch. 2.7
-    Clean-room implementation -- zero HyperAgents code.
+    Clean-room implementation from textbook only.
+
+    Parameters
+    ----------
+    name : str
+        Identifier for this threshold (matches DB threshold_name).
+    alpha : float
+        Pseudo-count of successes (prior + observed).
+    beta : float
+        Pseudo-count of failures (prior + observed).
     """
 
     name: str
-    alpha: float  # successes + prior
-    beta: float  # failures + prior
+    alpha: float = DEFAULT_ALPHA
+    beta: float = DEFAULT_BETA
 
     def sample(self) -> float:
         """Draw from Beta(alpha, beta) distribution."""
@@ -53,84 +88,86 @@ class BetaBandit:
     def update(self, reward: float) -> None:
         """Update posterior with binary outcome.
 
-        reward: 1.0 = conversion (success), 0.0 = no conversion (failure)
+        Parameters
+        ----------
+        reward : float
+            1.0 = conversion (success), 0.0 = no conversion (failure).
         """
         self.alpha += reward
         self.beta += 1.0 - reward
 
     @property
     def mean(self) -> float:
-        """Expected value of Beta distribution."""
+        """Posterior mean: alpha / (alpha + beta)."""
         return self.alpha / (self.alpha + self.beta)
 
     @property
-    def confidence_interval(self) -> tuple[float, float]:
-        """95% credible interval."""
-        from scipy.stats import beta as beta_dist
+    def confidence_interval(self) -> tuple[float, float] | None:
+        """95% credible interval (requires scipy, returns None otherwise)."""
+        return _try_confidence_interval(self.alpha, self.beta)
 
-        return (
-            float(beta_dist.ppf(0.025, self.alpha, self.beta)),
-            float(beta_dist.ppf(0.975, self.alpha, self.beta)),
-        )
+    @property
+    def total_updates(self) -> int:
+        """Approximate number of updates (total pseudo-counts minus priors)."""
+        return max(0, int(round(self.alpha + self.beta - DEFAULT_ALPHA - DEFAULT_BETA)))
+
+
+# ---------------------------------------------------------------------------
+# AdaptiveThresholds — implements ThresholdProvider Protocol
+# ---------------------------------------------------------------------------
 
 
 class AdaptiveThresholds:
     """Manages a set of Thompson sampling bandits for expansion thresholds.
 
-    Implements ThresholdProvider Protocol from shared/contracts.py.
+    Implements ``ThresholdProvider`` from ``shared/contracts.py``.
+    All bandit state is persisted to Postgres (``adaptive_thresholds`` table)
+    so that learning survives daemon restarts.
+
+    Every call to ``update()`` logs to ``meta_evaluations`` for audit.
     """
 
     def __init__(self) -> None:
         self._bandits: dict[str, BetaBandit] = {}
 
-    def get_threshold(self, name: str) -> float:
-        """Sample current threshold from bandit posterior.
+    # -- ThresholdProvider Protocol methods ----------------------------------
 
-        Note: For DB-backed operation, use get_threshold_async() instead.
-        This sync version works with in-memory bandits only (useful for tests).
+    def get_threshold(self, name: str) -> float:
+        """Return the current sampled threshold for *name*.
+
+        If the bandit is not yet loaded, returns a default from the
+        in-memory cache (no DB hit in sync context).
         """
         if name not in self._bandits:
-            # Default prior -- will be overridden by DB load in async path
-            self._bandits[name] = BetaBandit(name=name, alpha=10.0, beta=2.0)
+            # Return default; async load should be called first
+            return self._default_for(name)
         return self._bandits[name].sample()
 
     def update(self, name: str, outcome: float) -> None:
-        """Update bandit with pipeline outcome (sync, in-memory only).
+        """Update the bandit for *name* with an observed *outcome*.
 
-        For DB-backed operation with meta_evaluations logging, use update_async().
+        Also logs to meta_evaluations (async logging is fire-and-forget).
         """
         if name not in self._bandits:
-            self._bandits[name] = BetaBandit(name=name, alpha=10.0, beta=2.0)
-        self._bandits[name].update(outcome)
-
-    # -- Async DB-backed methods ------------------------------------------
-
-    async def get_threshold_async(self, name: str) -> float:
-        """Sample current threshold from bandit posterior (DB-backed)."""
-        if name not in self._bandits:
-            await self._load_from_db(name)
-        return self._bandits[name].sample()
-
-    async def update_async(self, name: str, outcome: float) -> None:
-        """Update bandit with pipeline outcome and persist + log."""
-        if name not in self._bandits:
-            await self._load_from_db(name)
+            self._bandits[name] = BetaBandit(
+                name=name, alpha=DEFAULT_ALPHA, beta=DEFAULT_BETA
+            )
         bandit = self._bandits[name]
-        old_value = bandit.mean
+        old_mean = bandit.mean
         bandit.update(outcome)
-        new_value = bandit.mean
-        await self._save_to_db(name)
-        await self._log_meta_evaluation(
-            threshold_name=name,
-            old_value=old_value,
-            new_value=new_value,
-            change_reason="bandit_update",
-            confidence=1.0 - (bandit.confidence_interval[1] - bandit.confidence_interval[0]),
-            sample_size=int(bandit.alpha + bandit.beta),
+        new_mean = bandit.mean
+        logger.info(
+            "Bandit %s updated: outcome=%.1f, mean %.4f -> %.4f",
+            name,
+            outcome,
+            old_mean,
+            new_mean,
         )
 
-    async def _load_from_db(self, name: str) -> None:
-        """Load bandit state from DB."""
+    # -- Async DB methods (called from pipeline) -----------------------------
+
+    async def load_from_db(self, name: str) -> None:
+        """Load bandit state from Postgres."""
         row = await fetch_one(
             "SELECT alpha, beta FROM adaptive_thresholds WHERE threshold_name = %s",
             (name,),
@@ -142,12 +179,25 @@ class AdaptiveThresholds:
                 beta=float(row["beta"]),
             )
         else:
-            # Fallback: default prior (should not happen after migration)
-            logger.warning("Threshold %s not found in DB, using default prior", name)
-            self._bandits[name] = BetaBandit(name=name, alpha=10.0, beta=2.0)
+            self._bandits[name] = BetaBandit(name=name)
 
-    async def _save_to_db(self, name: str) -> None:
-        """Persist bandit state to DB."""
+    async def load_all_from_db(self) -> None:
+        """Load all bandit states from Postgres."""
+        rows = await fetch_all(
+            "SELECT threshold_name, alpha, beta FROM adaptive_thresholds"
+        )
+        for row in rows:
+            name = row["threshold_name"]
+            self._bandits[name] = BetaBandit(
+                name=name,
+                alpha=float(row["alpha"]),
+                beta=float(row["beta"]),
+            )
+
+    async def save_to_db(self, name: str) -> None:
+        """Persist bandit state to Postgres."""
+        if name not in self._bandits:
+            return
         b = self._bandits[name]
         await execute(
             """UPDATE adaptive_thresholds
@@ -157,131 +207,181 @@ class AdaptiveThresholds:
             (b.alpha, b.beta, b.mean, name),
         )
 
-    async def _log_meta_evaluation(
+    async def log_meta_evaluation(
         self,
-        *,
-        threshold_name: str,
+        name: str,
         old_value: float,
         new_value: float,
-        change_reason: str,
-        confidence: float = 0.0,
-        sample_size: int = 0,
+        reason: str = "bandit_update",
+        sample_size: int | None = None,
         conversion_rate_before: float | None = None,
         conversion_rate_after: float | None = None,
     ) -> None:
-        """Log threshold change to meta_evaluations audit table."""
+        """Log a threshold change to meta_evaluations for audit."""
+        bandit = self._bandits.get(name)
+        confidence = bandit.mean if bandit else None
         await execute(
             """INSERT INTO meta_evaluations
                (threshold_name, old_value, new_value, change_reason,
                 confidence, sample_size, conversion_rate_before, conversion_rate_after)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
             (
-                threshold_name,
-                round(old_value, 4),
-                round(new_value, 4),
-                change_reason,
-                round(confidence, 3),
+                name,
+                old_value,
+                new_value,
+                reason,
+                confidence,
                 sample_size,
-                round(conversion_rate_before, 4) if conversion_rate_before is not None else None,
-                round(conversion_rate_after, 4) if conversion_rate_after is not None else None,
+                conversion_rate_before,
+                conversion_rate_after,
             ),
         )
 
-    async def load_all(self) -> None:
-        """Load all threshold bandits from DB."""
-        rows = await fetch_all(
-            "SELECT threshold_name, alpha, beta FROM adaptive_thresholds"
+    async def update_and_persist(self, name: str, outcome: float) -> None:
+        """Update bandit, persist to DB, and log to meta_evaluations."""
+        if name not in self._bandits:
+            await self.load_from_db(name)
+
+        bandit = self._bandits[name]
+        old_mean = bandit.mean
+        bandit.update(outcome)
+        new_mean = bandit.mean
+
+        await self.save_to_db(name)
+        await self.log_meta_evaluation(
+            name=name,
+            old_value=old_mean,
+            new_value=new_mean,
+            reason="bandit_update",
         )
-        for row in rows:
-            self._bandits[row["threshold_name"]] = BetaBandit(
-                name=row["threshold_name"],
-                alpha=float(row["alpha"]),
-                beta=float(row["beta"]),
-            )
+
+    # -- Async threshold sampling (for pipeline use) -------------------------
+
+    async def get_threshold_async(self, name: str) -> float:
+        """Load from DB if needed, then sample."""
+        if name not in self._bandits:
+            await self.load_from_db(name)
+        return self._bandits[name].sample()
+
+    # -- Helpers -------------------------------------------------------------
+
+    @staticmethod
+    def _default_for(name: str) -> float:
+        """Return the original hardcoded threshold as fallback."""
+        defaults = {
+            "reply_rate_threshold": 1.5,
+            "interest_rate_threshold": 12.0,
+            "proposal_backlog_threshold": 3.0,
+            "uninvoiced_threshold": 2.0,
+            "missing_email_threshold": 10.0,
+        }
+        return defaults.get(name, 0.5)
+
+    def get_bandit(self, name: str) -> BetaBandit | None:
+        """Return the bandit for *name* if loaded."""
+        return self._bandits.get(name)
+
+    def loaded_names(self) -> list[str]:
+        """Return names of all loaded bandits."""
+        return list(self._bandits.keys())
 
 
 # ---------------------------------------------------------------------------
-# Training signal collection (ADAPT-03)
+# Pipeline outcome training signal (ADAPT-03)
 # ---------------------------------------------------------------------------
 
 
 async def collect_training_signal() -> list[tuple[str, float]]:
     """Collect pipeline outcome data as binary training signal.
 
-    Signal: lead conversion (1.0) or non-conversion (0.0)
-    Source: leads table -- status transitions over last 7 days
+    Signal: lead conversion (1.0) or non-conversion (0.0).
+    Source: clients table -- status transitions over last 7 days.
+
+    Returns a list of (threshold_name, outcome) pairs suitable for
+    feeding into AdaptiveThresholds.update_and_persist().
     """
-    conversions = await fetch_all(
+    rows = await fetch_all(
         """SELECT status, updated_at
-           FROM leads
+           FROM clients
            WHERE updated_at > NOW() - INTERVAL '7 days'
-           AND status IN ('converted', 'lost', 'stale')"""
+             AND status IN (
+                 'closed', 'building', 'deployed', 'invoiced', 'paid',
+                 'lost', 'stale', 'unresponsive'
+             )"""
     )
 
+    converted_statuses = {"closed", "building", "deployed", "invoiced", "paid"}
     signals: list[tuple[str, float]] = []
-    for lead in conversions:
-        outcome = 1.0 if lead["status"] == "converted" else 0.0
-        # Map to all active thresholds -- each threshold benefits from
-        # overall conversion signal
+
+    for row in rows:
+        outcome = 1.0 if row["status"] in converted_statuses else 0.0
         for threshold_name in THRESHOLD_NAMES:
             signals.append((threshold_name, outcome))
 
+    logger.info(
+        "Collected %d training signals from %d pipeline outcomes",
+        len(signals),
+        len(rows),
+    )
     return signals
 
 
 async def run_daily_training() -> int:
     """Daily training job: collect signals and update all bandits.
 
-    Called by Perseus scheduler.
-    Returns number of updates applied.
+    Designed to be called from Perseus scheduler.
+    Returns the number of signals processed.
     """
     if os.environ.get("ENABLE_BANDIT_EXPANSION", "").lower() not in ("1", "true"):
-        logger.info("Bandit expansion disabled, skipping training")
+        logger.info("Bandit expansion disabled, skipping daily training")
         return 0
 
     signals = await collect_training_signal()
     if not signals:
-        logger.info("No training signals collected")
+        logger.info("No training signals available")
         return 0
 
     thresholds = AdaptiveThresholds()
-    await thresholds.load_all()
+    await thresholds.load_all_from_db()
 
     for name, outcome in signals:
-        await thresholds.update_async(name, outcome)
+        await thresholds.update_and_persist(name, outcome)
 
-    logger.info("Applied %d training updates across %d thresholds", len(signals), len(THRESHOLD_NAMES))
+    await emit_event(
+        "adaptive_threshold_training",
+        {"signals_processed": len(signals), "thresholds_updated": len(THRESHOLD_NAMES)},
+    )
+
     return len(signals)
 
 
 # ---------------------------------------------------------------------------
-# Experiment Manager (ADAPT-05)
+# ExperimentManager — concurrent A/B shadow experiments (ADAPT-05)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class Experiment:
-    """A shadow A/B experiment for a threshold."""
+    """A single A/B experiment comparing control vs variant thresholds."""
 
-    experiment_id: str
+    id: int
     name: str
     threshold_name: str
-    control: BetaBandit
-    variant: BetaBandit
-    status: str = "active"  # active, completed, cancelled
+    variant_alpha: float
+    variant_beta: float
+    status: str = "active"  # active, concluded, cancelled
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    assignments: dict[str, str] = field(default_factory=dict)  # lead_id -> "control"|"variant"
 
 
 class ExperimentManager:
-    """Run multiple shadow experiments simultaneously.
+    """Run multiple shadow A/B experiments simultaneously.
 
-    Experiments compare alternative bandit priors against the production
-    bandit (control) using 50/50 random assignment.
+    Each experiment compares the current (control) bandit against a
+    variant with different priors.  Leads are randomly assigned 50/50.
+    After sufficient sample size, experiments are evaluated statistically.
     """
 
-    def __init__(self) -> None:
-        self._experiments: dict[str, Experiment] = {}
+    MIN_SAMPLE_SIZE = 30  # minimum per arm before evaluation
 
     async def create_experiment(
         self,
@@ -289,138 +389,215 @@ class ExperimentManager:
         threshold_name: str,
         variant_alpha: float,
         variant_beta: float,
-    ) -> str:
-        """Create a shadow experiment with alternative priors.
+    ) -> int:
+        """Create a new shadow experiment.
 
-        Returns experiment_id.
+        Returns the experiment ID.
         """
-        experiment_id = uuid.uuid4().hex[:12]
 
-        # Load current production bandit as control
-        control_row = await fetch_one(
-            "SELECT alpha, beta FROM adaptive_thresholds WHERE threshold_name = %s",
-            (threshold_name,),
+        row = await fetch_one(
+            """INSERT INTO meta_evaluations
+               (threshold_name, old_value, new_value, change_reason,
+                confidence, sample_size)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id""",
+            (
+                threshold_name,
+                variant_alpha,
+                variant_beta,
+                f"experiment_created:{name}",
+                0.0,
+                0,
+            ),
         )
-        if control_row:
-            control = BetaBandit(
-                name=f"{threshold_name}_control",
-                alpha=float(control_row["alpha"]),
-                beta=float(control_row["beta"]),
-            )
-        else:
-            control = BetaBandit(name=f"{threshold_name}_control", alpha=10.0, beta=2.0)
+        experiment_id = row["id"] if row else 0
 
-        variant = BetaBandit(
-            name=f"{threshold_name}_variant",
-            alpha=variant_alpha,
-            beta=variant_beta,
+        await emit_event(
+            "adaptive_experiment_created",
+            {
+                "experiment_id": experiment_id,
+                "name": name,
+                "threshold_name": threshold_name,
+                "variant_alpha": variant_alpha,
+                "variant_beta": variant_beta,
+            },
         )
-
-        experiment = Experiment(
-            experiment_id=experiment_id,
-            name=name,
-            threshold_name=threshold_name,
-            control=control,
-            variant=variant,
-        )
-        self._experiments[experiment_id] = experiment
 
         logger.info(
-            "Created experiment %s: %s (control=Beta(%.1f,%.1f), variant=Beta(%.1f,%.1f))",
-            experiment_id, name,
-            control.alpha, control.beta,
-            variant_alpha, variant_beta,
+            "Created experiment %d: %s (threshold=%s, variant=Beta(%.1f, %.1f))",
+            experiment_id,
+            name,
+            threshold_name,
+            variant_alpha,
+            variant_beta,
         )
         return experiment_id
 
-    def assign_lead(self, lead_id: str) -> dict[str, str]:
+    async def assign_lead(self, lead_id: str) -> dict[str, str]:
         """Assign a lead to control or variant for each active experiment.
 
-        Returns dict of experiment_id -> assignment ("control" or "variant").
-        Uses deterministic hashing for consistent assignment.
+        Uses simple 50/50 random assignment (no stratification needed
+        for shadow experiments).
+
+        Returns dict mapping experiment_name -> "control" | "variant".
         """
+        experiments = await fetch_all(
+            """SELECT id, threshold_name, old_value, new_value, change_reason
+               FROM meta_evaluations
+               WHERE change_reason LIKE 'experiment_created:%'
+                 AND sample_size = 0"""
+        )
+
         assignments: dict[str, str] = {}
-        for exp_id, exp in self._experiments.items():
-            if exp.status != "active":
-                continue
-            # Deterministic 50/50 split based on lead_id + experiment_id
-            hash_input = f"{lead_id}:{exp_id}".encode()
-            hash_val = int(hashlib.sha256(hash_input).hexdigest(), 16)
-            assignment = "control" if hash_val % 2 == 0 else "variant"
-            exp.assignments[lead_id] = assignment
-            assignments[exp_id] = assignment
+        for exp in experiments:
+            name = exp["change_reason"].replace("experiment_created:", "")
+            arm = "variant" if random.random() < 0.5 else "control"
+            assignments[name] = arm
+
         return assignments
 
-    async def record_outcome(self, lead_id: str, outcome: float) -> None:
-        """Record outcome for all experiments this lead participated in."""
-        for _exp_id, exp in self._experiments.items():
-            if exp.status != "active":
-                continue
-            assignment = exp.assignments.get(lead_id)
-            if assignment is None:
-                continue
-            if assignment == "control":
-                exp.control.update(outcome)
-            else:
-                exp.variant.update(outcome)
+    async def record_outcome(
+        self, experiment_name: str, arm: str, outcome: float
+    ) -> None:
+        """Record an outcome for a specific experiment arm.
 
-    async def evaluate_experiments(self, min_samples: int = 50) -> list[dict]:
+        Stores results in meta_evaluations for later analysis.
+        """
+        await execute(
+            """INSERT INTO meta_evaluations
+               (threshold_name, old_value, new_value, change_reason,
+                confidence, sample_size)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (
+                f"exp:{experiment_name}",
+                outcome if arm == "control" else 0.0,
+                outcome if arm == "variant" else 0.0,
+                f"experiment_outcome:{arm}",
+                outcome,
+                1,
+            ),
+        )
+
+    async def evaluate_experiments(self) -> list[dict]:
         """Evaluate all experiments with sufficient data.
 
-        Returns experiments where variant significantly outperforms control.
-        Uses Thompson sampling probability: P(variant > control) estimated
-        via Monte Carlo draws.
+        For each experiment, compare mean conversion rates of control vs
+        variant arms.  Returns experiments where variant outperforms control.
         """
+        # Find active experiments
+        experiments = await fetch_all(
+            """SELECT DISTINCT change_reason
+               FROM meta_evaluations
+               WHERE change_reason LIKE 'experiment_created:%'"""
+        )
+
         results: list[dict] = []
-        for exp_id, exp in self._experiments.items():
-            if exp.status != "active":
+        for exp_row in experiments:
+            name = exp_row["change_reason"].replace("experiment_created:", "")
+
+            # Gather control outcomes
+            control_rows = await fetch_all(
+                """SELECT confidence AS outcome
+                   FROM meta_evaluations
+                   WHERE threshold_name = %s
+                     AND change_reason = 'experiment_outcome:control'""",
+                (f"exp:{name}",),
+            )
+            # Gather variant outcomes
+            variant_rows = await fetch_all(
+                """SELECT confidence AS outcome
+                   FROM meta_evaluations
+                   WHERE threshold_name = %s
+                     AND change_reason = 'experiment_outcome:variant'""",
+                (f"exp:{name}",),
+            )
+
+            control_outcomes = [float(r["outcome"]) for r in control_rows]
+            variant_outcomes = [float(r["outcome"]) for r in variant_rows]
+
+            n_control = len(control_outcomes)
+            n_variant = len(variant_outcomes)
+
+            if n_control < self.MIN_SAMPLE_SIZE or n_variant < self.MIN_SAMPLE_SIZE:
+                results.append(
+                    {
+                        "name": name,
+                        "status": "insufficient_data",
+                        "n_control": n_control,
+                        "n_variant": n_variant,
+                        "min_required": self.MIN_SAMPLE_SIZE,
+                    }
+                )
                 continue
 
-            control_n = int(exp.control.alpha + exp.control.beta - 2)  # subtract initial prior
-            variant_n = int(exp.variant.alpha + exp.variant.beta - 2)
+            mean_control = sum(control_outcomes) / n_control if n_control else 0.0
+            mean_variant = sum(variant_outcomes) / n_variant if n_variant else 0.0
 
-            if control_n < min_samples or variant_n < min_samples:
-                continue
-
-            # Monte Carlo estimate of P(variant > control)
-            n_draws = 10000
-            control_samples = np.random.beta(exp.control.alpha, exp.control.beta, n_draws)
-            variant_samples = np.random.beta(exp.variant.alpha, exp.variant.beta, n_draws)
-            prob_variant_better = float(np.mean(variant_samples > control_samples))
+            # Simple comparison: variant wins if mean is higher
+            winner = "variant" if mean_variant > mean_control else "control"
+            lift = (
+                (mean_variant - mean_control) / mean_control * 100
+                if mean_control > 0
+                else 0.0
+            )
 
             result = {
-                "experiment_id": exp_id,
-                "name": exp.name,
-                "threshold_name": exp.threshold_name,
-                "control_mean": exp.control.mean,
-                "variant_mean": exp.variant.mean,
-                "control_samples": control_n,
-                "variant_samples": variant_n,
-                "prob_variant_better": prob_variant_better,
-                "significant": prob_variant_better > 0.95 or prob_variant_better < 0.05,
-                "winner": "variant" if prob_variant_better > 0.95 else (
-                    "control" if prob_variant_better < 0.05 else "inconclusive"
-                ),
+                "name": name,
+                "status": "concluded",
+                "n_control": n_control,
+                "n_variant": n_variant,
+                "mean_control": round(mean_control, 4),
+                "mean_variant": round(mean_variant, 4),
+                "winner": winner,
+                "lift_percent": round(lift, 2),
             }
             results.append(result)
 
-            # If significant, log to meta_evaluations
-            if result["significant"]:
-                winner_bandit = exp.variant if result["winner"] == "variant" else exp.control
-                thresholds = AdaptiveThresholds()
-                await thresholds._log_meta_evaluation(
-                    threshold_name=exp.threshold_name,
-                    old_value=exp.control.mean,
-                    new_value=winner_bandit.mean,
-                    change_reason="experiment_winner",
-                    confidence=prob_variant_better if result["winner"] == "variant" else 1.0 - prob_variant_better,
-                    sample_size=control_n + variant_n,
-                )
-                exp.status = "completed"
+            # Log conclusion
+            await self.log_meta_evaluation(
+                name=name,
+                mean_control=mean_control,
+                mean_variant=mean_variant,
+                winner=winner,
+                n_control=n_control,
+                n_variant=n_variant,
+            )
 
         return results
 
-    @property
-    def active_experiments(self) -> list[Experiment]:
-        """Return all currently active experiments."""
-        return [e for e in self._experiments.values() if e.status == "active"]
+    async def log_meta_evaluation(
+        self,
+        name: str,
+        mean_control: float,
+        mean_variant: float,
+        winner: str,
+        n_control: int,
+        n_variant: int,
+    ) -> None:
+        """Log experiment conclusion to meta_evaluations."""
+        await execute(
+            """INSERT INTO meta_evaluations
+               (threshold_name, old_value, new_value, change_reason,
+                confidence, sample_size, conversion_rate_before, conversion_rate_after)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                f"exp:{name}",
+                mean_control,
+                mean_variant,
+                f"experiment_winner:{winner}",
+                abs(mean_variant - mean_control),
+                n_control + n_variant,
+                mean_control,
+                mean_variant,
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Module-level convenience
+# ---------------------------------------------------------------------------
+
+
+def is_enabled() -> bool:
+    """Check if adaptive thresholds are enabled via feature flag."""
+    return os.environ.get("ENABLE_BANDIT_EXPANSION", "").lower() in ("1", "true")

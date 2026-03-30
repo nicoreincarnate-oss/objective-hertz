@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T01:01:52.549Z"
+last_updated: "2026-03-30T01:02:37.938Z"
 progress:
-  total_phases: 19
-  completed_phases: 6
-  total_plans: 14
-  completed_plans: 13
+  total_phases: 11
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -22,8 +22,8 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 6 — Post-Quantum Cryptography
-**Status:** Executing Phase 07
-**Next action:** Execute Phase 07 (Adaptive Thresholds)
+**Status:** Executing Phase 07 (Plan 01 Complete)
+**Next action:** Execute Plan 07-02 (Feature Flag + Expansion Wiring)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -47,7 +47,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
 | 6 | Post-Quantum Crypto | Complete (2/2 plans) | phases/06-post-quantum-crypto/ | 9.0 |
-| 7 | Adaptive Thresholds | Planned | phases/7/PLAN.md | 9.4 |
+| 7 | Adaptive Thresholds | In Progress (1/2 plans) | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
 
@@ -144,8 +144,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **06-02:** PQC signer uses HKDF-derived agent key as Ed25519 seed (deterministic per agent)
 - **06-02:** PQC keystore wrapping uses pqc_wrapped:true marker for transparent classical/PQC detection
 - **06-02:** PQC tx signatures are non-fatal audit trail (warning on failure, never blocks send)
-- [Phase 07]: Combined sync ThresholdProvider methods + async DB-backed methods in single class for Protocol compliance
-- [Phase 07]: Deterministic SHA-256 hashing for consistent A/B lead assignment in ExperimentManager
+- **07-01:** scipy optional -- confidence_interval returns None when unavailable (numpy suffices for sampling)
+- **07-01:** ExperimentManager stores experiment data in meta_evaluations table (single audit surface)
+- **07-01:** Training signal uses clients table status transitions (binary: converted vs lost/stale)
+- **07-01:** Warm-start Beta(10,2): ~50 observations to wash out prior (avoids cold-start randomness)
 
 ## Performance Metrics
 
@@ -164,8 +166,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 05-02 | 5min | 3 | 2 |
 | 06-01 | 5min | 6 | 4 |
 | 06-02 | 5min | 2 | 6 |
+| 07-01 | 6min | 6 | 4 |
 
 ---
+*State updated: 2026-03-30 -- Phase 07 Plan 01 complete (Thompson sampling bandits, migration 023, 41 tests)*
 *State updated: 2026-03-30 -- Phase 06 Plan 02 complete (wallet PQC integration, 73 tests, from_raw_bytes bug fix)*
 *State updated: 2026-03-30 -- Phase 06 complete (PQC core, SecureConfig, migration 022, key derivation, key rotation)*
 *State updated: 2026-03-30 -- Phase 05 complete (shadow A/B, system_config toggle, 26 tests)*
