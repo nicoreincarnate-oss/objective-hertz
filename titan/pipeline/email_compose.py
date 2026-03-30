@@ -90,6 +90,27 @@ async def is_rlm_shadow_mode() -> bool:
     return os.environ.get("RLM_SHADOW_MODE", "").lower() in ("true", "1")
 
 
+async def set_rlm_enabled(enabled: bool) -> None:
+    """Set RLM enabled flag in system_config (runtime toggle).
+
+    Instant rollback: set_rlm_enabled(False) takes effect on the next email batch.
+    Operator can call this from the dashboard or backprop.
+    """
+    from shared.db import set_config
+    await set_config("rlm_enabled", enabled)
+    logger.info("RLM enabled set to %s via system_config", enabled)
+
+
+async def set_rlm_shadow_mode(enabled: bool) -> None:
+    """Set RLM shadow mode in system_config (runtime toggle).
+
+    Shadow mode: run both original + RLM, log comparison, return original.
+    """
+    from shared.db import set_config
+    await set_config("rlm_shadow_mode", enabled)
+    logger.info("RLM shadow mode set to %s via system_config", enabled)
+
+
 async def _log_ab_comparison(
     lead_id: int | str,
     original_subject: str,
