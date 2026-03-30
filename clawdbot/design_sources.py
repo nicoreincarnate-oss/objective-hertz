@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger("perseus.clawdbot.design_sources")
 
 _CURATED_SOURCES = [
     {
@@ -105,3 +108,60 @@ def _extract_research_facts(lead: dict[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Async component enrichment (21st.dev REST API)
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_component(message: str, search_query: str) -> dict[str, Any]:
+    """Fetch a component snippet from 21st.dev. Thin wrapper for mockability."""
+    try:
+        from tools.twentyfirst_client import fetch_component_inspiration
+    except Exception:
+        return {"text": "", "search_query": search_query, "reason": "import_failed"}
+    return await fetch_component_inspiration(message=message, search_query=search_query)
+
+
+async def resolve_design_sources_with_components(
+    lead: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve design sources AND fetch actual component code from 21st.dev.
+
+    Enriches 21st.dev curated sources with real component snippets for use as
+    structural inspiration. Falls back to base (text-only) behavior on any error.
+    """
+    base = resolve_design_sources(lead)
+
+    try:
+        industry = str(lead.get("industry", "") or "").lower()
+
+        for source in base["sources"]:
+            if source.get("source") != "21st.dev":
+                continue
+
+            sections = source.get("sections", [])
+            for section in sections[:2]:  # max 2 fetches per source
+                snippet = await _fetch_component(
+                    message=f"{section} section for {industry} business website",
+                    search_query=f"{section} {source.get('title', '')}",
+                )
+                text = snippet.get("text", "")
+                if text:
+                    source.setdefault("component_snippets", []).append(
+                        {"section": section, "code": text[:1500]}
+                    )
+
+        # Add React/TSX adaptation rule
+        tsx_rule = (
+            "Component code from 21st.dev is React/TSX -- use as structural "
+            "inspiration for HTML+Tailwind, never copy JSX syntax directly."
+        )
+        if tsx_rule not in base["adaptation_rules"]:
+            base["adaptation_rules"].append(tsx_rule)
+
+    except Exception as e:
+        logger.warning("Component enrichment failed, returning base sources: %s", e)
+
+    return base
