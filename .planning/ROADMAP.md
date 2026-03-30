@@ -217,5 +217,22 @@ Phase 7 ──→ Phase 8 (soft: bandit manages neuro gates)
 | ENABLE_BANDIT_EXPANSION | 7 | false | Adaptive expansion thresholds |
 | ENABLE_NEURO_SCORER | 8 | false | TRIBE v2 brain activation scoring |
 
+### Phase 10: 21st.dev + Recraft Pipeline Integration
+
+**Goal:** Wire real 21st.dev component library (via @21st-dev/magic MCP) and Recraft image generation into ClawdBot site builder. Replace text-only prompt references with actual component fetching, adaptation, and injection.
+**Requirements**: TWENTY1-01, TWENTY1-02, TWENTY1-03, RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02
+**Feature flag:** N/A (pipeline infrastructure)
+**Depends on:** Phase 2 (anti-slop), Phase 4 (middleware)
+**Success criteria:**
+- 21st.dev MCP configured and queryable from site builder
+- Real component code injected into variant prompts (not just text references)
+- Recraft generates logo + hero images with budget tracking
+- Full pipeline runs: strategy → assets → 5 variants → Opus review → synthesis → anti-slop → deploy
+- Built sites score higher on site_quality QA than text-reference-only builds
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 10 to break down)
+
 ---
 *Roadmap created: 2026-03-29 via mega-plan pipeline (full scope, Approach A with Beta corrections)*
