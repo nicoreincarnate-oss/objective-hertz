@@ -8,7 +8,7 @@ progress:
   total_phases: 10
   completed_phases: 7
   total_plans: 14
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Phase
 
 **Phase:** 6 — Post-Quantum Cryptography
-**Status:** Phase 06 Complete (1/1 plan)
+**Status:** Phase 06 Complete (2/2 plans)
 **Next action:** Execute Phase 07 (Adaptive Thresholds)
 
 ## Milestone: Intel Integration (Full Scope)
@@ -46,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | — | Buffer Week 1 | — | Integration checkpoint | — |
 | 4 | DeerFlow Middleware Chain | Complete | phases/4/PLAN.md | 9.2 |
 | 5 | RLM Recursive Context | Complete (2/2 plans) | phases/5/PLAN.md | 9.0 |
-| 6 | Post-Quantum Crypto | Complete (1/1 plan) | phases/06-post-quantum-crypto/ | 9.0 |
+| 6 | Post-Quantum Crypto | Complete (2/2 plans) | phases/06-post-quantum-crypto/ | 9.0 |
 | 7 | Adaptive Thresholds | Planned | phases/7/PLAN.md | 9.4 |
 | 8 | TRIBE v2 Neuro-Scorer | Planned | phases/8/PLAN.md | 9.0 |
 | — | Buffer Week 2 | — | Final stabilization | — |
@@ -141,6 +141,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **06-01:** Code structured for drop-in PQC upgrade when ARM64 wheels ship
 - **06-01:** Bootstrap keys (CONWAY_KEYSTORE_PASSWORD, PQC_ENABLED) stored plaintext in SecureConfig
 - **06-01:** Combined PQCCryptoProvider satisfies CryptoProvider Protocol from shared/contracts.py
+- **06-02:** PQC signer uses HKDF-derived agent key as Ed25519 seed (deterministic per agent)
+- **06-02:** PQC keystore wrapping uses pqc_wrapped:true marker for transparent classical/PQC detection
+- **06-02:** PQC tx signatures are non-fatal audit trail (warning on failure, never blocks send)
 
 ## Performance Metrics
 
@@ -158,8 +161,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 05-01 | 2min | 5 | 2 |
 | 05-02 | 5min | 3 | 2 |
 | 06-01 | 5min | 6 | 4 |
+| 06-02 | 5min | 2 | 6 |
 
 ---
+*State updated: 2026-03-30 -- Phase 06 Plan 02 complete (wallet PQC integration, 73 tests, from_raw_bytes bug fix)*
 *State updated: 2026-03-30 -- Phase 06 complete (PQC core, SecureConfig, migration 022, key derivation, key rotation)*
 *State updated: 2026-03-30 -- Phase 05 complete (shadow A/B, system_config toggle, 26 tests)*
 *State updated: 2026-03-30 -- Phase 05 Plan 01 complete (RLM composer, Mem0/Qdrant, budget caps, migration 021)*

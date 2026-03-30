@@ -126,7 +126,8 @@ Plans:
 - .env secrets encrypted at rest via SecureConfig
 Plans:
 - [x] 06-01-PLAN.md -- PQC Core + SecureConfig + Migration (PQC-01, PQC-02, PQC-03, PQC-04, PQC-05, PQC-06, PQC-07)
-**Status:** ✅ Complete (2026-03-30) -- ARM64 spike passed (fallback), 4 files created, all acceptance criteria verified
+- [x] 06-02-PLAN.md -- Feature Flag + Tests (PQC-08) -- 73 tests, wallet PQC integration, from_raw_bytes bug fix
+**Status:** ✅ Complete (2026-03-30) -- 2/2 plans, 73 tests, wallet PQC integration verified
 
 ## Phase 7: Adaptive Thresholds (Self-Modifying Expansion)
 **Goal:** Titan's expansion engine uses learnable thresholds that evolve from pipeline outcomes instead of hardcoded values.

@@ -172,7 +172,7 @@ class QuantumSafeSigner:
         """
         try:
             if public_key is not None:
-                pk = Ed25519PublicKey.from_raw_bytes(public_key)
+                pk = Ed25519PublicKey.from_public_bytes(public_key)
             else:
                 pk = self._public_key
             pk.verify(signature, message)
