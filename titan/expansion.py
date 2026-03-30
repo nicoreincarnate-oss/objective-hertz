@@ -54,12 +54,12 @@ def _detect_revenue_bottlenecks(metrics: dict) -> list[dict]:
 
         at = AdaptiveThresholds()
         # Adaptive thresholds: sample from bandit posteriors (sync/in-memory).
-        # Scale bandit output [0,1] to the metric's natural range.
-        reply_threshold = at.get_threshold("reply_rate_threshold") * 5.0  # ~1.5 default
-        interest_threshold = at.get_threshold("interest_rate_threshold") * 25.0  # ~12.0 default
-        proposal_threshold = at.get_threshold("proposal_backlog_threshold") * 5.0  # ~3.0 default
-        uninvoiced_threshold = at.get_threshold("uninvoiced_threshold") * 5.0  # ~2.0 default
-        missing_email_threshold = at.get_threshold("missing_email_threshold") * 15.0  # ~10.0 default
+        # get_threshold returns values in natural range (scaling handled internally).
+        reply_threshold = at.get_threshold("reply_rate_threshold")
+        interest_threshold = at.get_threshold("interest_rate_threshold")
+        proposal_threshold = at.get_threshold("proposal_backlog_threshold")
+        uninvoiced_threshold = at.get_threshold("uninvoiced_threshold")
+        missing_email_threshold = at.get_threshold("missing_email_threshold")
         logger.info(
             "Bandit thresholds: reply=%.2f interest=%.2f proposal=%.2f uninvoiced=%.2f missing_email=%.2f",
             reply_threshold, interest_threshold, proposal_threshold,
