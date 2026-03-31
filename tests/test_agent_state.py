@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -62,54 +62,64 @@ def test_transition_matrix_completeness():
 # ---------------------------------------------------------------------------
 
 
+def _mock_db():
+    mock = MagicMock()
+    mock.execute = AsyncMock()
+    mock.fetch_one = AsyncMock(return_value=None)
+    mock.fetch_all = AsyncMock(return_value=[])
+    mock.emit_event = AsyncMock(return_value=0)
+    mock.close_pool = AsyncMock()
+    return mock
+
+
 @pytest.mark.asyncio
 async def test_feature_flag_off_passthrough():
     """_transition() returns True when flag is off regardless of states."""
     with patch.dict(os.environ, {"AGENT_STATE_MACHINE_ENABLED": ""}, clear=False):
-        from shared.agent_base import AgentBase
+        with patch("shared.agent_base.db", _mock_db()):
+            from shared.agent_base import AgentBase
 
-        class _TestAgent(AgentBase):
-            name = "test_agent"
-            description = "test"
+            class _TestAgent(AgentBase):
+                name = "test_agent"
+                description = "test"
 
-            async def start(self):
-                pass
+                async def start(self):
+                    pass
 
-            async def stop(self):
-                pass
+                async def stop(self):
+                    pass
 
-            async def health_check(self):
-                return {}
+                async def health_check(self):
+                    return {}
 
-        agent = _TestAgent()
-        # TERMINATED -> IDLE would be invalid, but flag is off so it passes
-        result = await agent._transition(AgentState.IDLE)
-        assert result is True
+            agent = _TestAgent()
+            result = await agent._transition(AgentState.IDLE)
+            assert result is True
 
 
 @pytest.mark.asyncio
 async def test_transition_updates_state():
     """Valid transition updates internal state when flag is on."""
     with patch.dict(os.environ, {"AGENT_STATE_MACHINE_ENABLED": "true"}, clear=False):
-        from shared.agent_base import AgentBase
+        with patch("shared.agent_base.db", _mock_db()):
+            from shared.agent_base import AgentBase
 
-        class _TestAgent(AgentBase):
-            name = "test_state_agent"
-            description = "test"
+            class _TestAgent(AgentBase):
+                name = "test_state_agent"
+                description = "test"
 
-            async def start(self):
-                pass
+                async def start(self):
+                    pass
 
-            async def stop(self):
-                pass
+                async def stop(self):
+                    pass
 
-            async def health_check(self):
-                return {}
+                async def health_check(self):
+                    return {}
 
-        agent = _TestAgent()
-        assert agent.state == AgentState.IDLE
+            agent = _TestAgent()
+            assert agent.state == AgentState.IDLE
 
-        with patch("shared.db.execute", new_callable=AsyncMock):
             with patch.object(agent, "emit_event", new_callable=AsyncMock):
                 result = await agent._transition(AgentState.EXECUTING)
                 assert result is True
