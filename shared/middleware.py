@@ -396,18 +396,98 @@ def _get_budget_cap() -> float:
 
 
 async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
-    """Reject stage execution if monthly LLM spend exceeds budget cap.
+    """Pre-execution budget gate with cost estimation.
+
+    1. Estimate cost of upcoming task from historical cost_events averages
+    2. Evaluate all applicable budget policies (company + agent + stage)
+    3. If estimated cost would exceed remaining budget: reject, fall back to Ollama
+    4. AEGIS: DB errors -> REJECT and fall back to Ollama (fail CLOSED)
+
+    Feature flag: PRE_EXECUTION_BUDGET_GATE_ENABLED (default false)
+    When disabled, falls back to legacy post-hoc budget check.
 
     When ``ENABLE_CONSOLIDATED_BUDGET`` is ON, this middleware also handles
     per-LLM-call model downgrade decisions (via ``requested_model`` in ctx).
     Fails CLOSED on DB error when consolidated flag is ON.
-
-    When the flag is OFF, uses legacy ``shared.observability.get_metrics_summary``.
     """
     cap = _get_budget_cap()
+    stage_name = ctx.get("stage_name", "")
+    daemon_name = ctx.get("daemon_name", "")
 
+    pre_gate_enabled = os.environ.get(
+        "PRE_EXECUTION_BUDGET_GATE_ENABLED", "false"
+    ).lower() in ("true", "1", "yes")
+
+    if pre_gate_enabled:
+        try:
+            from shared.cost_events import get_average_cost_by_task_type
+            from tools.budget_guard import evaluate_policies
+
+            # Step 1: Estimate cost of this task
+            estimated_cost = await get_average_cost_by_task_type(stage_name)
+            if estimated_cost is None:
+                # No historical data — use conservative default ($0.05 per stage)
+                estimated_cost = 0.05
+
+            # Step 2: Evaluate all applicable policies
+            decision = await evaluate_policies(
+                agent_id=daemon_name,
+                pipeline_stage=stage_name,
+            )
+
+            # Step 3: Check if estimated cost fits within remaining budget
+            if not decision.allowed:
+                logger.warning(
+                    "BUDGET GATE BLOCKED: %s — %s (estimated $%.4f)",
+                    stage_name, decision.reason, estimated_cost,
+                )
+                ctx["budget_fallback_to_ollama"] = True
+                return {
+                    "success": False,
+                    "output": f"Budget gate: {decision.reason}",
+                    "budget_blocked": True,
+                    "fallback": "ollama",
+                }
+
+            if decision.most_restrictive:
+                remaining = decision.most_restrictive.remaining_usd
+                if estimated_cost > remaining:
+                    logger.warning(
+                        "BUDGET GATE: estimated $%.4f > remaining $%.2f for %s/%s — rejecting",
+                        estimated_cost, remaining,
+                        decision.most_restrictive.scope_type,
+                        decision.most_restrictive.scope_value,
+                    )
+                    ctx["budget_fallback_to_ollama"] = True
+                    return {
+                        "success": False,
+                        "output": f"Budget gate: estimated ${estimated_cost:.4f} exceeds remaining ${remaining:.2f}",
+                        "budget_blocked": True,
+                        "fallback": "ollama",
+                    }
+
+            # Attach budget context for downstream use
+            ctx["budget_remaining"] = decision.most_restrictive.remaining_usd if decision.most_restrictive else None
+            ctx["budget_warnings"] = decision.warnings
+
+        except Exception as exc:
+            # AEGIS: Fail CLOSED — DB errors reject and fallback to Ollama
+            logger.error(
+                "BUDGET GATE DB ERROR — failing CLOSED (rejecting stage '%s'): %s",
+                stage_name, exc,
+            )
+            ctx["budget_fallback_to_ollama"] = True
+            return {
+                "success": False,
+                "output": f"Budget gate: DB error — fail closed ({exc})",
+                "budget_blocked": True,
+                "fallback": "ollama",
+            }
+
+        return await next_fn(ctx)
+
+    # --- Consolidated path (ENABLE_CONSOLIDATED_BUDGET) ---
     if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
-        # --- Consolidated path: single budget authority ---
         try:
             from shared.db import fetch_val
 
@@ -442,7 +522,7 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
             if float(total) >= cap:
                 logger.warning(
                     "BUDGET EXCEEDED: $%.2f / $%.2f — blocking stage '%s'",
-                    float(total), cap, ctx.get("stage_name", ""),
+                    float(total), cap, stage_name,
                 )
                 return {
                     "success": False,
@@ -459,6 +539,7 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
         return await next_fn(ctx)
 
     # --- Legacy path (flag OFF): observability-based check ---
+    # AEGIS FIX: Change from fail-open to fail-closed
     try:
         from shared.observability import get_metrics_summary
 
@@ -471,15 +552,23 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
                 "BUDGET EXCEEDED: $%.2f / $%.2f — blocking stage '%s'",
                 total_cost,
                 cap,
-                ctx.get("stage_name", ""),
+                stage_name,
             )
             return {
                 "success": False,
                 "output": f"Budget cap exceeded: ${total_cost:.2f} / ${cap:.2f}",
             }
     except Exception as exc:
-        # Budget check failure should not block the pipeline (legacy fail-open)
-        logger.warning("Budget check failed (allowing): %s", exc)
+        # AEGIS FIX: Fail CLOSED — reject and fallback to Ollama
+        logger.error(
+            "BUDGET CHECK DB ERROR — failing CLOSED (was: failing open): %s", exc,
+        )
+        return {
+            "success": False,
+            "output": f"Budget check: DB error — fail closed ({exc})",
+            "budget_blocked": True,
+            "fallback": "ollama",
+        }
 
     return await next_fn(ctx)
 
