@@ -916,6 +916,57 @@ async def api_budget():
         })
 
 
+@app.get("/api/costs/breakdown")
+async def api_costs_breakdown(request: Request):
+    """Cost breakdown from cost_events table.
+
+    Query params:
+      - group_by: 'agent' | 'model' | 'task_type' | 'day' (default: 'agent')
+      - days: lookback period in days (default: 30)
+    """
+    group_by = request.query_params.get("group_by", "agent")
+    days = int(request.query_params.get("days", "30"))
+
+    # Allowlist group_by to prevent SQL injection via dynamic column
+    ALLOWED_GROUPS = {
+        "agent": "agent_id",
+        "model": "model",
+        "task_type": "task_type",
+        "day": "DATE(created_at)",
+    }
+
+    column = ALLOWED_GROUPS.get(group_by)
+    if column is None:
+        return JSONResponse(
+            {"error": f"Invalid group_by: {group_by}. Must be one of: {list(ALLOWED_GROUPS.keys())}"},
+            status_code=400,
+        )
+
+    try:
+        # Safe: column is from allowlist, not user input. days is cast to int above.
+        rows = await fetch_all(
+            f"""SELECT {column} AS group_key,
+                       COUNT(*) AS call_count,
+                       COALESCE(SUM(tokens_in), 0) AS total_tokens_in,
+                       COALESCE(SUM(tokens_out), 0) AS total_tokens_out,
+                       ROUND(COALESCE(SUM(cost_usd), 0)::numeric, 4) AS total_cost_usd,
+                       ROUND(COALESCE(AVG(cost_usd), 0)::numeric, 6) AS avg_cost_usd,
+                       ROUND(COALESCE(AVG(latency_ms), 0)) AS avg_latency_ms
+                FROM cost_events
+                WHERE created_at >= NOW() - INTERVAL %s
+                GROUP BY {column}
+                ORDER BY total_cost_usd DESC""",
+            (f"{days} days",),
+        )
+        return JSONResponse({
+            "group_by": group_by,
+            "days": days,
+            "breakdown": [dict(r) for r in rows] if rows else [],
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e), "breakdown": []}, status_code=500)
+
+
 @app.get("/api/tasks")
 async def api_tasks(request: Request):
     """Task queue visibility — filter by status and agent."""
