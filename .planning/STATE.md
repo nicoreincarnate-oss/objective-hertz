@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-31T07:33:16.705Z"
+last_updated: "2026-03-31T08:06:24.027Z"
 progress:
   total_phases: 27
   completed_phases: 9
   total_plans: 19
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 14 — Quality & Observability
+**Current focus:** Phase 15 — Architecture (Additive)
 
 ## Current Phase
 
-**Phase:** 13
-**Status:** Executing Phase 14
-**Next action:** Phase 14 — Quality & Observability
+**Phase:** 14
+**Status:** Phase 14 Complete
+**Next action:** Phase 15 — Architecture (Additive)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -187,6 +187,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - [Phase 13]: emit_event uses shared.db.emit_event (not shared.comms)
 - [Phase 13]: Budget middleware fails CLOSED on DB errors (AEGIS fix from fail-open)
 - [Phase 13]: All 3 feature flags default OFF for 48hr shadow mode
+- [Phase 14]: Behavioral evals adapted to actual codebase APIs (middleware, agent_state, compliance)
+- [Phase 14]: Heartbeat uses existing session_health table schema with metrics JSONB for type differentiation
+- [Phase 14]: Credential stripper expanded to 16 patterns (was 6) per AEGIS audit requirement
 
 ## Performance Metrics
 
@@ -215,8 +218,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 11-01 | 8min | 13 | 7 |
 | 12-01 | 22min | 6 | 15 |
 | 13-01 | 7min | 6 | 11 |
+| 14-01 | 29min | 13 | 23 |
 
 ---
+*State updated: 2026-03-31 -- Phase 14 complete (quality & observability: migration 027, 6 behavioral eval suites (28 tests), HeartbeatEmitter + 5 lifecycle docs, RedactingFormatter + 16 credential patterns, log redaction wired -- 45 new tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 13 complete (budget & cost patterns: migration 026, CostEvent + emit, multi-scope policies, pre-execution budget gate, AEGIS fail-closed fix, cost breakdown API -- 37 tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 12 complete (foundation patterns: agent state machine, atomic checkout, recursion guard, forbidden token scanner, session health -- 30 tests, 5 feature flags)*
 *State updated: 2026-03-31 -- Phase 11 complete (budget consolidation: check_budget_for_llm_call single authority, fail-closed, legacy _budget_gate removed, 71 tests)*
@@ -237,3 +242,4 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 02 complete (pipeline integration + 50 tests)*
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
+| Phase 14 P01 | 29min | 13 tasks | 23 files |

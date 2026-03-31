@@ -296,7 +296,7 @@ Plans:
 - Log redaction < 1ms latency per line
 - Migration 027 applies cleanly
 Plans:
-- [ ] 14-01-PLAN.md -- Behavioral evals + heartbeat + log redaction + migration 027
+- [x] 14-01-PLAN.md -- Behavioral evals + heartbeat + log redaction + migration 027
 **Status:** Not started
 
 ## Phase 15: Architecture - Additive
