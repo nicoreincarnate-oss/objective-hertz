@@ -18,6 +18,7 @@ TurboQuant integration (March 2026):
 import asyncio
 import base64
 import logging
+import os
 import time
 from datetime import date
 
@@ -189,8 +190,12 @@ class LLMClient:
             self._fire_metrics(pipeline_stage or "unknown", "local", "generate", prompt, result, t0, True, None)
             return result
 
-        # Budget check — downgrade Claude to Ollama when needed
-        resolved_model = await self._budget_gate(model)
+        # Budget check — consolidated middleware or legacy gate
+        if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
+            from shared.middleware import check_budget_for_llm_call
+            resolved_model = await check_budget_for_llm_call(model)
+        else:
+            resolved_model = await self._budget_gate(model)
 
         if resolved_model in ("local", "local-small"):
             # Budget gate downgraded us
@@ -240,7 +245,11 @@ class LLMClient:
         if not config.claude.api_key:
             raise RuntimeError("Claude vision unavailable: ANTHROPIC_API_KEY not configured")
 
-        model = await self._budget_gate(model)
+        if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
+            from shared.middleware import check_budget_for_llm_call
+            model = await check_budget_for_llm_call(model)
+        else:
+            model = await self._budget_gate(model)
         if model in ("local", "local-small"):
             raise RuntimeError("Claude vision downgraded to local model; multimodal evaluation unavailable")
 

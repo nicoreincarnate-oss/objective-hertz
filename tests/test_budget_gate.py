@@ -17,6 +17,7 @@ def llm():
         fake_db.execute = AsyncMock()
         fake_db.init_pool = AsyncMock()
         fake_db.close_pool = AsyncMock()
+        fake_db.get_config = AsyncMock(return_value=None)
         sys.modules["shared.db"] = fake_db
 
     from shared.llm_client import LLMClient

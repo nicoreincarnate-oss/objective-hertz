@@ -15,7 +15,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 logger = logging.getLogger("perseus.middleware")
@@ -381,15 +381,83 @@ async def telemetry_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
 # Task 7: BudgetCheckMiddleware
 # ---------------------------------------------------------------------------
 
-# Monthly budget cap in USD
-_BUDGET_CAP_USD = 800.0
+# Monthly budget cap — read from config, fallback to $800
+_ALERT_THRESHOLD = 0.8  # Downgrade Haiku at 80%
+
+
+def _get_budget_cap() -> float:
+    """Read budget cap from config, defaulting to $800."""
+    try:
+        from shared.config import config
+        return float(config.budget.monthly_cap)
+    except Exception:
+        return 800.0
 
 
 async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
-    """Reject stage execution if monthly LLM spend exceeds $800.
+    """Reject stage execution if monthly LLM spend exceeds budget cap.
 
-    Uses ``shared.observability.get_metrics_summary`` to check current cost.
+    When ``ENABLE_CONSOLIDATED_BUDGET`` is ON, this middleware also handles
+    per-LLM-call model downgrade decisions (via ``requested_model`` in ctx).
+    Fails CLOSED on DB error when consolidated flag is ON.
+
+    When the flag is OFF, uses legacy ``shared.observability.get_metrics_summary``.
     """
+    cap = _get_budget_cap()
+
+    if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
+        # --- Consolidated path: single budget authority ---
+        try:
+            from shared.db import fetch_val
+
+            month = date.today().replace(day=1)
+            total = await fetch_val(
+                "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
+                (month,),
+            ) or 0
+
+            percent_used = float(total) / cap if cap > 0 else 1.0
+
+            # Per-LLM-call check (injected by LLMClient.generate)
+            if "requested_model" in ctx:
+                requested_model = ctx["requested_model"]
+                if percent_used >= 1.0:
+                    logger.warning(
+                        "Budget exceeded ($%.2f/$%.2f) — forcing Ollama",
+                        float(total), cap,
+                    )
+                    ctx["resolved_model"] = "local"
+                elif percent_used >= _ALERT_THRESHOLD and requested_model == "fast":
+                    logger.info(
+                        "Budget at %.0f%% — downgrading fast to Ollama",
+                        percent_used * 100,
+                    )
+                    ctx["resolved_model"] = "local"
+                else:
+                    ctx["resolved_model"] = requested_model
+                return await next_fn(ctx)
+
+            # Pipeline-stage check (no requested_model)
+            if float(total) >= cap:
+                logger.warning(
+                    "BUDGET EXCEEDED: $%.2f / $%.2f — blocking stage '%s'",
+                    float(total), cap, ctx.get("stage_name", ""),
+                )
+                return {
+                    "success": False,
+                    "output": f"Budget cap exceeded: ${float(total):.2f} / ${cap:.2f}",
+                }
+
+        except Exception as exc:
+            logger.error("Budget check DB failed — REJECTING call (fail-closed): %s", exc)
+            if "requested_model" in ctx:
+                ctx["resolved_model"] = "local"  # Force Ollama
+                return await next_fn(ctx)
+            return {"success": False, "output": f"Budget check unavailable: {exc}"}
+
+        return await next_fn(ctx)
+
+    # --- Legacy path (flag OFF): observability-based check ---
     try:
         from shared.observability import get_metrics_summary
 
@@ -397,22 +465,63 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
         daemons = summary.get("daemons", [])
         total_cost = sum(float(d.get("total_cost_usd", 0) or 0) for d in daemons)
 
-        if total_cost >= _BUDGET_CAP_USD:
+        if total_cost >= cap:
             logger.warning(
                 "BUDGET EXCEEDED: $%.2f / $%.2f — blocking stage '%s'",
                 total_cost,
-                _BUDGET_CAP_USD,
+                cap,
                 ctx.get("stage_name", ""),
             )
             return {
                 "success": False,
-                "output": f"Budget cap exceeded: ${total_cost:.2f} / ${_BUDGET_CAP_USD:.2f}",
+                "output": f"Budget cap exceeded: ${total_cost:.2f} / ${cap:.2f}",
             }
     except Exception as exc:
-        # Budget check failure should not block the pipeline
+        # Budget check failure should not block the pipeline (legacy fail-open)
         logger.warning("Budget check failed (allowing): %s", exc)
 
     return await next_fn(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Standalone budget check for LLM calls (consolidated authority)
+# ---------------------------------------------------------------------------
+
+
+async def check_budget_for_llm_call(requested_model: str) -> str:
+    """Standalone budget check for LLM calls (used by LLMClient when consolidated flag is ON).
+
+    Returns the resolved model — either the requested model or "local" for Ollama fallback.
+    Fails CLOSED: DB errors return "local".
+    """
+    if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() not in ("true", "1", "yes"):
+        return requested_model  # No-op when flag is off
+
+    try:
+        from shared.db import fetch_val
+
+        month = date.today().replace(day=1)
+        total = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
+            (month,),
+        ) or 0
+
+        cap = _get_budget_cap()
+        percent_used = float(total) / cap if cap > 0 else 1.0
+
+        if percent_used >= 1.0:
+            logger.warning("Budget exceeded ($%.2f/$%.2f) — forcing Ollama", float(total), cap)
+            return "local"
+
+        if percent_used >= _ALERT_THRESHOLD and requested_model == "fast":
+            logger.info("Budget at %.0f%% — downgrading fast to Ollama", percent_used * 100)
+            return "local"
+
+        return requested_model
+
+    except Exception as exc:
+        logger.error("Budget DB failed — fail-closed, forcing Ollama: %s", exc)
+        return "local"
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +553,7 @@ __all__ = [
     "anti_slop_middleware",
     "budget_check_middleware",
     "build_chain",
+    "check_budget_for_llm_call",
     "dna_guard_middleware",
     "memory_middleware",
     "neuro_scorer_middleware",
