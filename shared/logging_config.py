@@ -89,6 +89,11 @@ def setup_logging(agent_name: str = "perseus") -> logging.Logger:
     json_formatter = JsonFormatter(agent_name)
     formatter = json_formatter if config.log_format.lower() == "json" else text_formatter
 
+    # Wrap with log redaction (Phase 14: QUAL-11)
+    from shared.log_redaction import RedactingFormatter
+
+    formatter = RedactingFormatter(formatter)
+
     if config.log_to_stdout:
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(formatter)
