@@ -446,8 +446,8 @@ class TestBudgetCheckMiddleware:
             ))
         assert result["success"] is False
 
-    def test_budget_check_failure_allows_execution(self):
-        """If budget check itself fails, execution continues (fail-open)."""
+    def test_budget_check_failure_rejects_execution(self):
+        """If budget check itself fails, execution is REJECTED (fail-closed — AEGIS)."""
         mock_summary = AsyncMock(side_effect=Exception("DB down"))
         fake_obs = _mock_module("shared.observability", get_metrics_summary=mock_summary)
         with patch.dict(sys.modules, {"shared.observability": fake_obs}):
@@ -455,7 +455,8 @@ class TestBudgetCheckMiddleware:
                 {"stage_name": "research"},
                 _identity_handler,
             ))
-        assert result["success"] is True
+        assert result["success"] is False
+        assert "fail closed" in result["output"]
 
 
 # ---------------------------------------------------------------------------

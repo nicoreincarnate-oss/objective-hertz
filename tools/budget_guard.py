@@ -260,10 +260,10 @@ async def evaluate_policies(
                 f"(${spent:.2f}/${limit_usd:.2f})"
             )
 
-    # Emit warnings to Hermes
+    # Emit warnings to Hermes via event bus
     if warnings:
         try:
-            from shared.comms import emit_event
+            from shared.db import emit_event
             for warning_msg in warnings:
                 await emit_event("budget_warning", {
                     "message": warning_msg,
