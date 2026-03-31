@@ -60,6 +60,9 @@ SCHEDULES = [
     # Architecture additive (Phase 15)
     Schedule("expire_stale_approvals", 3600, "Auto-expire pending approvals >24h old", skippable=False),
     Schedule("collect_commit_metrics", 86400, "Daily git commit metrics collection", skippable=False),
+    # Event-driven wakeup maintenance (Phase 16)
+    Schedule("wakeup_expire_stale", 300, "Expire stale wakeup requests", skippable=False),
+    Schedule("wakeup_cleanup", 86400, "Clean up old dispatched/expired wakeup requests", skippable=True),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}
