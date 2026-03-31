@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from shared import db
+from shared.agent_state import AgentState, PauseReason, validate_transition
 from shared.observability import (
     bind_context_from_payload,
     capture_exception,
@@ -35,6 +36,11 @@ if TYPE_CHECKING:
 def _deerflow_memory_enabled() -> bool:
     """Check ENABLE_DEERFLOW_MEMORY feature flag."""
     return os.environ.get("ENABLE_DEERFLOW_MEMORY", "").lower() in ("true", "1")
+
+
+def _agent_state_enabled() -> bool:
+    """Check AGENT_STATE_MACHINE_ENABLED feature flag."""
+    return os.environ.get("AGENT_STATE_MACHINE_ENABLED", "").lower() in ("true", "1")
 
 
 class AgentBase(ABC):
@@ -61,6 +67,10 @@ class AgentBase(ABC):
             self._bus = get_bus()
         except Exception:
             self._bus = None
+
+        # Agent State Machine (Phase 12: FP-01)
+        self._state: AgentState = AgentState.IDLE
+        self._pause_reason: PauseReason | None = None
 
         # DeerFlow persistent memory (Phase 3)
         self._memory: DaemonMemoryStore | None = None
@@ -158,6 +168,60 @@ class AgentBase(ABC):
         except Exception as exc:
             self.logger.warning("DeerFlow memory save failed for %s: %s", self.name, exc)
 
+    # -- Agent State Machine (Phase 12: FP-01) --------------------------------
+
+    @property
+    def state(self) -> AgentState:
+        return self._state
+
+    @property
+    def pause_reason(self) -> PauseReason | None:
+        return self._pause_reason
+
+    async def _transition(
+        self,
+        new_state: AgentState,
+        pause_reason: PauseReason | None = None,
+    ) -> bool:
+        """Attempt a state transition. Returns True if successful.
+
+        When AGENT_STATE_MACHINE_ENABLED is off, always returns True (no-op).
+        """
+        if not _agent_state_enabled():
+            return True
+
+        old_state = self._state
+        if not validate_transition(old_state, new_state):
+            self.logger.warning(
+                "Invalid state transition %s -> %s for %s",
+                old_state.value, new_state.value, self.name,
+            )
+            return False
+
+        self._state = new_state
+        self._pause_reason = pause_reason if new_state == AgentState.PAUSED else None
+
+        # Persist to DB
+        try:
+            await db.execute(
+                "UPDATE agent_registry SET state = %s, pause_reason = %s WHERE name = %s",
+                (new_state.value, pause_reason.value if pause_reason else None, self.name),
+            )
+        except Exception as exc:
+            self.logger.debug("State persist failed (non-fatal): %s", exc)
+
+        # Emit event
+        try:
+            await self.emit_event("agent_state_change", {
+                "from": old_state.value,
+                "to": new_state.value,
+                "pause_reason": pause_reason.value if pause_reason else None,
+            })
+        except Exception:
+            pass  # event emission is best-effort
+
+        return True
+
     async def register(self):
         """Register this agent with Perseus via DB, and optionally create a Conway wallet."""
         record_agent_started(self.name)
@@ -168,6 +232,7 @@ class AgentBase(ABC):
             (self.name, self.description),
         )
         self.logger.info(f"Agent '{self.name}' registered")
+        await self._transition(AgentState.IDLE)
 
         # DeerFlow: load persistent memory
         await self._load_memory()
@@ -239,6 +304,7 @@ class AgentBase(ABC):
         """Signal the agent to stop accepting new work."""
         self._shutdown_requested = True
         self._running = False
+        self._state = AgentState.TERMINATED
 
     def begin_work(self, work_id: str):
         """Track in-flight work so shutdown can wait for it to finish."""
@@ -274,6 +340,7 @@ class AgentBase(ABC):
     async def finalize_shutdown(self):
         """Mark agent inactive and close its DB resources."""
         try:
+            await self._transition(AgentState.TERMINATED)
             record_agent_shutdown(self.name)
             await self.deregister()
         finally:
@@ -329,11 +396,13 @@ class AgentBase(ABC):
         )
         if row is not None:
             record_task_claimed(self.name)
+            await self._transition(AgentState.EXECUTING)
         return row is not None
 
     async def complete_task(self, task_id: int):
         """Mark a task as completed."""
         record_task_completed(self.name)
+        await self._transition(AgentState.IDLE)
         await db.execute(
             """UPDATE task_queue
                SET status = 'completed', completed_at = NOW(), assigned_agent = %s
@@ -344,6 +413,7 @@ class AgentBase(ABC):
     async def fail_task(self, task_id: int, error: str):
         """Mark a task as failed."""
         record_task_failed(self.name)
+        await self._transition(AgentState.ERROR)
         row = await db.fetch_one(
             """UPDATE task_queue
                SET retry_count = COALESCE(retry_count, 0) + 1,

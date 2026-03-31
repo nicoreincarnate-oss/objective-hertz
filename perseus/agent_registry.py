@@ -34,7 +34,7 @@ async def heartbeat(name: str):
 async def check_agent_health() -> dict:
     """Check which agents are healthy (heartbeat within last 5 minutes)."""
     agents = await fetch_all(
-        """SELECT name, status, last_heartbeat,
+        """SELECT name, status, state, pause_reason, last_heartbeat,
                   EXTRACT(EPOCH FROM NOW() - last_heartbeat) as seconds_since_heartbeat
            FROM agent_registry"""
     )
@@ -43,6 +43,8 @@ async def check_agent_health() -> dict:
         stale = (agent.get("seconds_since_heartbeat") or 999) > 300
         health[agent["name"]] = {
             "status": "stale" if stale else agent["status"],
+            "state": agent.get("state", "idle"),
+            "pause_reason": agent.get("pause_reason"),
             "last_heartbeat": str(agent.get("last_heartbeat", "")),
         }
     return health
