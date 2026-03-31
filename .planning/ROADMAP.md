@@ -236,6 +236,102 @@ Plans:
 - [x] 10-01-PLAN.md -- 21st.dev REST client + design_sources enrichment (TWENTY1-01, TWENTY1-02, TWENTY1-03)
 - [x] 10-02-PLAN.md -- Pipeline wiring + Recraft verification + quality comparison (RECRAFT-01, RECRAFT-02, RECRAFT-03, PIPELINE-01, PIPELINE-02)
 
+## Phase 11: Budget Consolidation
+**Goal:** Consolidate 4 scattered budget enforcement points into a single middleware authority that fails closed on DB errors. Prerequisite for all Paperclip budget patterns.
+**Requirements:** BUDGET-CONSOLIDATE-01 through BUDGET-CONSOLIDATE-07
+**Feature flag:** ENABLE_CONSOLIDATED_BUDGET
+**Dependencies:** Phase 4 (middleware chain), Phase 9 (AEGIS fixes)
+**Success criteria:**
+- Budget check lives in ONE place: shared/middleware.py:budget_check_middleware
+- _budget_gate removed from shared/llm_client.py
+- Budget fails CLOSED on DB error (Ollama fallback, not pass-through)
+- Two-commit cutover strategy executed safely
+- All existing tests pass
+Plans:
+- [x] 11-01-PLAN.md -- Upgrade budget_check_middleware + test suite + legacy removal
+**Status:** Not started
+
+## Phase 12: Foundation Patterns
+**Goal:** Port 5 infrastructure patterns from Paperclip (MIT): agent state machine, atomic task checkout, recursion guard, forbidden token scanner, session health tracking.
+**Requirements:** FP-01 through FP-05
+**Feature flags:** AGENT_STATE_MACHINE_ENABLED, ATOMIC_CHECKOUT_ENABLED, RECURSION_GUARD_ENABLED, FORBIDDEN_TOKEN_SCAN_ENABLED, SESSION_HEALTH_ENABLED
+**Dependencies:** Phase 11 (budget consolidation)
+**Success criteria:**
+- Agents have 7 lifecycle states with validated transitions
+- Tasks use FOR UPDATE SKIP LOCKED for atomic checkout
+- Task depth > 5 rejected by recursion guard
+- Forbidden tokens scanned on LLM output with test exclusions
+- Session health extends DeerFlow WorkingMemory
+- Migration 025 applies cleanly
+Plans:
+- [ ] 12-01-PLAN.md -- 5 foundation patterns + migration 025 + 25 tests
+**Status:** Not started
+
+## Phase 13: Budget & Cost Patterns
+**Goal:** Implement 3 Paperclip budget patterns: pre-execution budget gate with cost estimation, multi-scope budget policies per-agent/project, and per-call cost events with task attribution.
+**Requirements:** BUDGET-01 through BUDGET-03
+**Feature flags:** PRE_EXECUTION_BUDGET_GATE_ENABLED, MULTI_SCOPE_BUDGET_ENABLED, PER_CALL_COST_EVENTS_ENABLED
+**Dependencies:** Phase 11 (consolidated budget), Phase 12 (agent state machines)
+**Success criteria:**
+- Pre-task cost estimation from historical averages (default to list prices for first 100 tasks)
+- budget_policies table seeded with $800/month company default
+- cost_events table records every LLM call with task attribution
+- Budget fails CLOSED per AEGIS (DB errors reject, Ollama fallback)
+- 48hr shadow mode before enforcement
+- Migration 026 applies cleanly
+Plans:
+- [ ] 13-01-PLAN.md -- Budget gate + multi-scope policies + cost events + migration 026 + 30 tests
+**Status:** Not started
+
+## Phase 14: Quality & Observability
+**Goal:** Implement 3 Paperclip quality patterns: pytest behavioral evals for daemon behaviors, heartbeat lifecycle protocol with per-daemon soul docs, and log redaction via credential stripper.
+**Requirements:** QUAL-01 through QUAL-03
+**Feature flags:** BEHAVIORAL_EVALS_ENABLED, HEARTBEAT_LIFECYCLE_ENABLED, LOG_REDACTION_ENABLED
+**Dependencies:** Phase 12 (state machine for eval tests), Phase 13 (cost tracking for eval data)
+**Success criteria:**
+- 6 critical behavioral evals pass (budget fail-closed, CAN-SPAM, middleware wired, escalation, state machine, recursion)
+- HeartbeatEmitter writes to session_health every 30s per daemon
+- 5 lifecycle docs in soul/lifecycle/ (one per daemon)
+- Credential stripper wired into logging handler (15+ patterns)
+- Log redaction < 1ms latency per line
+- Migration 027 applies cleanly
+Plans:
+- [ ] 14-01-PLAN.md -- Behavioral evals + heartbeat + log redaction + migration 027
+**Status:** Not started
+
+## Phase 15: Architecture - Additive
+**Goal:** Implement 3 additive Paperclip architecture patterns: goal cascade hierarchy, governance/approval system (closes AEGIS review_mode finding), and commit metrics tracker.
+**Requirements:** ARCH-01 through ARCH-03
+**Feature flags:** GOAL_CASCADE_ENABLED, GOVERNANCE_ENABLED, COMMIT_METRICS_ENABLED
+**Dependencies:** Phase 14 (quality infrastructure)
+**Success criteria:**
+- Goals table with company/team/agent/task hierarchy, seeded with revenue goals
+- task_queue.goal_tag auto-populated when cascade enabled
+- Approvals table gates review_mode True→False transition (AEGIS fix)
+- Commit metrics track Co-Authored-By for agent attribution
+- Migration 028 applies cleanly
+Plans:
+- [ ] 15-01-PLAN.md -- Goal cascade + governance + commit metrics + migration 028
+**Status:** Not started
+
+## Phase 16: Event-Driven Wakeup Queue
+**Goal:** Replace fixed-schedule polling with event-driven LISTEN/NOTIFY wakeup. Agents sleep until relevant events fire. Fallback polling always active as safety net.
+**Requirements:** WAKEUP-01
+**Feature flag:** EVENT_WAKEUP_ENABLED (3-mode: off/shadow/true)
+**Dependencies:** Phase 15 (all prior patterns stable)
+**Success criteria:**
+- Postgres LISTEN/NOTIFY triggers on events table inserts
+- Dedicated non-pooled LISTEN connection with exponential-backoff reconnect
+- Wakeup subscriptions seeded for all 4 daemons
+- Coalescing merges duplicate pending wakeups
+- Fallback poll NEVER removed (60s timeout safety net)
+- 72-96hr shadow mode before full enablement
+- Migration 029 applies cleanly
+Plans:
+- [ ] 16-01-PLAN.md -- Wakeup queue + trigger + subscriptions + migration 029
+**Status:** Not started
+
 ---
 *Roadmap created: 2026-03-29 via mega-plan pipeline (full scope, Approach A with Beta corrections)*
 *Phase 10 planned: 2026-03-30 — 2 plans in 2 waves*
+*Phases 11-16 planned: 2026-03-30 — Paperclip infrastructure integration (mega-plan Approach B, quality 8.9/10)*

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-30T22:16:16.000Z"
+last_updated: "2026-03-31T06:55:00.000Z"
 progress:
-  total_phases: 21
-  completed_phases: 8
-  total_plans: 19
-  completed_plans: 19
+  total_phases: 27
+  completed_phases: 10
+  total_plans: 20
+  completed_plans: 20
 ---
 
 # Project State
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 10 — 21st.dev + Recraft Pipeline Integration
+**Current focus:** Phase 11 — Budget Consolidation
 
 ## Current Phase
 
-**Phase:** 08
-**Status:** Executing Phase 10
-**Next action:** Phase 08 complete -- all plans executed
+**Phase:** 11
+**Status:** Phase 11 Complete
+**Next action:** Phase 12 — Foundation Patterns
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -175,6 +175,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **10-02:** design_sources key added to _resolve_build_plan return dict to carry snippets through pipeline
 - **10-02:** Component blocks truncated to 1200 chars each to prevent prompt bloat
 
+- **11-01:** ENABLE_CONSOLIDATED_BUDGET uses os.environ.get (not _flag) because _flag defaults true for security
+- **11-01:** check_budget_for_llm_call hardcoded ON after legacy removal (two-commit cutover)
+- **11-01:** Budget cap reads from config.budget.monthly_cap via _get_budget_cap() with $800 fallback
+- **11-01:** _budget_gate fully removed in Commit 2 (Commit 1 is safe rollback point)
+
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
@@ -199,8 +204,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 08-02 | 8min | 4 | 5 |
 | 10-01 | 2min | 2 | 4 |
 | 10-02 | 5min | 2 | 4 |
+| 11-01 | 8min | 13 | 7 |
 
 ---
+*State updated: 2026-03-31 -- Phase 11 complete (budget consolidation: check_budget_for_llm_call single authority, fail-closed, legacy _budget_gate removed, 71 tests)*
 *State updated: 2026-03-30 -- Phase 10 Plan 02 complete (pipeline integration: enriched components in variant prompts, Recraft budget tests, quality comparison, 29 tests)*
 *State updated: 2026-03-30 -- Phase 10 Plan 01 complete (21st.dev REST client + design_sources.py async enrichment, 15 tests)*
 *State updated: 2026-03-30 -- Phase 08 Plan 02 complete (pipeline integration: neural gating in email compose, neuro_scorer_middleware, scheduler jobs, 58 tests)*
