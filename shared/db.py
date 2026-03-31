@@ -158,15 +158,31 @@ async def insert_task(
     priority: int = 5,
     dedupe: bool = True,
     depth: int = 0,
+    goal_tag: str | None = None,
 ) -> int | None:
     """Insert a task into the queue.
 
     Scheduled recurring work should dedupe by task type to avoid runaway spend.
     Daemon-to-daemon requests should set ``dedupe=False`` so distinct tasks do not
     collapse into one another.
+
+    goal_tag: optional lightweight tag linking task to a goal (VARCHAR, not FK).
+    When None and GOAL_CASCADE_ENABLED is on, auto-resolves via goal cascade.
     """
     import json
+    import os
     payload = enrich_payload_with_context(payload)
+
+    # Auto-resolve goal_tag when not explicitly provided
+    if goal_tag is None and os.environ.get("GOAL_CASCADE_ENABLED", "").lower() in ("true", "1"):
+        try:
+            from shared.goal_cascade import resolve_goal
+            resolved = await resolve_goal(task_type)
+            if resolved:
+                goal_tag = str(resolved["goal_id"])[:8]  # Short tag, not full UUID
+        except Exception:
+            pass  # Goal resolution is non-fatal
+
     if dedupe:
         # Skip if there's already a pending or running task of this type
         existing = await fetch_one(
@@ -179,9 +195,9 @@ async def insert_task(
             return None
 
     row = await fetch_one(
-        """INSERT INTO task_queue (task_type, payload, priority, depth)
-           VALUES (%s, %s, %s, %s) RETURNING id""",
-        (task_type, json.dumps(payload or {}), priority, depth),
+        """INSERT INTO task_queue (task_type, payload, priority, depth, goal_tag)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+        (task_type, json.dumps(payload or {}), priority, depth, goal_tag),
     )
     return int(row["id"]) if row else None
 
