@@ -188,6 +188,15 @@ class LLMClient:
         if use_dna and daemon_name:
             system = self._inject_dna(system, daemon_name)
 
+        # Lifecycle injection (Phase 14): prepend lifecycle doc when flag is ON
+        if daemon_name and os.environ.get("HEARTBEAT_LIFECYCLE_ENABLED", "").lower() in ("true", "1"):
+            from pathlib import Path
+
+            lifecycle_path = Path(f"soul/lifecycle/{daemon_name}_lifecycle.md")
+            if lifecycle_path.exists():
+                lifecycle = lifecycle_path.read_text()
+                system = f"{lifecycle}\n\n---\n\n{system}" if system else lifecycle
+
         t0 = time.perf_counter()
         resolved_model = model
 
