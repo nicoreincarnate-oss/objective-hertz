@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-31T08:06:24.027Z"
+last_updated: "2026-03-31T08:32:00Z"
 progress:
   total_phases: 27
   completed_phases: 9
   total_plans: 19
-  completed_plans: 23
+  completed_plans: 24
 ---
 
 # Project State
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 15 — Architecture (Additive)
+**Current focus:** Phase 16 — Event-Driven Wakeup
 
 ## Current Phase
 
-**Phase:** 14
-**Status:** Phase 14 Complete
-**Next action:** Phase 15 — Architecture (Additive)
+**Phase:** 15
+**Status:** Phase 15 complete
+**Next action:** Phase 16 — Event-Driven Wakeup
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -191,6 +191,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - [Phase 14]: Heartbeat uses existing session_health table schema with metrics JSONB for type differentiation
 - [Phase 14]: Credential stripper expanded to 16 patterns (was 6) per AEGIS audit requirement
 
+- [Phase 15]: make_interval(days/hours => %s) for all parameterized time intervals (not INTERVAL '%s')
+- [Phase 15]: Multi-line git message body collected for Co-Authored-By detection
+- [Phase 15]: All 3 feature flags default OFF, governance auto-approves when disabled
+
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
@@ -221,6 +225,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 14-01 | 29min | 13 | 23 |
 
 ---
+*State updated: 2026-03-31 -- Phase 15 complete (architecture additive: migration 028, goal cascade (4-level hierarchy + cascade resolution), governance/approval system (AEGIS review_mode gate), commit metrics tracker (git log + Co-Authored-By attribution), 4 dashboard APIs, 2 scheduler tasks -- 22 new tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 14 complete (quality & observability: migration 027, 6 behavioral eval suites (28 tests), HeartbeatEmitter + 5 lifecycle docs, RedactingFormatter + 16 credential patterns, log redaction wired -- 45 new tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 13 complete (budget & cost patterns: migration 026, CostEvent + emit, multi-scope policies, pre-execution budget gate, AEGIS fail-closed fix, cost breakdown API -- 37 tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 12 complete (foundation patterns: agent state machine, atomic checkout, recursion guard, forbidden token scanner, session health -- 30 tests, 5 feature flags)*
@@ -243,3 +248,4 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 02 Plan 01 complete (anti-slop scorer, rewrite loop, secrets, DB migration)*
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
 | Phase 14 P01 | 29min | 13 tasks | 23 files |
+| Phase 15 P01 | 23min | 4 tasks | 11 files |
