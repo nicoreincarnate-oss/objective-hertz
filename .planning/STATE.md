@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-31T06:55:00.000Z"
+last_updated: "2026-03-31T06:58:15.319Z"
 progress:
   total_phases: 27
-  completed_phases: 10
-  total_plans: 20
-  completed_plans: 20
+  completed_phases: 9
+  total_plans: 19
+  completed_plans: 21
 ---
 
 # Project State
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 11 — Budget Consolidation
+**Current focus:** Phase 12 — Foundation Patterns
 
 ## Current Phase
 
-**Phase:** 11
-**Status:** Phase 11 Complete
-**Next action:** Phase 12 — Foundation Patterns
+**Phase:** 12
+**Status:** Phase 12 Complete
+**Next action:** Phase 13 — Budget & Cost Patterns
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -175,6 +175,11 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - **10-02:** design_sources key added to _resolve_build_plan return dict to carry snippets through pipeline
 - **10-02:** Component blocks truncated to 1200 chars each to prevent prompt bloat
 
+- **12-01:** Patch shared.agent_base.db in tests for cross-module DB mock isolation (conftest swaps shared.db)
+- **12-01:** f-string SQL for lock_clause uses hardcoded constants only (not user input)
+- **12-01:** forbidden_token middleware delegates redaction to existing credential_stripper
+- **12-01:** Session health flush in _save_memory ensures final snapshot persisted at deregistration
+
 - **11-01:** ENABLE_CONSOLIDATED_BUDGET uses os.environ.get (not _flag) because _flag defaults true for security
 - **11-01:** check_budget_for_llm_call hardcoded ON after legacy removal (two-commit cutover)
 - **11-01:** Budget cap reads from config.budget.monthly_cap via _get_budget_cap() with $800 fallback
@@ -205,8 +210,10 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 10-01 | 2min | 2 | 4 |
 | 10-02 | 5min | 2 | 4 |
 | 11-01 | 8min | 13 | 7 |
+| 12-01 | 22min | 6 | 15 |
 
 ---
+*State updated: 2026-03-31 -- Phase 12 complete (foundation patterns: agent state machine, atomic checkout, recursion guard, forbidden token scanner, session health -- 30 tests, 5 feature flags)*
 *State updated: 2026-03-31 -- Phase 11 complete (budget consolidation: check_budget_for_llm_call single authority, fail-closed, legacy _budget_gate removed, 71 tests)*
 *State updated: 2026-03-30 -- Phase 10 Plan 02 complete (pipeline integration: enriched components in variant prompts, Recraft budget tests, quality comparison, 29 tests)*
 *State updated: 2026-03-30 -- Phase 10 Plan 01 complete (21st.dev REST client + design_sources.py async enrichment, 15 tests)*

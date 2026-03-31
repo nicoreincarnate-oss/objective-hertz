@@ -264,8 +264,8 @@ Plans:
 - Session health extends DeerFlow WorkingMemory
 - Migration 025 applies cleanly
 Plans:
-- [ ] 12-01-PLAN.md -- 5 foundation patterns + migration 025 + 25 tests
-**Status:** Not started
+- [x] 12-01-PLAN.md -- 5 foundation patterns + migration 025 + 30 tests
+**Status:** Complete (2026-03-31) -- 30/30 tests passing, 7 commits
 
 ## Phase 13: Budget & Cost Patterns
 **Goal:** Implement 3 Paperclip budget patterns: pre-execution budget gate with cost estimation, multi-scope budget policies per-agent/project, and per-call cost events with task attribution.
