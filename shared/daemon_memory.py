@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -54,6 +55,16 @@ class WorkingMemory:
         self._store: OrderedDict[str, Any] = OrderedDict()
         self._max = max_items
 
+        # Session health tracking (Phase 12: FP-05)
+        self.total_tokens: int = 0
+        self.elapsed_seconds: float = 0.0
+        self.error_count: int = 0
+        self.state_transitions: int = 0
+        self.context_saturation_pct: float = 0.0
+        self._session_start: float = time.time()
+        self._max_tokens: int = 2_000_000  # 2M token ceiling
+        self._max_elapsed: float = 72 * 3600  # 72 hours in seconds
+
     def get(self, key: str) -> Any:
         """Retrieve a value, returning ``None`` if absent."""
         return self._store.get(key)
@@ -83,6 +94,53 @@ class WorkingMemory:
 
     def __len__(self) -> int:
         return len(self._store)
+
+    # -- Session health tracking (Phase 12: FP-05) ---------------------------
+
+    def record_tokens(self, count: int) -> None:
+        """Accumulate token usage."""
+        self.total_tokens += count
+        self.context_saturation_pct = (self.total_tokens / self._max_tokens) * 100
+
+    def record_error(self) -> None:
+        """Increment error counter."""
+        self.error_count += 1
+
+    def record_state_transition(self) -> None:
+        """Increment state transition counter."""
+        self.state_transitions += 1
+
+    def update_elapsed(self) -> None:
+        """Update elapsed seconds from session start."""
+        self.elapsed_seconds = time.time() - self._session_start
+
+    def needs_reset(self) -> bool:
+        """Check if session should auto-reset (2M tokens or 72h)."""
+        self.update_elapsed()
+        return self.total_tokens >= self._max_tokens or self.elapsed_seconds >= self._max_elapsed
+
+    def reset(self) -> None:
+        """Reset session health counters and clear working memory."""
+        self.total_tokens = 0
+        self.elapsed_seconds = 0.0
+        self.error_count = 0
+        self.state_transitions = 0
+        self.context_saturation_pct = 0.0
+        self._session_start = time.time()
+        self.clear()
+
+    def health_snapshot(self) -> dict:
+        """Return current session health as dict (for DB persistence and API)."""
+        self.update_elapsed()
+        return {
+            "total_tokens": self.total_tokens,
+            "elapsed_seconds": round(self.elapsed_seconds, 1),
+            "error_count": self.error_count,
+            "state_transitions": self.state_transitions,
+            "context_saturation_pct": round(self.context_saturation_pct, 2),
+            "needs_reset": self.needs_reset(),
+            "items_count": len(self),
+        }
 
 
 # ---------------------------------------------------------------------------

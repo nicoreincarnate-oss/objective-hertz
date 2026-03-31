@@ -53,6 +53,11 @@ def _recursion_guard_enabled() -> bool:
     return os.environ.get("RECURSION_GUARD_ENABLED", "").lower() in ("true", "1")
 
 
+def _session_health_enabled() -> bool:
+    """Check SESSION_HEALTH_ENABLED feature flag."""
+    return os.environ.get("SESSION_HEALTH_ENABLED", "").lower() in ("true", "1")
+
+
 class AgentBase(ABC):
     """Base class for Perseus agents."""
 
@@ -161,6 +166,9 @@ class AgentBase(ABC):
             return
 
         try:
+            # Flush session health before persisting memory entries
+            await self._flush_session_health()
+
             items = self._working_memory.items()
             for key, value in items:
                 content = value if isinstance(value, dict) else {"value": value}
@@ -177,6 +185,26 @@ class AgentBase(ABC):
             )
         except Exception as exc:
             self.logger.warning("DeerFlow memory save failed for %s: %s", self.name, exc)
+
+    # -- Session Health (Phase 12: FP-05) -------------------------------------
+
+    async def _flush_session_health(self) -> None:
+        """Persist current session health metrics to DB."""
+        if not _session_health_enabled() or self._working_memory is None:
+            return
+        try:
+            import uuid
+
+            from psycopg.types.json import Jsonb
+
+            snapshot = self._working_memory.health_snapshot()
+            await db.execute(
+                """INSERT INTO session_health (session_id, agent_id, metrics)
+                   VALUES (%s, %s, %s)""",
+                (str(uuid.uuid4()), self.name, Jsonb(snapshot)),
+            )
+        except Exception as exc:
+            self.logger.debug("Session health flush failed: %s", exc)
 
     # -- Agent State Machine (Phase 12: FP-01) --------------------------------
 
@@ -398,6 +426,22 @@ class AgentBase(ABC):
 
     async def claim_task(self, task_id: int) -> bool:
         """Claim a task (set status to running). Returns True if claimed."""
+        # Session health auto-reset (Phase 12: FP-05)
+        if _session_health_enabled() and self._working_memory is not None:
+            if self._working_memory.needs_reset():
+                self.logger.warning(
+                    "Session auto-reset triggered for %s (tokens=%d, elapsed=%.0fs)",
+                    self.name,
+                    self._working_memory.total_tokens,
+                    self._working_memory.elapsed_seconds,
+                )
+                await self._flush_session_health()
+                self._working_memory.reset()
+                await self.emit_event("session_auto_reset", {
+                    "reason": "threshold_breach",
+                    "tokens": self._working_memory.total_tokens,
+                })
+
         # Recursion guard (Phase 12: FP-03)
         if _recursion_guard_enabled():
             max_depth = await db.get_config("max_task_depth", 5)
@@ -437,6 +481,8 @@ class AgentBase(ABC):
                     await conn.execute("RELEASE SAVEPOINT task_claim")
                     record_task_claimed(self.name)
                     await self._transition(AgentState.EXECUTING)
+                    if _session_health_enabled() and self._working_memory is not None:
+                        self._working_memory.record_state_transition()
                     return True
                 except Exception:
                     await conn.execute("ROLLBACK TO SAVEPOINT task_claim")
@@ -454,6 +500,8 @@ class AgentBase(ABC):
             if row is not None:
                 record_task_claimed(self.name)
                 await self._transition(AgentState.EXECUTING)
+                if _session_health_enabled() and self._working_memory is not None:
+                    self._working_memory.record_state_transition()
             return row is not None
 
     async def complete_task(self, task_id: int):
@@ -471,6 +519,8 @@ class AgentBase(ABC):
         """Mark a task as failed."""
         record_task_failed(self.name)
         await self._transition(AgentState.ERROR)
+        if _session_health_enabled() and self._working_memory is not None:
+            self._working_memory.record_error()
         row = await db.fetch_one(
             """UPDATE task_queue
                SET retry_count = COALESCE(retry_count, 0) + 1,
