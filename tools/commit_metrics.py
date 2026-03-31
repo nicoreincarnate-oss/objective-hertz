@@ -9,11 +9,12 @@ Detects Co-Authored-By headers to attribute agent work.
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
 import os
 import re
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from shared import db
@@ -58,7 +59,7 @@ def collect_recent_commits(since_hours: int = 24, repo_path: str = ".") -> list[
 
     Uses subprocess with shell=False (AEGIS compliant).
     """
-    since_date = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+    since_date = (datetime.now(_dt.UTC) - timedelta(hours=since_hours)).isoformat()
 
     try:
         # Get commit SHAs and timestamps
@@ -92,9 +93,11 @@ def collect_recent_commits(since_hours: int = 24, repo_path: str = ".") -> list[
 
         sha = header_parts[0].strip()
         timestamp_str = header_parts[1].strip()
-        message = header_parts[2].strip() if len(header_parts) > 2 else ""
+        first_line_msg = header_parts[2].strip() if len(header_parts) > 2 else ""
 
-        # Parse numstat lines (added\tremoved\tfile)
+        # Separate message body lines from numstat lines
+        # numstat lines have format: number\tnumber\tfilepath
+        message_parts = [first_line_msg]
         files_changed = 0
         lines_added = 0
         lines_removed = 0
@@ -108,7 +111,11 @@ def collect_recent_commits(since_hours: int = 24, repo_path: str = ".") -> list[
                     lines_removed += removed
                     files_changed += 1
                 except ValueError:
-                    continue
+                    message_parts.append(line)
+            elif line.strip():
+                message_parts.append(line)
+
+        message = "\n".join(message_parts).strip()
 
         # Detect co-authoring
         co_author_match = _CO_AUTHOR_PATTERN.search(message)
@@ -120,7 +127,7 @@ def collect_recent_commits(since_hours: int = 24, repo_path: str = ".") -> list[
         try:
             timestamp = datetime.fromisoformat(timestamp_str)
         except ValueError:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(_dt.UTC)
 
         commits.append({
             "sha": sha[:40],

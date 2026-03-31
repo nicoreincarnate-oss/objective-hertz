@@ -1294,7 +1294,7 @@ async def api_decisions(request: Request):
 async def get_goals_tree():
     """Return the full goal hierarchy for dashboard visualization."""
     try:
-        from shared.goal_cascade import get_goal_tree, _enabled
+        from shared.goal_cascade import _enabled, get_goal_tree
         if not _enabled():
             return JSONResponse({"goals": [], "enabled": False})
         tree = await get_goal_tree()
@@ -1308,7 +1308,7 @@ async def get_goals_tree():
 async def get_approvals():
     """Return pending approvals and recent history for operator review."""
     try:
-        from shared.governance import get_pending_approvals, get_approval_history, _enabled
+        from shared.governance import _enabled, get_approval_history, get_pending_approvals
         if not _enabled():
             return JSONResponse({"pending": [], "history": [], "enabled": False})
         pending = await get_pending_approvals()
