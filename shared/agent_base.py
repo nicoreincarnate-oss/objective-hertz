@@ -43,6 +43,11 @@ def _agent_state_enabled() -> bool:
     return os.environ.get("AGENT_STATE_MACHINE_ENABLED", "").lower() in ("true", "1")
 
 
+def _atomic_checkout_enabled() -> bool:
+    """Check ATOMIC_CHECKOUT_ENABLED feature flag."""
+    return os.environ.get("ATOMIC_CHECKOUT_ENABLED", "").lower() in ("true", "1")
+
+
 def _recursion_guard_enabled() -> bool:
     """Check RECURSION_GUARD_ENABLED feature flag."""
     return os.environ.get("RECURSION_GUARD_ENABLED", "").lower() in ("true", "1")
@@ -374,20 +379,22 @@ class AgentBase(ABC):
         return count
 
     async def get_pending_tasks(self, task_type: str | None = None) -> list[dict]:
-        """Get pending tasks from the queue, optionally filtered by type."""
+        """Get pending tasks. Uses FOR UPDATE SKIP LOCKED when atomic checkout is enabled."""
+        lock_clause = "FOR UPDATE SKIP LOCKED" if _atomic_checkout_enabled() else ""
+        base_where = "WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))"
+
         if task_type:
-            return await db.fetch_all(
-                """SELECT * FROM task_queue
-                   WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
-                     AND task_type = %s
-                   ORDER BY priority ASC, created_at ASC LIMIT 50""",
-                (task_type,),
-            )
-        return await db.fetch_all(
-            """SELECT * FROM task_queue
-               WHERE status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3)
-               ORDER BY priority ASC, created_at ASC LIMIT 50""",
-        )
+            query = f"""SELECT * FROM task_queue
+                        {base_where} AND task_type = %s
+                        ORDER BY priority ASC, created_at ASC LIMIT 50
+                        {lock_clause}"""
+            return await db.fetch_all(query, (task_type,))
+
+        query = f"""SELECT * FROM task_queue
+                    {base_where}
+                    ORDER BY priority ASC, created_at ASC LIMIT 50
+                    {lock_clause}"""
+        return await db.fetch_all(query)
 
     async def claim_task(self, task_id: int) -> bool:
         """Claim a task (set status to running). Returns True if claimed."""
@@ -410,18 +417,44 @@ class AgentBase(ABC):
                 )
                 return False
 
-        row = await db.fetch_one(
-            """UPDATE task_queue
-               SET status = 'running', started_at = NOW(), assigned_agent = %s
-               WHERE id = %s
-                 AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
-               RETURNING id""",
-            (self.name, task_id),
-        )
-        if row is not None:
-            record_task_claimed(self.name)
-            await self._transition(AgentState.EXECUTING)
-        return row is not None
+        # Atomic checkout (Phase 12: FP-02)
+        if _atomic_checkout_enabled():
+            async with db.transaction() as conn:
+                await conn.execute("SAVEPOINT task_claim")
+                try:
+                    cursor = await conn.execute(
+                        """UPDATE task_queue
+                           SET status = 'running', started_at = NOW(), assigned_agent = %s
+                           WHERE id = %s
+                             AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                           RETURNING id""",
+                        (self.name, task_id),
+                    )
+                    row = await cursor.fetchone()
+                    if row is None:
+                        await conn.execute("ROLLBACK TO SAVEPOINT task_claim")
+                        return False
+                    await conn.execute("RELEASE SAVEPOINT task_claim")
+                    record_task_claimed(self.name)
+                    await self._transition(AgentState.EXECUTING)
+                    return True
+                except Exception:
+                    await conn.execute("ROLLBACK TO SAVEPOINT task_claim")
+                    raise
+        else:
+            # Existing behavior — unchanged
+            row = await db.fetch_one(
+                """UPDATE task_queue
+                   SET status = 'running', started_at = NOW(), assigned_agent = %s
+                   WHERE id = %s
+                     AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                   RETURNING id""",
+                (self.name, task_id),
+            )
+            if row is not None:
+                record_task_claimed(self.name)
+                await self._transition(AgentState.EXECUTING)
+            return row is not None
 
     async def complete_task(self, task_id: int):
         """Mark a task as completed."""
