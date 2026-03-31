@@ -282,11 +282,24 @@ class Orchestrator:
         except Exception:
             pass
 
+        # Create WakeupQueue (Phase 16: event-driven wakeup)
+        wakeup_queue = None
+        try:
+            from shared.wakeup_queue import WakeupQueue, _wakeup_mode
+            if _wakeup_mode() != "off":
+                wakeup_queue = WakeupQueue()
+                logger.info("WakeupQueue created (mode=%s)", _wakeup_mode())
+            else:
+                logger.info("WakeupQueue disabled (EVENT_WAKEUP_ENABLED not set)")
+        except ImportError:
+            logger.debug("WakeupQueue not available (shared/wakeup_queue.py missing)")
+
         self._scheduler = PerseusScheduler(
             bus=bus,
             vassal_discovery=self._discovery,
             config=sched_config,
             budget_guard=budget_guard,
+            wakeup_queue=wakeup_queue,
         )
         logger.info("PerseusScheduler configured (tick=%ds)", sched_config.tick_interval)
 
