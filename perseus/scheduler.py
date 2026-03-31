@@ -57,6 +57,9 @@ SCHEDULES = [
     # Neuro-scorer learning loop (Phase 8)
     Schedule("neural_reflection", 86400, "Daily neuro-score correlation analysis (3am)", skippable=False, pipeline_stage="learning"),
     Schedule("segment_profiles", 604800, "Weekly neural segment profiles (Sunday 4am)", skippable=False, pipeline_stage="learning"),
+    # Architecture additive (Phase 15)
+    Schedule("expire_stale_approvals", 3600, "Auto-expire pending approvals >24h old", skippable=False),
+    Schedule("collect_commit_metrics", 86400, "Daily git commit metrics collection", skippable=False),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}
