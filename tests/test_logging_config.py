@@ -124,4 +124,8 @@ class TestJsonFormatter:
 
         logger = setup_logging("json_test")
         formatters = [h.formatter for h in logger.handlers]
-        assert any(isinstance(f, JsonFormatter) for f in formatters)
+        # RedactingFormatter wraps JsonFormatter when LOG_REDACTION_ENABLED
+        from shared.log_redaction import RedactingFormatter
+        assert any(
+            isinstance(f, (JsonFormatter, RedactingFormatter)) for f in formatters
+        )
