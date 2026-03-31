@@ -25,3 +25,16 @@ def test_schema_seeds_recurring_budget_costs():
     assert "CREATE TABLE IF NOT EXISTS budget_recurring_costs" in sql
     assert "instantly_subscription" in sql
     assert "CREATE OR REPLACE VIEW v_effective_budget_tracking" in sql
+
+
+def test_middleware_budget_uses_effective_budget_view():
+    """Consolidated budget path must query v_effective_budget_tracking view."""
+    code = (ROOT / "shared" / "middleware.py").read_text()
+    assert "v_effective_budget_tracking" in code
+
+
+def test_middleware_budget_fails_closed():
+    """Consolidated budget path must NOT contain fail-open patterns."""
+    code = (ROOT / "shared" / "middleware.py").read_text()
+    # The check_budget_for_llm_call function must return "local" on error
+    assert 'return "local"' in code

@@ -459,6 +459,155 @@ class TestBudgetCheckMiddleware:
 
 
 # ---------------------------------------------------------------------------
+# Consolidated Budget Middleware (ENABLE_CONSOLIDATED_BUDGET=true)
+# ---------------------------------------------------------------------------
+
+
+class TestConsolidatedBudgetMiddleware:
+    """Test budget middleware when ENABLE_CONSOLIDATED_BUDGET is ON."""
+
+    def _make_env(self):
+        return {"ENABLE_CONSOLIDATED_BUDGET": "true", "ENABLE_MIDDLEWARE": "true"}
+
+    def test_consolidated_under_budget_allows_call(self):
+        """Under budget: requested_model passes through unchanged."""
+        mock_fetch = AsyncMock(return_value=100)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "test", "requested_model": "fast"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is True
+        assert ctx["resolved_model"] == "fast"
+
+    def test_consolidated_at_threshold_downgrades_fast(self):
+        """At 80%+ budget: fast model downgrades to local."""
+        mock_fetch = AsyncMock(return_value=650)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "test", "requested_model": "fast"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is True
+        assert ctx["resolved_model"] == "local"
+
+    def test_consolidated_at_threshold_keeps_smart(self):
+        """At 80%+ budget: smart model is NOT downgraded (only fast is)."""
+        mock_fetch = AsyncMock(return_value=650)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "test", "requested_model": "smart"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is True
+        assert ctx["resolved_model"] == "smart"
+
+    def test_consolidated_exceeded_forces_all_local(self):
+        """Budget exceeded: both fast and smart resolve to local."""
+        mock_fetch = AsyncMock(return_value=850)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx_fast = {"stage_name": "test", "requested_model": "fast"}
+                _run(budget_check_middleware(ctx_fast, _identity_handler))
+                ctx_smart = {"stage_name": "test", "requested_model": "smart"}
+                _run(budget_check_middleware(ctx_smart, _identity_handler))
+        assert ctx_fast["resolved_model"] == "local"
+        assert ctx_smart["resolved_model"] == "local"
+
+    def test_consolidated_db_failure_fails_closed(self):
+        """DB failure with consolidated flag ON: resolves to local (fail-closed)."""
+        mock_fetch = AsyncMock(side_effect=Exception("DB down"))
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "test", "requested_model": "fast"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is True
+        assert ctx["resolved_model"] == "local"
+
+    def test_consolidated_pipeline_stage_blocks_on_exceed(self):
+        """Pipeline stage (no requested_model): blocks when budget exceeded."""
+        mock_fetch = AsyncMock(return_value=850)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "research"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is False
+
+    def test_consolidated_pipeline_stage_db_failure_blocks(self):
+        """Pipeline stage (no requested_model): DB failure blocks (fail-closed)."""
+        mock_fetch = AsyncMock(side_effect=Exception("DB down"))
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, self._make_env()):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                ctx = {"stage_name": "research"}
+                result = _run(budget_check_middleware(ctx, _identity_handler))
+        assert result["success"] is False
+        assert "Budget check unavailable" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# check_budget_for_llm_call standalone function
+# ---------------------------------------------------------------------------
+
+
+class TestCheckBudgetForLlmCall:
+    """Test the standalone check_budget_for_llm_call function."""
+
+    def test_flag_off_returns_requested_model(self):
+        """When flag is OFF, returns input model unchanged without DB call."""
+        from shared.middleware import check_budget_for_llm_call
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENABLE_CONSOLIDATED_BUDGET", None)
+            result = _run(check_budget_for_llm_call("fast"))
+        assert result == "fast"
+
+    def test_under_budget_passes_through(self):
+        """Under budget: returns requested model unchanged."""
+        from shared.middleware import check_budget_for_llm_call
+        mock_fetch = AsyncMock(return_value=100)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("fast"))
+        assert result == "fast"
+
+    def test_exceeded_returns_local(self):
+        """Budget exceeded: returns 'local' for Ollama."""
+        from shared.middleware import check_budget_for_llm_call
+        mock_fetch = AsyncMock(return_value=850)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("smart"))
+        assert result == "local"
+
+    def test_db_error_returns_local(self):
+        """DB error: returns 'local' (fail-closed)."""
+        from shared.middleware import check_budget_for_llm_call
+        mock_fetch = AsyncMock(side_effect=Exception("DB down"))
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("fast"))
+        assert result == "local"
+
+    def test_threshold_downgrades_fast_only(self):
+        """At 80%+ budget: fast -> local, smart -> smart."""
+        from shared.middleware import check_budget_for_llm_call
+        mock_fetch = AsyncMock(return_value=650)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                fast = _run(check_budget_for_llm_call("fast"))
+                smart = _run(check_budget_for_llm_call("smart"))
+        assert fast == "local"
+        assert smart == "smart"
+
+
+# ---------------------------------------------------------------------------
 # Pipeline config and build_chain
 # ---------------------------------------------------------------------------
 
