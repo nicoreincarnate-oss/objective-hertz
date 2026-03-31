@@ -81,7 +81,7 @@ RETURNS TRIGGER AS $$
 BEGIN
     -- Fire on the general wakeup channel with event_type as payload.
     -- The listener parses the payload and matches against subscriptions.
-    PERFORM pg_notify('wakeup_events', NEW.event_type || ':' || NEW.id::text);
+    PERFORM pg_notify('wakeup_events', COALESCE(NEW.event_type, 'unknown') || ':' || NEW.id::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

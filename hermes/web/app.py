@@ -467,7 +467,7 @@ async def unsub_endpoint(request: Request):
 
     expected = hmac.new(
         unsub_secret.encode(), str(client_id).encode(), hashlib.sha256
-    ).hexdigest()[:32]
+    ).hexdigest()
 
     if not hmac.compare_digest(sig, expected):
         return HTMLResponse(
@@ -959,7 +959,10 @@ async def api_costs_breakdown(request: Request):
       - days: lookback period in days (default: 30)
     """
     group_by = request.query_params.get("group_by", "agent")
-    days = int(request.query_params.get("days", "30"))
+    try:
+        days = min(int(request.query_params.get("days", "30")), 365)
+    except (ValueError, TypeError):
+        days = 30
 
     # Allowlist group_by to prevent SQL injection via dynamic column
     ALLOWED_GROUPS = {
@@ -1006,7 +1009,10 @@ async def api_tasks(request: Request):
     """Task queue visibility — filter by status and agent."""
     status = request.query_params.get("status")
     agent = request.query_params.get("agent")
-    limit = int(request.query_params.get("limit", "50"))
+    try:
+        limit = int(request.query_params.get("limit", "50"))
+    except (ValueError, TypeError):
+        limit = 50
 
     conditions = []
     params: list = []
@@ -1405,9 +1411,8 @@ async def api_keys_update(request: Request):
     # Store in DB for persistence across restarts
     await set_config(f"api_key_{key_id}", value)
 
-    # Also set in current process env so services pick it up immediately
-    os.environ[str(meta["env"])] = value
-
+    # NOTE: os.environ mutation removed — only Hermes process env would be affected,
+    # not other daemons. Services read keys at startup from DB via get_config().
     await emit_event("api_key_updated", {"key_id": key_id, "label": meta["label"], "source": "war_room"})
 
     return JSONResponse({

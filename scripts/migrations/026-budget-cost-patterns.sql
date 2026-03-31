@@ -1,6 +1,8 @@
 -- Migration 026: Budget & Cost Patterns (Paperclip patterns 6, 7, 8)
 -- Phase 13: Pre-execution budget gate, multi-scope policies, per-call cost events
 
+BEGIN;
+
 -- =====================================================================
 -- Table 1: budget_policies (Pattern 7 — Multi-Scope Budget Policies)
 -- =====================================================================
@@ -46,3 +48,5 @@ CREATE INDEX IF NOT EXISTS idx_cost_events_agent_created ON cost_events(agent_id
 CREATE INDEX IF NOT EXISTS idx_cost_events_task ON cost_events(task_id) WHERE task_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_cost_events_created ON cost_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cost_events_model ON cost_events(model, created_at DESC);
+
+COMMIT;

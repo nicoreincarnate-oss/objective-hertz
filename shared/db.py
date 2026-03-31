@@ -180,7 +180,7 @@ async def insert_task(
             from shared.goal_cascade import resolve_goal
             resolved = await resolve_goal(task_type)
             if resolved:
-                goal_tag = str(resolved["goal_id"])[:8]  # Short tag, not full UUID
+                goal_tag = str(resolved["goal_id"])  # Full UUID for correct goal linkage
         except Exception:
             pass  # Goal resolution is non-fatal
 

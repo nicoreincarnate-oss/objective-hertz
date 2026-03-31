@@ -571,6 +571,8 @@ class AgentBase(ABC):
                     "task_id": task_id,
                 },
             )
+        # Recover from ERROR so next task can be claimed (ERROR->EXECUTING not in matrix)
+        await self._transition(AgentState.IDLE)
 
     async def spawn_child_task(
         self,

@@ -119,9 +119,9 @@ CREATE INDEX IF NOT EXISTS idx_commit_metrics_agent ON commit_metrics(agent_id);
 -- ============================================================
 
 INSERT INTO system_config (key, value) VALUES
-    ('GOAL_CASCADE_ENABLED', '"false"'::jsonb),
-    ('GOVERNANCE_ENABLED', '"false"'::jsonb),
-    ('COMMIT_METRICS_ENABLED', '"false"'::jsonb)
+    ('GOAL_CASCADE_ENABLED', 'false'::jsonb),
+    ('GOVERNANCE_ENABLED', 'false'::jsonb),
+    ('COMMIT_METRICS_ENABLED', 'false'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 COMMIT;

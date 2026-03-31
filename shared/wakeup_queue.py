@@ -164,6 +164,9 @@ class WakeupQueue:
         """
         while self._running:
             try:
+                if self._listen_conn is None or self._listen_conn.closed:
+                    await asyncio.sleep(self._reconnect_backoff)
+                    continue
                 # psycopg v3 async: iterate over notifications
                 gen = self._listen_conn.notifies()
                 async for notify in gen:
@@ -209,20 +212,18 @@ class WakeupQueue:
 
         Supports:
         - Exact match: "new_lead" matches "new_lead"
-        - SQL LIKE with %: "pipeline_%" matches "pipeline_stage_complete"
-        - Wildcard *: "pipeline_*" matches "pipeline_stage_complete"
+        - SQL LIKE with %: "pipeline_%" or "pipeline_%_complete" matches correctly
+        - Wildcard *: same semantics as % using fnmatch
         """
+        import fnmatch
         if pattern == event_type:
             return True
-        # Convert SQL LIKE pattern to simple check
+        # SQL LIKE % → fnmatch *
         if "%" in pattern:
-            prefix = pattern.rstrip("%")
-            if event_type.startswith(prefix):
-                return True
+            return fnmatch.fnmatch(event_type, pattern.replace("%", "*"))
+        # Glob-style *
         if "*" in pattern:
-            prefix = pattern.rstrip("*")
-            if event_type.startswith(prefix):
-                return True
+            return fnmatch.fnmatch(event_type, pattern)
         return False
 
     # -- Subscription Management ------------------------------------------
