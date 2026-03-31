@@ -95,6 +95,22 @@ class LLMClient:
                     error_type=error_type,
                 )
             )
+            # Per-call cost event (Phase 13 — Paperclip Pattern 8)
+            from shared.cost_events import CostEvent, emit_cost_event
+            from shared.observability import _task_id as _obs_task_id
+
+            cost_event = CostEvent(
+                agent_id=daemon,
+                model=model,
+                tokens_in=input_tokens,
+                tokens_out=output_tokens,
+                cached_tokens=0,  # Wire when SDK provides cached token counts
+                cost_usd=cost_usd,
+                latency_ms=latency_ms,
+                task_id=_obs_task_id.get() or None,
+                task_type=call_type,
+            )
+            loop.create_task(emit_cost_event(cost_event))
         except RuntimeError:
             # No running event loop — skip metrics (e.g. during testing)
             pass
