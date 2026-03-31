@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-31T08:32:00Z"
+last_updated: "2026-03-31T09:20:00.000Z"
 progress:
   total_phases: 27
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 19
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 16 — Event-Driven Wakeup
+**Current focus:** Phase 16 — Event-Driven Wakeup Queue
 
 ## Current Phase
 
-**Phase:** 15
-**Status:** Phase 15 complete
-**Next action:** Phase 16 — Event-Driven Wakeup
+**Phase:** 16
+**Status:** Phase 16 Complete
+**Next action:** All Paperclip integration phases complete (11-16)
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -195,6 +195,13 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 - [Phase 15]: Multi-line git message body collected for Co-Authored-By detection
 - [Phase 15]: All 3 feature flags default OFF, governance auto-approves when disabled
 
+- [Phase 16]: Dedicated Postgres connection outside pool for LISTEN (pool connections returned after queries)
+- [Phase 16]: Three-mode feature flag: off/shadow/full (not boolean) for safe rollout
+- [Phase 16]: Trigger-based NOTIFY on events table INSERT (zero coupling with emit_event)
+- [Phase 16]: Idempotency coalescing via agent_id:event_type:minute_bucket keys
+- [Phase 16]: Re-entrancy guard on dispatch_pending prevents deadlock from nested event emission
+- [Phase 16]: close_pool acquires _pool_lock per AEGIS audit requirement
+
 ## Performance Metrics
 
 | Phase-Plan | Duration | Tasks | Files |
@@ -225,6 +232,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | 14-01 | 29min | 13 | 23 |
 
 ---
+*State updated: 2026-03-31 -- Phase 16 complete (event-driven wakeup: migration 029, WakeupQueue with LISTEN/NOTIFY + coalescing + re-entrancy guard, Perseus scheduler integration (wait_for_wakeup replaces sleep), orchestrator wiring, close_pool AEGIS lock fix, 2 maintenance tasks -- 43 new tests, 1 feature flag (3-mode: off/shadow/full))*
 *State updated: 2026-03-31 -- Phase 15 complete (architecture additive: migration 028, goal cascade (4-level hierarchy + cascade resolution), governance/approval system (AEGIS review_mode gate), commit metrics tracker (git log + Co-Authored-By attribution), 4 dashboard APIs, 2 scheduler tasks -- 22 new tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 14 complete (quality & observability: migration 027, 6 behavioral eval suites (28 tests), HeartbeatEmitter + 5 lifecycle docs, RedactingFormatter + 16 credential patterns, log redaction wired -- 45 new tests, 3 feature flags)*
 *State updated: 2026-03-31 -- Phase 13 complete (budget & cost patterns: migration 026, CostEvent + emit, multi-scope policies, pre-execution budget gate, AEGIS fail-closed fix, cost breakdown API -- 37 tests, 3 feature flags)*
@@ -249,3 +257,4 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 *State updated: 2026-03-29 -- Phase 01 complete (DNA injection wired into all daemons, 36 tests passing)*
 | Phase 14 P01 | 29min | 13 tasks | 23 files |
 | Phase 15 P01 | 23min | 4 tasks | 11 files |
+| Phase 16 P01 | 42min | 8 tasks | 9 files |
