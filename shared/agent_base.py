@@ -43,6 +43,11 @@ def _agent_state_enabled() -> bool:
     return os.environ.get("AGENT_STATE_MACHINE_ENABLED", "").lower() in ("true", "1")
 
 
+def _recursion_guard_enabled() -> bool:
+    """Check RECURSION_GUARD_ENABLED feature flag."""
+    return os.environ.get("RECURSION_GUARD_ENABLED", "").lower() in ("true", "1")
+
+
 class AgentBase(ABC):
     """Base class for Perseus agents."""
 
@@ -386,6 +391,25 @@ class AgentBase(ABC):
 
     async def claim_task(self, task_id: int) -> bool:
         """Claim a task (set status to running). Returns True if claimed."""
+        # Recursion guard (Phase 12: FP-03)
+        if _recursion_guard_enabled():
+            max_depth = await db.get_config("max_task_depth", 5)
+            if isinstance(max_depth, str):
+                max_depth = int(max_depth)
+            depth_row = await db.fetch_one(
+                "SELECT depth FROM task_queue WHERE id = %s", (task_id,)
+            )
+            if depth_row and (depth_row.get("depth") or 0) > max_depth:
+                self.logger.warning(
+                    "Recursion guard: task %d rejected (depth=%d, max=%d)",
+                    task_id, depth_row["depth"], max_depth,
+                )
+                await self.fail_task(
+                    task_id,
+                    f"recursion_guard: depth {depth_row['depth']} > max {max_depth}",
+                )
+                return False
+
         row = await db.fetch_one(
             """UPDATE task_queue
                SET status = 'running', started_at = NOW(), assigned_agent = %s
@@ -437,3 +461,23 @@ class AgentBase(ABC):
                     "task_id": task_id,
                 },
             )
+
+    async def spawn_child_task(
+        self,
+        parent_task_id: int,
+        task_type: str,
+        payload: dict | None = None,
+        priority: int = 5,
+    ) -> int | None:
+        """Insert a child task with depth = parent.depth + 1 (Phase 12: FP-03)."""
+        parent = await db.fetch_one(
+            "SELECT depth FROM task_queue WHERE id = %s", (parent_task_id,)
+        )
+        parent_depth = (parent.get("depth") or 0) if parent else 0
+        return await db.insert_task(
+            task_type=task_type,
+            payload=payload,
+            priority=priority,
+            depth=parent_depth + 1,
+            dedupe=False,
+        )

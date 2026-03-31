@@ -157,6 +157,7 @@ async def insert_task(
     payload: dict[str, Any] | None = None,
     priority: int = 5,
     dedupe: bool = True,
+    depth: int = 0,
 ) -> int | None:
     """Insert a task into the queue.
 
@@ -178,9 +179,9 @@ async def insert_task(
             return None
 
     row = await fetch_one(
-        """INSERT INTO task_queue (task_type, payload, priority)
-           VALUES (%s, %s, %s) RETURNING id""",
-        (task_type, json.dumps(payload or {}), priority),
+        """INSERT INTO task_queue (task_type, payload, priority, depth)
+           VALUES (%s, %s, %s, %s) RETURNING id""",
+        (task_type, json.dumps(payload or {}), priority, depth),
     )
     return int(row["id"]) if row else None
 
