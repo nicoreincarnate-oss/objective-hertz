@@ -894,6 +894,40 @@ async def api_config_set(request: Request):
         return JSONResponse({"error": f"Unknown config key: {key}"}, status_code=400)
 
     value = body.get("value")
+
+    # Governance check: protected keys require approval (Phase 15)
+    try:
+        from shared.governance import check_approval_required, request_approval
+        if await check_approval_required("config_change", config_key=key):
+            # Check if review_mode transition True->False (AEGIS finding)
+            if key == "review_mode":
+                current = await get_config("review_mode", True)
+                if current is True and value is False:
+                    approval_id = await request_approval(
+                        "autonomy_transition",
+                        {"key": key, "from": current, "to": value},
+                        requested_by="operator",
+                    )
+                    if approval_id:
+                        return JSONResponse({
+                            "status": "approval_required",
+                            "approval_id": approval_id,
+                            "message": "review_mode transition requires operator confirmation via Telegram",
+                        })
+            else:
+                approval_id = await request_approval(
+                    "config_change",
+                    {"key": key, "value": value},
+                    requested_by="operator",
+                )
+                if approval_id:
+                    return JSONResponse({
+                        "status": "approval_required",
+                        "approval_id": approval_id,
+                    })
+    except ImportError:
+        pass  # governance module not available
+
     await set_config(key, value)
     await emit_event("config_changed", {"key": key, "value": value, "source": "war_room"})
     return JSONResponse({"success": True, "key": key, "value": value})
@@ -1251,6 +1285,72 @@ async def api_decisions(request: Request):
             "created_at": str(r["created_at"]) if r.get("created_at") else None,
         })
     return JSONResponse(results)
+
+
+# ── Architecture Additive APIs (Phase 15) ──────────────────────────────
+
+
+@app.get("/api/goals/tree")
+async def get_goals_tree():
+    """Return the full goal hierarchy for dashboard visualization."""
+    try:
+        from shared.goal_cascade import get_goal_tree, _enabled
+        if not _enabled():
+            return JSONResponse({"goals": [], "enabled": False})
+        tree = await get_goal_tree()
+        return JSONResponse({"goals": tree, "enabled": True})
+    except Exception as e:
+        logger.error("Goal tree fetch failed: %s", e)
+        return JSONResponse({"goals": [], "enabled": False, "error": str(e)})
+
+
+@app.get("/api/approvals")
+async def get_approvals():
+    """Return pending approvals and recent history for operator review."""
+    try:
+        from shared.governance import get_pending_approvals, get_approval_history, _enabled
+        if not _enabled():
+            return JSONResponse({"pending": [], "history": [], "enabled": False})
+        pending = await get_pending_approvals()
+        history = await get_approval_history(limit=20)
+        return JSONResponse({"pending": pending, "history": history, "enabled": True})
+    except Exception as e:
+        logger.error("Approvals fetch failed: %s", e)
+        return JSONResponse({"pending": [], "history": [], "enabled": False, "error": str(e)})
+
+
+@app.post("/api/approvals/{approval_id}/resolve")
+async def resolve_approval_endpoint(approval_id: str, request: Request):
+    """Approve or reject a pending approval."""
+    try:
+        from shared.governance import resolve_approval
+        data = await request.json()
+        decision = data.get("decision")  # "approved" or "rejected"
+        resolved_by = data.get("resolved_by", "operator")
+
+        if decision not in ("approved", "rejected"):
+            return JSONResponse({"error": "decision must be 'approved' or 'rejected'"}, status_code=400)
+
+        success = await resolve_approval(approval_id, decision, resolved_by)
+        if not success:
+            return JSONResponse({"error": "Approval not found or already resolved"}, status_code=404)
+        return JSONResponse({"status": "ok", "approval_id": approval_id, "decision": decision})
+    except Exception as e:
+        logger.error("Approval resolve failed: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/commit-metrics")
+async def get_commit_metrics(request: Request):
+    """Return commit metrics summary for dashboard."""
+    try:
+        from tools.commit_metrics import get_metrics_summary
+        days = int(request.query_params.get("days", "30"))
+        summary = await get_metrics_summary(days=days)
+        return JSONResponse(summary)
+    except Exception as e:
+        logger.error("Commit metrics fetch failed: %s", e)
+        return JSONResponse({"enabled": False, "error": str(e)})
 
 
 # ── API Key Management ─────────────────────────────────────────────────

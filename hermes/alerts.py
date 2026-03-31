@@ -168,6 +168,15 @@ def _format_event(event: dict) -> str:
         "payment_received": lambda p: f"PAYMENT received: ${p.get('amount', 0)}",
         "site_deployed": lambda p: f"Site deployed: {p.get('url', '')} for {p.get('business_name', '')}",
         "autonomy_unlocked": lambda p: f"AUTONOMY UNLOCKED! {p.get('message', '')}",
+        "approval_requested": lambda p: (
+            f"APPROVAL REQUIRED: {p.get('type', 'unknown')} "
+            f"by {p.get('requested_by', 'unknown')} -- "
+            f"{str(p.get('details', {}))[:200]}. Review at /api/approvals"
+        ),
+        "approval_resolved": lambda p: (
+            f"Approval {p.get('approval_id', '?')[:8]} "
+            f"{p.get('decision', 'unknown')} by {p.get('resolved_by', 'unknown')}"
+        ),
         "budget_exceeded": lambda p: "BUDGET WARNING — limit reached",
         "pipeline_error": lambda p: (
             f"Pipeline error in {p.get('stage', '?')}: "
