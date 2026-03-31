@@ -87,6 +87,9 @@ class AgentBase(ABC):
         self._state: AgentState = AgentState.IDLE
         self._pause_reason: PauseReason | None = None
 
+        # Heartbeat lifecycle (Phase 14: QUAL-10)
+        self._heartbeat = None  # HeartbeatEmitter, lazily created
+
         # DeerFlow persistent memory (Phase 3)
         self._memory: DaemonMemoryStore | None = None
         self._memory_cache: MemoryCache | None = None
@@ -205,6 +208,24 @@ class AgentBase(ABC):
             )
         except Exception as exc:
             self.logger.debug("Session health flush failed: %s", exc)
+
+    # -- Heartbeat Lifecycle (Phase 14: QUAL-10) --------------------------------
+
+    async def _start_heartbeat(self) -> None:
+        """Start heartbeat emission. Called when agent begins active work."""
+        if self._heartbeat is None:
+            from shared.heartbeat import HeartbeatEmitter, alert_stale_daemon
+
+            self._heartbeat = HeartbeatEmitter(
+                daemon_name=self.name,
+                on_stale=alert_stale_daemon,
+            )
+        await self._heartbeat.start()
+
+    async def _stop_heartbeat(self) -> None:
+        """Stop heartbeat emission. Called when agent drains active work."""
+        if self._heartbeat is not None:
+            await self._heartbeat.stop()
 
     # -- Agent State Machine (Phase 12: FP-01) --------------------------------
 
@@ -346,10 +367,14 @@ class AgentBase(ABC):
 
     def begin_work(self, work_id: str):
         """Track in-flight work so shutdown can wait for it to finish."""
+        first_work = not self._active_work
         self._active_work.add(work_id)
         self._work_started_at[work_id] = time.perf_counter()
         set_active_work(self.name, len(self._active_work))
         self._active_work_drained.clear()
+        # Start heartbeat on first active work item (Phase 14)
+        if first_work:
+            asyncio.ensure_future(self._start_heartbeat())
 
     def finish_work(self, work_id: str):
         """Mark in-flight work as finished."""
@@ -361,6 +386,8 @@ class AgentBase(ABC):
         set_active_work(self.name, len(self._active_work))
         if not self._active_work:
             self._active_work_drained.set()
+            # Stop heartbeat when all work drains (Phase 14)
+            asyncio.ensure_future(self._stop_heartbeat())
 
     async def wait_for_work_drain(self, timeout: float | None = None) -> bool:
         """Wait for in-flight work to finish."""
