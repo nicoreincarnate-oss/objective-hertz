@@ -58,10 +58,11 @@ async def init_pool(min_size: int = 2, max_size: int = 10, retries: int = 5, bac
 async def close_pool():
     """Close the connection pool. Call on daemon shutdown."""
     global _pool
-    if _pool:
-        await _pool.close()
-        _pool = None
-        logger.info("Postgres pool closed")
+    async with _pool_lock:
+        if _pool:
+            await _pool.close()
+            _pool = None
+            logger.info("Postgres pool closed")
 
 
 @asynccontextmanager
@@ -203,7 +204,14 @@ async def insert_task(
 
 
 async def emit_event(event_type: str, payload: dict[str, Any] | None = None) -> int:
-    """Emit an event for Hermes/dashboard. Returns event ID."""
+    """Emit an event for Hermes/dashboard. Returns event ID.
+
+    NOTE: The events_notify_wakeup trigger (migration 029) automatically
+    fires pg_notify('wakeup_events', event_type:id) on every INSERT.
+    When EVENT_WAKEUP_ENABLED is active, the WakeupQueue LISTEN loop
+    picks up these notifications and creates wakeup_requests for
+    agents with matching subscriptions.
+    """
     import json
     payload = enrich_payload_with_context(payload)
     row = await fetch_one(
