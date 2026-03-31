@@ -3,9 +3,8 @@ Unified LLM client for Perseus.
 Primary: Claude API (via Anthropic SDK) — high quality for emails, decisions, proposals.
 Fallback: Ollama (local) — for simple classification, extraction, when API is down or budget is tight.
 
-Budget-aware: every Claude call estimates token cost and records it.
-When budget hits alert threshold, auto-downgrades to Ollama.
-When budget is exceeded, only Ollama is available.
+Budget enforcement lives in shared/middleware.py:check_budget_for_llm_call.
+Cost recording stays here via _record_claude_spend.
 
 TurboQuant integration (March 2026):
   Ollama calls use Google's TurboQuant KV cache compression via llama.cpp Metal.
@@ -18,7 +17,6 @@ TurboQuant integration (March 2026):
 import asyncio
 import base64
 import logging
-import os
 import time
 from datetime import date
 
@@ -190,12 +188,9 @@ class LLMClient:
             self._fire_metrics(pipeline_stage or "unknown", "local", "generate", prompt, result, t0, True, None)
             return result
 
-        # Budget check — consolidated middleware or legacy gate
-        if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
-            from shared.middleware import check_budget_for_llm_call
-            resolved_model = await check_budget_for_llm_call(model)
-        else:
-            resolved_model = await self._budget_gate(model)
+        # Budget check — consolidated middleware authority
+        from shared.middleware import check_budget_for_llm_call
+        resolved_model = await check_budget_for_llm_call(model)
 
         if resolved_model in ("local", "local-small"):
             # Budget gate downgraded us
@@ -245,11 +240,8 @@ class LLMClient:
         if not config.claude.api_key:
             raise RuntimeError("Claude vision unavailable: ANTHROPIC_API_KEY not configured")
 
-        if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() in ("true", "1", "yes"):
-            from shared.middleware import check_budget_for_llm_call
-            model = await check_budget_for_llm_call(model)
-        else:
-            model = await self._budget_gate(model)
+        from shared.middleware import check_budget_for_llm_call
+        model = await check_budget_for_llm_call(model)
         if model in ("local", "local-small"):
             raise RuntimeError("Claude vision downgraded to local model; multimodal evaluation unavailable")
 
@@ -276,35 +268,6 @@ class LLMClient:
             return result
         except Exception:
             raise
-
-    async def _budget_gate(self, requested_model: str) -> str:
-        """Check budget and downgrade Claude to Ollama if needed."""
-        try:
-            from shared.db import fetch_val
-            month = date.today().replace(day=1)
-            total = await fetch_val(
-                "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
-                (month,),
-            ) or 0
-
-            cap = config.budget.monthly_cap
-            percent_used = float(total) / cap if cap > 0 else 1.0
-
-            if percent_used >= 1.0:
-                # Budget exceeded — everything goes to Ollama
-                logger.warning("Budget exceeded — forcing Ollama for all LLM calls")
-                return "local"
-
-            if percent_used >= config.budget.alert_threshold and requested_model == "fast":
-                # Over alert threshold — downgrade Haiku calls to Ollama, keep Sonnet on Claude
-                logger.info(f"Budget at {percent_used*100:.0f}% — downgrading fast (Haiku) calls to Ollama")
-                return "local"
-
-        except Exception as e:
-            # If we can't check budget, allow the call (fail open, not closed)
-            logger.warning(f"Budget check failed (allowing call): {e}")
-
-        return requested_model
 
     async def _record_claude_spend(
         self,

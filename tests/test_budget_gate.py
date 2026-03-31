@@ -1,9 +1,10 @@
-"""Tests for budget-aware LLM routing — the spend control plane.
+"""Tests for consolidated budget routing via check_budget_for_llm_call.
 
-When ENABLE_CONSOLIDATED_BUDGET=false (default): _budget_gate runs as legacy.
-When ENABLE_CONSOLIDATED_BUDGET=true: check_budget_for_llm_call is the sole authority.
+Budget enforcement lives in shared/middleware.py:check_budget_for_llm_call.
+These tests verify LLMClient.generate routes correctly through the consolidated path.
 """
 
+import asyncio
 import os
 import sys
 import types
@@ -29,76 +30,111 @@ def llm():
     return LLMClient()
 
 
-class TestBudgetGate:
-    """_budget_gate (legacy) must downgrade Claude to Ollama when budget is tight.
+def _run(coro):
+    return asyncio.run(coro)
 
-    These tests only apply when ENABLE_CONSOLIDATED_BUDGET is false (default).
-    """
 
-    @pytest.mark.asyncio
-    async def test_under_budget_allows_fast(self, llm):
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=100)
-        result = await llm._budget_gate("fast")
-        assert result == "fast"
+class TestConsolidatedBudgetRouting:
+    """Test LLMClient routes through check_budget_for_llm_call correctly."""
 
-    @pytest.mark.asyncio
-    async def test_under_budget_allows_smart(self, llm):
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=100)
-        result = await llm._budget_gate("smart")
-        assert result == "smart"
+    @staticmethod
+    def _set_api_key(cfg, val):
+        """Set api_key on frozen dataclass."""
+        object.__setattr__(cfg.claude, "api_key", val)
 
     @pytest.mark.asyncio
-    async def test_at_threshold_downgrades_fast(self, llm):
-        # 80% of $800 = $640, so $650 is over threshold
-        # "fast" is Claude Haiku — downgrades to Ollama when budget is tight
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=650)
-        result = await llm._budget_gate("fast")
-        assert result == "local"
+    async def test_generate_routes_to_ollama_when_budget_returns_local(self, llm):
+        """When check_budget_for_llm_call returns 'local', generate uses Ollama."""
+        llm._ollama_generate = AsyncMock(return_value="ollama_response")
+        llm._claude_generate = AsyncMock(return_value="claude_response")
+        llm._record_claude_spend = AsyncMock()
+
+        import shared.middleware as mw_mod
+        from shared.config import config as cfg
+        old_key = cfg.claude.api_key
+        try:
+            self._set_api_key(cfg, "sk-test")
+            with patch.object(mw_mod, "check_budget_for_llm_call", AsyncMock(return_value="local")):
+                result = await llm.generate("hello", model="fast")
+        finally:
+            self._set_api_key(cfg, old_key)
+        assert result == "ollama_response"
+        llm._ollama_generate.assert_awaited_once()
+        llm._claude_generate.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_at_threshold_keeps_smart(self, llm):
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=650)
-        result = await llm._budget_gate("smart")
-        assert result == "smart"
+    async def test_generate_uses_claude_when_budget_returns_smart(self, llm):
+        """When check_budget_for_llm_call returns 'smart', generate uses Claude."""
+        llm._ollama_generate = AsyncMock(return_value="ollama_response")
+        llm._claude_generate = AsyncMock(return_value="claude_response")
+        llm._record_claude_spend = AsyncMock()
+
+        import shared.middleware as mw_mod
+        from shared.config import config as cfg
+        old_key = cfg.claude.api_key
+        try:
+            self._set_api_key(cfg, "sk-test")
+            with patch.object(mw_mod, "check_budget_for_llm_call", AsyncMock(return_value="smart")):
+                result = await llm.generate("hello", model="smart")
+        finally:
+            self._set_api_key(cfg, old_key)
+        assert result == "claude_response"
+        llm._claude_generate.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_exceeded_forces_all_to_local(self, llm):
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=850)
-        fast = await llm._budget_gate("fast")
-        smart = await llm._budget_gate("smart")
-        assert fast == "local"
-        assert smart == "local"
+    async def test_generate_uses_claude_when_budget_returns_fast(self, llm):
+        """When check_budget_for_llm_call returns 'fast', generate uses Claude."""
+        llm._ollama_generate = AsyncMock(return_value="ollama_response")
+        llm._claude_generate = AsyncMock(return_value="claude_response")
+        llm._record_claude_spend = AsyncMock()
 
-    @pytest.mark.asyncio
-    async def test_db_failure_fails_open(self, llm):
-        """If budget check DB fails, allow the call (don't block revenue).
+        import shared.middleware as mw_mod
+        from shared.config import config as cfg
+        old_key = cfg.claude.api_key
+        try:
+            self._set_api_key(cfg, "sk-test")
+            with patch.object(mw_mod, "check_budget_for_llm_call", AsyncMock(return_value="fast")):
+                result = await llm.generate("hello", model="fast")
+        finally:
+            self._set_api_key(cfg, old_key)
+        assert result == "claude_response"
+        llm._claude_generate.assert_awaited_once()
 
-        Only applies when ENABLE_CONSOLIDATED_BUDGET=false (legacy behavior).
-        """
-        sys.modules["shared.db"].fetch_val = AsyncMock(side_effect=Exception("DB down"))
-        result = await llm._budget_gate("fast")
-        assert result == "fast"
+    def test_check_budget_for_llm_call_under_budget(self):
+        """Direct test: under budget returns requested model."""
+        from shared.middleware import check_budget_for_llm_call
 
+        mock_fetch = AsyncMock(return_value=100)
+        fake_db = types.ModuleType("shared.db")
+        fake_db.fetch_val = mock_fetch
 
-class TestConsolidatedBudgetFeatureFlag:
-    """Test feature flag routing between legacy and consolidated budget paths."""
-
-    @pytest.mark.asyncio
-    async def test_db_failure_fails_closed_when_consolidated(self, llm):
-        """With ENABLE_CONSOLIDATED_BUDGET=true, DB failure returns 'local' (fail-closed)."""
-        mock_check = AsyncMock(return_value="local")
         with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
-            with patch("shared.middleware.check_budget_for_llm_call", mock_check):
-                # Simulate generate routing
-                from shared.middleware import check_budget_for_llm_call
-                result = await check_budget_for_llm_call("fast")
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("fast"))
+        assert result == "fast"
+
+    def test_check_budget_for_llm_call_exceeded(self):
+        """Direct test: exceeded budget returns 'local'."""
+        from shared.middleware import check_budget_for_llm_call
+
+        mock_fetch = AsyncMock(return_value=850)
+        fake_db = types.ModuleType("shared.db")
+        fake_db.fetch_val = mock_fetch
+
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("smart"))
         assert result == "local"
 
-    @pytest.mark.asyncio
-    async def test_flag_off_preserves_legacy_behavior(self, llm):
-        """With flag OFF, _budget_gate is still called (not check_budget_for_llm_call)."""
-        sys.modules["shared.db"].fetch_val = AsyncMock(return_value=100)
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ENABLE_CONSOLIDATED_BUDGET", None)
-            result = await llm._budget_gate("fast")
-        assert result == "fast"
+    def test_check_budget_for_llm_call_db_failure_fails_closed(self):
+        """Direct test: DB failure returns 'local' (fail-closed)."""
+        from shared.middleware import check_budget_for_llm_call
+
+        mock_fetch = AsyncMock(side_effect=Exception("DB down"))
+        fake_db = types.ModuleType("shared.db")
+        fake_db.fetch_val = mock_fetch
+
+        with patch.dict(os.environ, {"ENABLE_CONSOLIDATED_BUDGET": "true"}):
+            with patch.dict(sys.modules, {"shared.db": fake_db}):
+                result = _run(check_budget_for_llm_call("fast"))
+        assert result == "local"

@@ -1,4 +1,8 @@
-"""Budget Guard — Enforces monthly budget cap for Perseus operations."""
+"""Budget Guard — Reporting tool for monthly budget status.
+
+NOTE: Budget ENFORCEMENT lives in shared/middleware.py:check_budget_for_llm_call.
+This module is for reporting and can_spend checks only — it does not gate LLM calls.
+"""
 
 import logging
 from datetime import date

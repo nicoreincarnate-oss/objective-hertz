@@ -494,8 +494,8 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
     Returns the resolved model — either the requested model or "local" for Ollama fallback.
     Fails CLOSED: DB errors return "local".
     """
-    if os.environ.get("ENABLE_CONSOLIDATED_BUDGET", "").lower() not in ("true", "1", "yes"):
-        return requested_model  # No-op when flag is off
+    # NOTE: ENABLE_CONSOLIDATED_BUDGET flag check removed — function always executes.
+    # The flag is deprecated; this is now the sole budget authority.
 
     try:
         from shared.db import fetch_val

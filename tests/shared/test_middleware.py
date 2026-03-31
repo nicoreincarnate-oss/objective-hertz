@@ -556,11 +556,12 @@ class TestConsolidatedBudgetMiddleware:
 class TestCheckBudgetForLlmCall:
     """Test the standalone check_budget_for_llm_call function."""
 
-    def test_flag_off_returns_requested_model(self):
-        """When flag is OFF, returns input model unchanged without DB call."""
+    def test_under_budget_returns_requested_model(self):
+        """Under budget: returns input model unchanged."""
         from shared.middleware import check_budget_for_llm_call
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ENABLE_CONSOLIDATED_BUDGET", None)
+        mock_fetch = AsyncMock(return_value=50)
+        fake_db = _mock_module("shared.db", fetch_val=mock_fetch)
+        with patch.dict(sys.modules, {"shared.db": fake_db}):
             result = _run(check_budget_for_llm_call("fast"))
         assert result == "fast"
 
