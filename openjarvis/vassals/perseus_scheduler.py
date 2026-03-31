@@ -57,12 +57,14 @@ class PerseusScheduler:
         config: PerseusConfig | None = None,
         decision_audit: Any | None = None,  # DecisionAudit
         budget_guard: Any | None = None,  # BudgetGuard
+        wakeup_queue: Any | None = None,  # WakeupQueue instance (Phase 16)
     ) -> None:
         self._bus = bus
         self._vassals = vassal_discovery
         self._config = config or PerseusConfig()
         self._decision_audit = decision_audit
         self._budget_guard = budget_guard
+        self._wakeup_queue = wakeup_queue
         self._running = False
         self._last_health_check = 0.0
         self._tick_count = 0
@@ -79,17 +81,42 @@ class PerseusScheduler:
         logger.info("Budget cap: $%.0f/month", self._config.budget_monthly_cap)
 
         self._running = True
+
+        # Start WakeupQueue if provided and enabled
+        if self._wakeup_queue is not None:
+            try:
+                await self._wakeup_queue.start()
+                logger.info("WakeupQueue active -- event-driven wakeup enabled")
+            except Exception as exc:
+                logger.error("WakeupQueue failed to start: %s -- falling back to polling", exc)
+                self._wakeup_queue = None
+
         while self._running:
             try:
                 await self._tick()
             except Exception as exc:
                 logger.error("Perseus tick error: %s", exc, exc_info=True)
-            await asyncio.sleep(self._config.tick_interval)
+
+            # Event-driven wait OR fixed-interval sleep
+            if self._wakeup_queue is not None and self._wakeup_queue._running:
+                wakeup = await self._wakeup_queue.wait_for_wakeup(
+                    "perseus", timeout=float(self._config.tick_interval)
+                )
+                if wakeup["woken_by"] == "event":
+                    logger.info(
+                        "Event-driven wakeup: reasons=%s",
+                        wakeup["reasons"][:5],  # Cap log length
+                    )
+            else:
+                await asyncio.sleep(self._config.tick_interval)
 
     async def stop(self) -> None:
         """Stop the scheduler."""
         logger.info("Perseus scheduler stopping...")
         self._running = False
+        if self._wakeup_queue is not None:
+            await self._wakeup_queue.shutdown()
+            logger.info("WakeupQueue shut down")
 
     # ── Tick ──────────────────────────────────────────────────────────
 
@@ -97,6 +124,20 @@ class PerseusScheduler:
         """One strategic tick."""
         self._tick_count += 1
         now = time.time()
+
+        # 0. Dispatch pending wakeup requests (if queue active)
+        wakeup_dispatched: list[dict[str, Any]] = []
+        if self._wakeup_queue is not None and self._wakeup_queue._running:
+            try:
+                wakeup_dispatched = await self._wakeup_queue.dispatch_pending("perseus")
+                if wakeup_dispatched:
+                    logger.debug(
+                        "Dispatched %d wakeup requests: %s",
+                        len(wakeup_dispatched),
+                        [r.get("event_type", r.get("source")) for r in wakeup_dispatched[:5]],
+                    )
+            except Exception as exc:
+                logger.warning("Wakeup dispatch failed (non-critical): %s", exc)
 
         # 1. Assess state across ALL vassals
         state = await self._assess_state()
@@ -139,13 +180,36 @@ class PerseusScheduler:
         await self._record_decision(state, priorities)
 
         # 8. Publish tick event
-        self._bus.publish(EventType.CUSTOM, {
+        tick_event = {
             "sub_type": "perseus_tick",
             "tick": self._tick_count,
             "scheduled": len(priorities.get("schedule", [])),
             "skipped": len(priorities.get("skip", [])),
             "reasoning": priorities.get("reasoning", ""),
-        })
+        }
+        # Include wakeup stats if queue active
+        if self._wakeup_queue is not None:
+            tick_event["wakeup_stats"] = self._wakeup_queue.stats()
+            tick_event["wakeup_dispatched"] = len(wakeup_dispatched)
+        self._bus.publish(EventType.CUSTOM, tick_event)
+
+        # 9. Wakeup queue maintenance (every 5 ticks ~ 5 minutes)
+        if self._wakeup_queue is not None and self._tick_count % 5 == 0:
+            try:
+                expired = await self._wakeup_queue.expire_stale_requests()
+                if expired:
+                    logger.debug("Expired %d stale wakeup requests", expired)
+            except Exception as exc:
+                logger.debug("Wakeup expiry failed (non-critical): %s", exc)
+
+        # 10. Wakeup queue daily cleanup (every ~24h = 1440 ticks at 60s)
+        if self._wakeup_queue is not None and self._tick_count % 1440 == 0:
+            try:
+                cleaned = await self._wakeup_queue.cleanup_old_requests(older_than_hours=24)
+                if cleaned:
+                    logger.info("Cleaned up %d old wakeup requests", cleaned)
+            except Exception as exc:
+                logger.debug("Wakeup cleanup failed (non-critical): %s", exc)
 
         if self._tick_count % 10 == 0:  # Log summary every 10 ticks
             logger.info(
@@ -376,13 +440,16 @@ class PerseusScheduler:
 
     def status(self) -> dict[str, Any]:
         """Return scheduler status for CLI/dashboard."""
-        return {
+        base = {
             "running": self._running,
             "tick_count": self._tick_count,
             "tick_interval": self._config.tick_interval,
             "budget_cap": self._config.budget_monthly_cap,
             "vassals": self._vassals.summary(),
         }
+        if self._wakeup_queue is not None:
+            base["wakeup_queue"] = self._wakeup_queue.stats()
+        return base
 
 
 __all__ = ["PerseusConfig", "PerseusScheduler"]
