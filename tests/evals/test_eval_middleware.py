@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import ast
 
-import pytest
-
 
 def test_titan_daemon_imports_middleware():
     """Verify titan/daemon.py imports shared.middleware at module level or in methods."""
-    with open("titan/daemon.py", "r") as f:
+    with open("titan/daemon.py") as f:
         source = f.read()
     tree = ast.parse(source)
 
@@ -37,7 +35,7 @@ def test_titan_daemon_imports_middleware():
 
 def test_titan_daemon_calls_build_chain_or_middleware():
     """Verify titan/daemon.py references middleware chain building."""
-    with open("titan/daemon.py", "r") as f:
+    with open("titan/daemon.py") as f:
         source = f.read()
 
     # Must reference build_chain or run_middleware or check_budget_for_llm_call
@@ -54,7 +52,7 @@ def test_titan_daemon_calls_build_chain_or_middleware():
 
 def test_llm_client_calls_budget_middleware():
     """Verify shared/llm_client.py delegates to middleware for budget checks."""
-    with open("shared/llm_client.py", "r") as f:
+    with open("shared/llm_client.py") as f:
         source = f.read()
 
     assert "check_budget_for_llm_call" in source, (

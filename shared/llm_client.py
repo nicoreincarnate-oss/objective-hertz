@@ -17,6 +17,7 @@ TurboQuant integration (March 2026):
 import asyncio
 import base64
 import logging
+import os
 import time
 from datetime import date
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, patch
 
 
 @pytest.mark.asyncio
@@ -66,11 +67,12 @@ async def test_heartbeat_emitter_idempotent_stop():
 @pytest.mark.asyncio
 async def test_stale_detection_triggers_callback():
     """Stale peer heartbeat triggers on_stale callback."""
+    from datetime import datetime, timedelta
+
     from shared.heartbeat import HeartbeatEmitter
-    from datetime import datetime, timezone, timedelta
 
     callback = AsyncMock()
-    stale_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale_time = datetime.now(UTC) - timedelta(minutes=10)
 
     with patch("shared.db.execute", new_callable=AsyncMock), \
          patch("shared.db.fetch_all", new_callable=AsyncMock, return_value=[

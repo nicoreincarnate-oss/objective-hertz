@@ -7,8 +7,8 @@ Uses shared.agent_state (the agent lifecycle state machine), not titan.state_mac
 from __future__ import annotations
 
 import pytest
-from shared.agent_state import AgentState, validate_transition
 
+from shared.agent_state import AgentState, validate_transition
 
 # These transitions MUST be rejected per the transition matrix
 INVALID_TRANSITIONS = [

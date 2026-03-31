@@ -7,8 +7,9 @@ This is a P0 safety property per AEGIS audit.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
 
 @pytest.mark.asyncio

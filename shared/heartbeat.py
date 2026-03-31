@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import datetime
 
 logger = logging.getLogger("perseus.heartbeat")
 

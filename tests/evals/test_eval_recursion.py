@@ -6,8 +6,9 @@ whose depth exceeds the configured max_task_depth.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 def _make_test_agent():

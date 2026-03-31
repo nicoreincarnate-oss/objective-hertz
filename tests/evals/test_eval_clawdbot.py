@@ -7,16 +7,16 @@ are not silently swallowed.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 @pytest.mark.asyncio
 async def test_clawdbot_daemon_has_error_handling(eval_recorder):
     """ClawdBot daemon must have error handling that emits events on failure."""
-    import ast
 
-    with open("clawdbot/daemon.py", "r") as f:
+    with open("clawdbot/daemon.py") as f:
         source = f.read()
 
     # Must have emit_event or send_a2a for error escalation

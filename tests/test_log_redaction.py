@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-
-import pytest
 from unittest.mock import patch
 
 
