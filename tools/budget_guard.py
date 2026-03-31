@@ -1,10 +1,17 @@
-"""Budget Guard — Reporting tool for monthly budget status.
+"""Budget Guard — Reporting tool for monthly budget status + multi-scope policy evaluation.
 
 NOTE: Budget ENFORCEMENT lives in shared/middleware.py:check_budget_for_llm_call.
-This module is for reporting and can_spend checks only — it does not gate LLM calls.
+This module is for reporting, can_spend checks, and policy evaluation.
+
+Phase 13 additions:
+- PolicyResult / BudgetDecision dataclasses
+- evaluate_policies() — multi-scope budget policy evaluation (Pattern 7)
+- _query_spend_for_policy() — scope-aware spend queries
 """
 
 import logging
+import os
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
@@ -139,3 +146,211 @@ async def get_budget_report() -> str:
         lines.append("WARNING: Approaching monthly cap!")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Phase 13: Multi-Scope Budget Policies (Paperclip Pattern 7)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PolicyResult:
+    """Result of evaluating a single budget policy."""
+    policy_id: int
+    scope_type: str       # 'company' | 'agent' | 'pipeline_stage'
+    scope_value: str
+    window_kind: str      # 'monthly' | 'lifetime'
+    limit_usd: float
+    spent_usd: float
+    remaining_usd: float
+    percent_used: float
+    warn_triggered: bool  # True when percent_used >= warn_percent
+    hard_stop: bool       # True when percent_used >= 100 AND hard_stop_enabled
+
+
+@dataclass
+class BudgetDecision:
+    """Aggregate result of evaluating all applicable policies."""
+    allowed: bool
+    reason: str
+    policies_evaluated: list[PolicyResult] = field(default_factory=list)
+    most_restrictive: PolicyResult | None = None
+    warnings: list[str] = field(default_factory=list)
+
+
+async def evaluate_policies(
+    agent_id: str | None = None,
+    pipeline_stage: str | None = None,
+) -> BudgetDecision:
+    """Evaluate ALL applicable budget policies for a given context.
+
+    Checks company, agent, and pipeline_stage scopes.
+    Most restrictive policy wins (lowest remaining_usd).
+    Returns BudgetDecision with allowed=True/False.
+
+    Feature flag: MULTI_SCOPE_BUDGET_ENABLED (default false).
+    When disabled, falls back to legacy $800 check.
+    """
+    if os.environ.get("MULTI_SCOPE_BUDGET_ENABLED", "false").lower() not in ("true", "1", "yes"):
+        # Legacy fallback — single company cap
+        spending = await get_month_spending()
+        allowed = not spending["exceeded"]
+        return BudgetDecision(
+            allowed=allowed,
+            reason="" if allowed else f"Company cap exceeded: ${spending['total_spent']:.2f}/${spending['remaining']:.2f}",
+            policies_evaluated=[],
+            most_restrictive=None,
+            warnings=[],
+        )
+
+    # Load all policies
+    policies = await fetch_all(
+        "SELECT * FROM budget_policies ORDER BY scope_type, scope_value"
+    )
+    if not policies:
+        # No policies defined — allow (but warn)
+        logger.warning("No budget policies defined — allowing by default")
+        return BudgetDecision(
+            allowed=True, reason="no_policies_defined",
+            policies_evaluated=[], most_restrictive=None, warnings=["No budget policies defined"],
+        )
+
+    results: list[PolicyResult] = []
+    warnings: list[str] = []
+
+    for policy in policies:
+        scope_type = policy["scope_type"]
+        scope_value = policy["scope_value"]
+        window_kind = policy["window_kind"]
+        limit_usd = float(policy["limit_usd"])
+        warn_percent = int(policy["warn_percent"])
+        hard_stop_enabled = bool(policy["hard_stop_enabled"])
+
+        # Skip inapplicable policies
+        if scope_type == "agent" and agent_id != scope_value:
+            continue
+        if scope_type == "pipeline_stage" and pipeline_stage != scope_value:
+            continue
+
+        # Query spend for this policy's scope + window
+        spent = await _query_spend_for_policy(scope_type, scope_value, window_kind)
+        remaining = limit_usd - spent
+        percent_used = (spent / limit_usd * 100) if limit_usd > 0 else 100.0
+
+        warn_triggered = percent_used >= warn_percent
+        hard_stop = percent_used >= 100 and hard_stop_enabled
+
+        result = PolicyResult(
+            policy_id=policy["policy_id"],
+            scope_type=scope_type,
+            scope_value=scope_value,
+            window_kind=window_kind,
+            limit_usd=limit_usd,
+            spent_usd=spent,
+            remaining_usd=max(0, remaining),
+            percent_used=round(percent_used, 1),
+            warn_triggered=warn_triggered,
+            hard_stop=hard_stop,
+        )
+        results.append(result)
+
+        if warn_triggered and not hard_stop:
+            warnings.append(
+                f"Budget warning: {scope_type}/{scope_value} at {percent_used:.1f}% "
+                f"(${spent:.2f}/${limit_usd:.2f})"
+            )
+
+    # Emit warnings to Hermes
+    if warnings:
+        try:
+            from shared.comms import emit_event
+            for warning_msg in warnings:
+                await emit_event("budget_warning", {
+                    "message": warning_msg,
+                    "agent_id": agent_id,
+                    "pipeline_stage": pipeline_stage,
+                })
+        except Exception as exc:
+            logger.warning("Budget warning event emission failed: %s", exc)
+
+    # Most restrictive wins (lowest remaining)
+    most_restrictive = min(results, key=lambda r: r.remaining_usd) if results else None
+
+    # Any hard stop triggers rejection
+    hard_stopped = [r for r in results if r.hard_stop]
+    if hard_stopped:
+        blocker = hard_stopped[0]
+        return BudgetDecision(
+            allowed=False,
+            reason=f"Hard stop: {blocker.scope_type}/{blocker.scope_value} "
+                   f"at {blocker.percent_used:.1f}% (${blocker.spent_usd:.2f}/${blocker.limit_usd:.2f})",
+            policies_evaluated=results,
+            most_restrictive=most_restrictive,
+            warnings=warnings,
+        )
+
+    return BudgetDecision(
+        allowed=True,
+        reason="all_policies_within_limits",
+        policies_evaluated=results,
+        most_restrictive=most_restrictive,
+        warnings=warnings,
+    )
+
+
+async def _query_spend_for_policy(scope_type: str, scope_value: str, window_kind: str) -> float:
+    """Query total spend for a policy scope + window from cost_events + budget_tracking.
+
+    Uses cost_events when PER_CALL_COST_EVENTS_ENABLED, otherwise falls back to budget_tracking.
+    All SQL uses parameterized queries (AEGIS compliant — no f-string composition).
+    """
+    # Try cost_events first (richer data), fall back to budget_tracking
+    use_cost_events = os.environ.get(
+        "PER_CALL_COST_EVENTS_ENABLED", "false"
+    ).lower() in ("true", "1", "yes")
+
+    # Build query using separate parameterized paths (NO f-string SQL — AEGIS requirement)
+    scope_params: tuple = ()
+
+    if use_cost_events:
+        if scope_type == "company" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)"
+        elif scope_type == "company":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events"
+        elif scope_type == "agent" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) AND agent_id = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "agent":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events WHERE agent_id = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "pipeline_stage" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) AND task_type = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "pipeline_stage":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events WHERE task_type = %s"
+            scope_params = (scope_value,)
+        else:
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM cost_events"
+    else:
+        # Legacy: budget_tracking + llm_metrics combined (separate query per scope)
+        if scope_type == "company" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_metrics WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)"
+        elif scope_type == "company":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_metrics"
+        elif scope_type == "agent" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_metrics WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) AND daemon = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "agent":
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_metrics WHERE daemon = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "pipeline_stage" and window_kind == "monthly":
+            query = "SELECT COALESCE(SUM(amount), 0) FROM budget_tracking WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) AND pipeline_stage = %s"
+            scope_params = (scope_value,)
+        elif scope_type == "pipeline_stage":
+            query = "SELECT COALESCE(SUM(amount), 0) FROM budget_tracking WHERE pipeline_stage = %s"
+            scope_params = (scope_value,)
+        else:
+            query = "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_metrics"
+
+    total = await fetch_val(query, scope_params) if scope_params else await fetch_val(query)
+    return float(total or 0)
