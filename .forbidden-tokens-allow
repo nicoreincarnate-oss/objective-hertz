@@ -1,0 +1,5 @@
+# Forbidden token scanner — allowlist
+# Lines here suppress specific pattern names in scan results.
+# Use for test fixtures and known-safe values.
+#
+# Format: one pattern_name per line (e.g., "os_username")

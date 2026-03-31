@@ -1,4 +1,4 @@
-.PHONY: help start stop status logs health up down restart clean test lint typecheck quality backup restore
+.PHONY: help start stop status logs health up down restart clean test lint typecheck quality forbidden-tokens backup restore
 
 PYTHON ?= python3
 
@@ -83,7 +83,15 @@ lint: ## Lint first-party code
 typecheck: ## Type-check first-party code
 	$(PYTHON) -m mypy shared perseus titan hermes clawdbot
 
-quality: lint typecheck test ## Run the local quality gates
+forbidden-tokens: ## Scan templates for leaked secrets and forbidden tokens
+	@PYTHONPATH=. $(PYTHON) -c "\
+from openjarvis.security.forbidden_tokens import scan; \
+import sys, pathlib; \
+fails = 0; \
+[((print(f'FAIL: {f} - {[h.pattern_name for h in hits]}'), sys.exit(1)) if (hits := scan(f.read_text(), include_username=True)) else None) for f in pathlib.Path('templates').rglob('*.html')]; \
+print('OK: No forbidden tokens found')"
+
+quality: lint typecheck test forbidden-tokens ## Run the local quality gates
 
 backup: ## Create a Postgres backup in backups/
 	@./scripts/backup-postgres.sh

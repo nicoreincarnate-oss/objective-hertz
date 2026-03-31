@@ -85,12 +85,13 @@ TITAN_MIDDLEWARE = [
     "neuro_scorer",
     "memory",
     "telemetry",
+    "forbidden_tokens",
 ]
 
 PIPELINE_CONFIGS: dict[str, list[str]] = {
     "titan": list(TITAN_MIDDLEWARE),
-    "clawdbot": ["budget_check", "dna_guard", "anti_slop", "neuro_scorer", "telemetry"],
-    "hermes": ["budget_check", "dna_guard", "neuro_scorer", "telemetry"],
+    "clawdbot": ["budget_check", "dna_guard", "anti_slop", "neuro_scorer", "telemetry", "forbidden_tokens"],
+    "hermes": ["budget_check", "dna_guard", "neuro_scorer", "telemetry", "forbidden_tokens"],
     "perseus": ["budget_check", "telemetry"],
 }
 
@@ -525,6 +526,51 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Forbidden Token Scanner Middleware (Phase 12: FP-04)
+# ---------------------------------------------------------------------------
+
+
+async def forbidden_token_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Scan stage output for leaked secrets and forbidden tokens.
+
+    Feature-flag gated by FORBIDDEN_TOKEN_SCAN_ENABLED.
+    Runs AFTER the stage (output sanitizer) — checks result["output"].
+    """
+    if not _flag("FORBIDDEN_TOKEN_SCAN_ENABLED"):
+        return await next_fn(ctx)
+
+    result = await next_fn(ctx)
+
+    output_text = str(result.get("output", ""))
+    if not output_text:
+        return result
+
+    try:
+        from openjarvis.security.forbidden_tokens import scan
+
+        hits = scan(output_text)
+        if hits:
+            names = ", ".join(sorted({h.pattern_name for h in hits}))
+            logger.error(
+                "FORBIDDEN TOKENS in stage '%s': %s (%d matches)",
+                ctx.get("stage_name", "unknown"),
+                names,
+                len(hits),
+            )
+            result["forbidden_token_violations"] = [
+                {"pattern": h.pattern_name, "position": h.position} for h in hits
+            ]
+            # Redact the output using credential stripper as fallback
+            from openjarvis.security.credential_stripper import CredentialStripper
+
+            result["output"] = CredentialStripper().strip(output_text)
+    except Exception as exc:
+        logger.warning("Forbidden token scan failed (non-fatal): %s", exc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Populate MIDDLEWARE_REGISTRY
 # ---------------------------------------------------------------------------
 
@@ -536,6 +582,7 @@ MIDDLEWARE_REGISTRY.update(
         "neuro_scorer": neuro_scorer_middleware,
         "memory": memory_middleware,
         "telemetry": telemetry_middleware,
+        "forbidden_tokens": forbidden_token_middleware,
     }
 )
 
@@ -555,6 +602,7 @@ __all__ = [
     "build_chain",
     "check_budget_for_llm_call",
     "dna_guard_middleware",
+    "forbidden_token_middleware",
     "memory_middleware",
     "neuro_scorer_middleware",
     "telemetry_middleware",
