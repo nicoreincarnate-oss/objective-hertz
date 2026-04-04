@@ -3,11 +3,14 @@ use std::time::Duration;
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
+use tauri::{LogicalPosition, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::Mutex;
+use url::Url;
 
 const OLLAMA_PORT: u16 = 11434;
 const JARVIS_PORT: u16 = 8222;
+const WAR_ROOM_URL: &str = "http://127.0.0.1:3310";
 
 /// Small, fast model pulled at startup so the app opens quickly.
 const STARTUP_MODEL: &str = "qwen3.5:2b";
@@ -644,6 +647,152 @@ fn api_base() -> String {
     format!("http://127.0.0.1:{}", JARVIS_PORT)
 }
 
+fn war_room_base_url() -> String {
+    std::env::var("PERSEUS_WAR_ROOM_URL").unwrap_or_else(|_| WAR_ROOM_URL.to_string())
+}
+
+fn war_room_url(path: &str) -> String {
+    let mut base = war_room_base_url().trim_end_matches('/').to_string();
+    if path.is_empty() || path == "/" {
+        base.push('/');
+        return base;
+    }
+
+    if !path.starts_with('/') {
+        base.push('/');
+    }
+    base.push_str(path.trim_start_matches('/'));
+    base
+}
+
+fn truncate_error_body(body: String) -> String {
+    const MAX_ERROR_BODY: usize = 600;
+    let trimmed = body.trim();
+    if trimmed.chars().count() <= MAX_ERROR_BODY {
+        return trimmed.to_string();
+    }
+
+    let truncated: String = trimmed.chars().take(MAX_ERROR_BODY).collect();
+    format!("{}…", truncated)
+}
+
+async fn authenticated_war_room_json(
+    method: reqwest::Method,
+    path: &str,
+    body: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let secret = load_dashboard_secret()
+        .ok_or_else(|| "DASHBOARD_SECRET is missing; cannot authenticate buddy request.".to_string())?;
+    let client = reqwest::Client::new();
+    let mut request = client
+        .request(method, war_room_url(path))
+        .header("Authorization", format!("Bearer {}", secret))
+        .header("Accept", "application/json");
+
+    if let Some(payload) = body {
+        request = request.json(payload);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("War Room request failed: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let detail = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unable to read error response".to_string());
+        return Err(format!("War Room request returned {}: {}", status, truncate_error_body(detail)));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Invalid War Room JSON: {}", e))
+}
+
+async fn get_authenticated_war_room_json(path: &str) -> Result<serde_json::Value, String> {
+    authenticated_war_room_json(reqwest::Method::GET, path, None).await
+}
+
+async fn post_authenticated_war_room_json(
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    authenticated_war_room_json(reqwest::Method::POST, path, Some(body)).await
+}
+
+fn load_dashboard_secret() -> Option<String> {
+    if let Ok(secret) = std::env::var("DASHBOARD_SECRET") {
+        let trimmed = secret.trim().to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+    }
+
+    let project_root = find_project_root()?;
+    let env_path = project_root.join(".env");
+    let contents = std::fs::read_to_string(env_path).ok()?;
+    contents.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let value = trimmed.strip_prefix("DASHBOARD_SECRET=")?;
+        let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    })
+}
+
+fn window_init_script(label: &str) -> String {
+    let encoded_label = serde_json::to_string(label).unwrap();
+    let mut statements = vec![
+        format!("window.__PERSEUS_WINDOW_LABEL__ = {encoded_label};"),
+        format!("window.__OPENJARVIS_WINDOW_LABEL__ = {encoded_label};"),
+    ];
+
+    if let Some(secret) = load_dashboard_secret() {
+        statements.push(format!(
+            "sessionStorage.setItem('perseus_token', {});",
+            serde_json::to_string(&secret).unwrap()
+        ));
+    }
+
+    statements.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::war_room_url;
+
+    #[test]
+    fn war_room_root_url_has_single_trailing_slash() {
+        std::env::set_var("PERSEUS_WAR_ROOM_URL", "http://127.0.0.1:3000");
+        assert_eq!(war_room_url("/"), "http://127.0.0.1:3000/");
+        std::env::remove_var("PERSEUS_WAR_ROOM_URL");
+    }
+
+    #[test]
+    fn war_room_nested_url_joins_cleanly() {
+        std::env::set_var("PERSEUS_WAR_ROOM_URL", "http://127.0.0.1:3000/");
+        assert_eq!(war_room_url("/buddy"), "http://127.0.0.1:3000/buddy");
+        std::env::remove_var("PERSEUS_WAR_ROOM_URL");
+    }
+
+    #[test]
+    fn war_room_kirito_command_url_joins_cleanly() {
+        std::env::set_var("PERSEUS_WAR_ROOM_URL", "http://127.0.0.1:3000");
+        assert_eq!(
+            war_room_url("/api/kirito/command"),
+            "http://127.0.0.1:3000/api/kirito/command"
+        );
+        std::env::remove_var("PERSEUS_WAR_ROOM_URL");
+    }
+}
+
 #[tauri::command]
 async fn get_setup_status(
     state: tauri::State<'_, SharedStatus>,
@@ -984,6 +1133,65 @@ async fn speech_health(api_url: String) -> Result<serde_json::Value, String> {
     Ok(body)
 }
 
+#[tauri::command]
+async fn fetch_kirito_voice_session() -> Result<serde_json::Value, String> {
+    get_authenticated_war_room_json("/api/voice/elevenlabs/session").await
+}
+
+#[tauri::command]
+async fn fetch_kirito_voice_context() -> Result<serde_json::Value, String> {
+    get_authenticated_war_room_json("/api/voice/elevenlabs/context").await
+}
+
+#[tauri::command]
+async fn submit_kirito_command(command: serde_json::Value) -> Result<serde_json::Value, String> {
+    post_authenticated_war_room_json("/api/kirito/command", &command).await
+}
+
+#[tauri::command]
+async fn fetch_kirito_command_status(command_id: String) -> Result<serde_json::Value, String> {
+    let trimmed = command_id.trim();
+    let path = if trimmed.is_empty() {
+        "/api/kirito/command/status".to_string()
+    } else {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        serializer.append_pair("command_id", trimmed);
+        format!("/api/kirito/command/status?{}", serializer.finish())
+    };
+
+    get_authenticated_war_room_json(&path).await
+}
+
+#[tauri::command]
+fn execute_kirito_local_action(
+    app: tauri::AppHandle,
+    action: String,
+    target: String,
+) -> Result<(), String> {
+    let normalized_action = action.trim();
+    if normalized_action != "open_dashboard" {
+        return Err(format!("Unsupported Kirito local action: {}", normalized_action));
+    }
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main War Room window is unavailable".to_string())?;
+
+    let destination = if target.trim().starts_with("http://") || target.trim().starts_with("https://") {
+        target.trim().to_string()
+    } else {
+        war_room_url(target.trim())
+    };
+    let script = format!(
+        "window.location.href = {};",
+        serde_json::to_string(&destination).map_err(|e| format!("Invalid destination: {}", e))?
+    );
+    window.show().map_err(|e| format!("Failed to show War Room window: {}", e))?;
+    window.eval(&script).map_err(|e| format!("Failed to navigate War Room window: {}", e))?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
@@ -992,9 +1200,6 @@ async fn speech_health(api_url: String) -> Result<serde_json::Value, String> {
 pub fn run() {
     let backend: SharedBackend = Arc::new(Mutex::new(BackendManager::default()));
     let status: SharedStatus = Arc::new(Mutex::new(SetupStatus::default()));
-
-    let boot_backend_ref = backend.clone();
-    let boot_status_ref = status.clone();
 
     tauri::Builder::default()
         .manage(backend.clone())
@@ -1010,21 +1215,75 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.set_focus();
+            }
+            if let Some(window) = app.get_webview_window("buddy") {
+                let _ = window.show();
             }
         }))
         .setup(move |app| {
+            if app.get_webview_window("main").is_none() {
+                let main_url = Url::parse(&war_room_url("/"))
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+                WebviewWindowBuilder::new(
+                    app,
+                    "main",
+                    WebviewUrl::External(main_url),
+                )
+                .title("PERSEUS War Room")
+                .inner_size(1440.0, 920.0)
+                .min_inner_size(1100.0, 760.0)
+                .decorations(true)
+                .resizable(true)
+                .visible(true)
+                .focused(true)
+                .initialization_script(&window_init_script("main"))
+                .build()?;
+            }
+
+            if app.get_webview_window("buddy").is_none() {
+                let buddy = WebviewWindowBuilder::new(
+                    app,
+                    "buddy",
+                    WebviewUrl::App("index.html".into()),
+                )
+                    .title("Kirito Buddy")
+                    .inner_size(340.0, 520.0)
+                    .min_inner_size(280.0, 420.0)
+                    .decorations(false)
+                    .resizable(false)
+                    .always_on_top(true)
+                    .shadow(false)
+                    .skip_taskbar(true)
+                    .transparent(true)
+                    .visible(true)
+                    .focused(false)
+                    .initialization_script(&window_init_script("buddy"))
+                    .build()?;
+
+                if let Some(monitor) = app.primary_monitor()? {
+                    let size = monitor.size().to_logical::<f64>(monitor.scale_factor());
+                    let x = size.width - 360.0;
+                    let y = size.height - 560.0;
+                    let _ = buddy.set_position(tauri::Position::Logical(LogicalPosition::new(x.max(0.0), y.max(0.0))));
+                }
+            }
+
             // System tray
             let show = MenuItemBuilder::with_id("show", "Show / Hide")
+                .build(app)?;
+            let buddy_toggle = MenuItemBuilder::with_id("buddy", "Toggle Kirito Buddy")
                 .build(app)?;
             let health = MenuItemBuilder::with_id("health", "Health: starting...")
                 .enabled(false)
                 .build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit OpenJarvis")
+            let quit = MenuItemBuilder::with_id("quit", "Quit PERSEUS")
                 .build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show)
+                .item(&buddy_toggle)
                 .separator()
                 .item(&health)
                 .separator()
@@ -1033,7 +1292,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("OpenJarvis")
+                .tooltip("PERSEUS War Room")
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id().as_ref() {
@@ -1047,6 +1306,15 @@ pub fn run() {
                                 }
                             }
                         }
+                        "buddy" => {
+                            if let Some(window) = app.get_webview_window("buddy") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                }
+                            }
+                        }
                         "quit" => {
                             app.exit(0);
                         }
@@ -1054,9 +1322,6 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
-
-            // Auto-start backend services on launch
-            tauri::async_runtime::spawn(boot_backend(boot_backend_ref, boot_status_ref));
 
             Ok(())
         })
@@ -1081,6 +1346,11 @@ pub fn run() {
             submit_savings,
             transcribe_audio,
             speech_health,
+            fetch_kirito_voice_session,
+            fetch_kirito_voice_context,
+            submit_kirito_command,
+            fetch_kirito_command_status,
+            execute_kirito_local_action,
             pull_ollama_model,
             delete_ollama_model,
             save_cloud_key,

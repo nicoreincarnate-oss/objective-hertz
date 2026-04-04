@@ -8,6 +8,8 @@ import { MemoryBrowser } from './components/MemoryBrowser';
 import { AdminPanel } from './components/AdminPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AgentsPanel } from './components/AgentsPanel';
+import { BuddyWindow } from './components/BuddyWindow';
+import { detectWindowMode } from './lib/window-mode';
 
 type TabId = 'savings' | 'energy' | 'traces' | 'learning' | 'memory' | 'agents' | 'admin' | 'settings';
 
@@ -30,7 +32,12 @@ const TABS: Tab[] = [
 const API_URL = 'http://localhost:8000';
 
 export function App() {
+  const windowMode = detectWindowMode();
   const [activeTab, setActiveTab] = useState<TabId>('savings');
+
+  if (windowMode === 'buddy') {
+    return <BuddyWindow />;
+  }
 
   return (
     <div style={styles.container}>
