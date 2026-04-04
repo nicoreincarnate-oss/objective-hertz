@@ -7,6 +7,7 @@ import { CinematicBackdrop } from '@/components/cinematic-backdrop'
 import { TokenInput } from '@/components/token-input'
 import { Loader2 } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { usePathname } from 'next/navigation'
 
 /**
  * Dashboard shell: wraps all authenticated pages with:
@@ -17,8 +18,14 @@ import { motion } from 'framer-motion'
  */
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const { token, isLoading: tokenLoading, setToken } = useToken()
+  const pathname = usePathname()
+  const isOverlayRoute = pathname === '/buddy'
 
   if (tokenLoading) {
+    if (isOverlayRoute) {
+      return <div className="min-h-screen bg-transparent" />
+    }
+
     return (
       <div className="relative min-h-screen bg-background flex items-center justify-center overflow-hidden">
         <CinematicBackdrop />
@@ -35,7 +42,25 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!token) {
+    if (isOverlayRoute) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-transparent px-4 text-center text-xs text-cyan-50/80">
+          PERSEUS desktop overlay is waiting for a valid session token.
+        </div>
+      )
+    }
+
     return <TokenInput onTokenSubmit={setToken} />
+  }
+
+  if (isOverlayRoute) {
+    return (
+      <WarRoomProvider>
+        <div className="min-h-screen overflow-hidden bg-transparent">
+          {children}
+        </div>
+      </WarRoomProvider>
+    )
   }
 
   return (

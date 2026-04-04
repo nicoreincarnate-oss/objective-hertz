@@ -34,7 +34,7 @@ CLAWDBOT_CARD = AgentCard(
         "ask",
         "skill_execute", "skill_list", "skill_find",
         "web_scrape", "scrape_company",
-        "browser_task",
+        "browser_task", "browser_flow", "workflow_run",
         "agent_orchestration",
         "android_automation",
         "build_demo_site", "build_full_site",
@@ -55,6 +55,8 @@ CLAWDBOT_CARD = AgentCard(
         "health_check",
         "events_recent",
         "event_relay",
+        "auth_checkpoint",
+        "screen_context",
     ],
 )
 
@@ -88,6 +90,55 @@ async def _scrape_company(company_url: str = "", business_name: str = "", **_) -
 async def _browser_task(description: str = "", url: str = "", **_) -> dict:
     from clawdbot.daemon import handle_browser_task
     return await handle_browser_task({"description": description, "url": url})
+
+
+async def _browser_flow(
+    objective: str = "",
+    url: str = "",
+    session_name: str = "",
+    profile_name: str = "",
+    auth_context: dict | None = None,
+    **_,
+) -> dict:
+    from clawdbot.daemon import handle_browser_flow
+    result = await handle_browser_flow(
+        {
+            "description": objective or url or "browser flow",
+            "url": url,
+            "session_name": session_name,
+            "profile_name": profile_name,
+            "auth_context": auth_context or {},
+            "mode": "browser_flow",
+        }
+    )
+    if isinstance(result, dict):
+        result.setdefault("status", "accepted")
+        result.setdefault("executor", "browser_use")
+    return result
+
+
+async def _workflow_run(
+    workflow_id: str = "",
+    params: dict | None = None,
+    auth_context: dict | None = None,
+    **_,
+) -> dict:
+    from clawdbot.daemon import handle_n8n_workflow
+
+    payload = {
+        "webhook_path": workflow_id or "workflow-run",
+        "workflow_payload": {
+            "workflow_id": workflow_id,
+            "params": params or {},
+            "auth_context": auth_context or {},
+        },
+    }
+    result = await handle_n8n_workflow(payload)
+    if isinstance(result, dict):
+        result.setdefault("status", "accepted")
+        result.setdefault("executor", "workflow_engine")
+        result.setdefault("workflow_id", workflow_id)
+    return result
 
 
 async def _agent_orchestration(objective: str = "", **kwargs) -> dict:
@@ -259,6 +310,31 @@ async def _voice_call(to: str = "", **kwargs) -> dict:
     return await handle_voice_call({"to": to, **kwargs})
 
 
+async def _auth_checkpoint(
+    channel: str = "browser",
+    reason: str = "authentication required",
+    provider: str = "",
+    **_,
+) -> dict:
+    return {
+        "status": "auth_wait",
+        "channel": channel or provider or "browser",
+        "provider": provider or channel or "browser",
+        "reason": reason,
+        "message": reason,
+    }
+
+
+async def _screen_context(query: str = "", minutes: int = 10, **_) -> dict:
+    return {
+        "status": "unavailable",
+        "provider": "screenpipe",
+        "query": query,
+        "minutes": minutes,
+        "message": "Screen context sidecar is not connected yet.",
+    }
+
+
 async def _whatsapp_message(message: str = "", to: str = "", **kwargs) -> dict:
     from clawdbot.daemon import handle_whatsapp_message
     return await handle_whatsapp_message({"message": message, "to": to, **kwargs})
@@ -266,7 +342,15 @@ async def _whatsapp_message(message: str = "", to: str = "", **kwargs) -> dict:
 
 async def _health_check(**_) -> dict:
     skills = list_installed_skills()
-    return {"status": "running", "agent": "clawdbot", "skills_count": len(skills)}
+    from clawdbot.browser_use_sidecar import browser_use_health
+
+    browser_use = await browser_use_health()
+    return {
+        "status": "running",
+        "agent": "clawdbot",
+        "skills_count": len(skills),
+        "browser_use": browser_use,
+    }
 
 
 async def _ask(question: str = "", from_agent: str = "", context: dict | None = None, **_) -> dict:
@@ -409,6 +493,8 @@ CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "web_scrape": _web_scrape,
     "scrape_company": _scrape_company,
     "browser_task": _browser_task,
+    "browser_flow": _browser_flow,
+    "workflow_run": _workflow_run,
     "build_demo_site": _build_demo_site,
     "build_full_site": _build_full_site,
     "set_custom_domain": _set_custom_domain,
@@ -437,6 +523,8 @@ CAPABILITY_HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "health_check": _health_check,
     "events_recent": _events_recent,
     "event_relay": _event_relay,
+    "auth_checkpoint": _auth_checkpoint,
+    "screen_context": _screen_context,
 }
 
 

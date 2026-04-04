@@ -21,6 +21,11 @@ TARGET_AGENTS = {
         "description": "Skills, scraping, enrichment, and verification work.",
         "task_type": "clawdbot_operator_message",
     },
+    "deerflow_research": {
+        "label": "DeerFlow",
+        "description": "Open-ended deep research, donor scouting, and daily evolution briefs.",
+        "task_type": "evolution_research_cycle",
+    },
 }
 
 PRIORITY_VALUES = {

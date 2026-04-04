@@ -1052,8 +1052,9 @@ async def _check_contradiction(new_insight: dict) -> dict | None:
         f"Return JSON: {{\"contradicts\": true/false, \"contradicted_id\": <id or null>, "
         f"\"resolution\": \"keep_new|keep_old|merge|debate\", "
         f"\"merge_text\": \"merged insight if resolution is merge, else empty\"}}",
-        model="fast",
+        model="local-heavy",
         temperature=0.1,
+        pipeline_stage="titan:memory:contradiction_check",
     )
 
     try:
@@ -1200,8 +1201,9 @@ async def _consolidate_namespace(user_id: str) -> dict:
                 f"Drop noise, keep what's statistically supported.\n\n"
                 f"Return JSON list: [{{\"insight\": \"...\", \"confidence\": 0.0-1.0, "
                 f"\"based_on_count\": <number of original memories this summarizes>}}]",
-                model="fast",
+                model="local-heavy",
                 temperature=0.2,
+                pipeline_stage="titan:memory:graphrag_consolidation",
             )
 
             start = result.find("[")
@@ -1548,7 +1550,9 @@ async def re_enrich_active_leads() -> dict:
                 f"Is there genuinely NEW information (new reviews, complaints, "
                 f"events, hiring, promotions, pricing changes) not in the old research?\n"
                 f"Return JSON: {{\"has_new_info\": true/false, \"new_facts\": \"...\"}}",
-                model="fast", temperature=0.1,
+                model="local-heavy",
+                temperature=0.1,
+                pipeline_stage="titan:memory:re_enrich_diff",
             )
             start = diff_result.find("{")
             end = diff_result.rfind("}") + 1

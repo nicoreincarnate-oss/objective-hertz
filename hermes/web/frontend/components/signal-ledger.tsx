@@ -41,6 +41,24 @@ const EVENT_CONFIG: Record<string, { icon: React.ReactNode; severity: Severity; 
   leads_discovered:       { icon: <ArrowRight className="w-3.5 h-3.5" />,    severity: 'info',     label: 'Leads Discovered' },
   operator_message_sent:  { icon: <MessageSquare className="w-3.5 h-3.5" />, severity: 'info',     label: 'Operator Message' },
   agent_message_ack:      { icon: <Bot className="w-3.5 h-3.5" />,           severity: 'info',     label: 'Agent Acknowledged' },
+  kirito_command_received:{ icon: <MessageSquare className="w-3.5 h-3.5" />, severity: 'info',     label: 'Kirito Intake' },
+  kirito_command_classified:{ icon: <Bot className="w-3.5 h-3.5" />,         severity: 'info',     label: 'Kirito Routed' },
+  kirito_command_dispatching:{ icon: <ArrowRight className="w-3.5 h-3.5" />, severity: 'info',     label: 'Kirito Dispatching' },
+  kirito_command_dispatched:{ icon: <ArrowRight className="w-3.5 h-3.5" />,  severity: 'info',     label: 'Kirito Dispatched' },
+  kirito_command_local_action:{ icon: <Globe className="w-3.5 h-3.5" />,     severity: 'info',     label: 'Kirito Local Action' },
+  kirito_command_queued:   { icon: <Activity className="w-3.5 h-3.5" />,      severity: 'info',     label: 'Kirito Queued' },
+  kirito_command_running:  { icon: <Activity className="w-3.5 h-3.5" />,      severity: 'info',     label: 'Kirito Running' },
+  kirito_command_awaiting_followup:{ icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning', label: 'Kirito Awaiting Follow-up' },
+  kirito_command_failed:   { icon: <AlertCircle className="w-3.5 h-3.5" />,   severity: 'critical', label: 'Kirito Failed' },
+  kirito_command_completed:{ icon: <Zap className="w-3.5 h-3.5" />,          severity: 'success',  label: 'Kirito Completed' },
+  deerflow_cycle_started:  { icon: <Bot className="w-3.5 h-3.5" />,          severity: 'info',     label: 'DeerFlow Cycle Started' },
+  deerflow_cycle_completed:{ icon: <Zap className="w-3.5 h-3.5" />,          severity: 'success',  label: 'DeerFlow Cycle Completed' },
+  deerflow_paper_scan_started:{ icon: <FileText className="w-3.5 h-3.5" />,  severity: 'info',     label: 'DeerFlow Paper Scan' },
+  deerflow_paper_scan_completed:{ icon: <Zap className="w-3.5 h-3.5" />,     severity: 'success',  label: 'DeerFlow Papers Ready' },
+  deerflow_repo_scan_started:{ icon: <Globe className="w-3.5 h-3.5" />,      severity: 'info',     label: 'DeerFlow Repo Scan' },
+  deerflow_repo_scan_completed:{ icon: <Zap className="w-3.5 h-3.5" />,      severity: 'success',  label: 'DeerFlow Repos Ready' },
+  deerflow_daily_brief_started:{ icon: <FileText className="w-3.5 h-3.5" />, severity: 'info',     label: 'Daily Brief Running' },
+  deerflow_daily_brief_completed:{ icon: <Zap className="w-3.5 h-3.5" />,    severity: 'success',  label: 'Daily Brief Ready' },
   payment_received:       { icon: <CreditCard className="w-3.5 h-3.5" />,    severity: 'success',  label: 'Payment Received' },
   invoice_sent:           { icon: <FileText className="w-3.5 h-3.5" />,      severity: 'info',     label: 'Invoice Sent' },
   pipeline_error:         { icon: <AlertCircle className="w-3.5 h-3.5" />,   severity: 'critical', label: 'Pipeline Error' },
@@ -55,6 +73,98 @@ const SEVERITY_STYLES: Record<Severity, { border: string; glow: string; text: st
 }
 
 const SEVERITY_FILTERS: Severity[] = ['critical', 'warning', 'info', 'success']
+const PRIORITY_PAYLOAD_KEYS = [
+  'step',
+  'spans',
+  'risk',
+  'executor',
+  'target_agent',
+  'task_type',
+  'capability',
+  'dispatch_mode',
+  'task_id',
+  'result_summary',
+  'error',
+  'reasoning',
+]
+
+function humanizeSignal(value: string) {
+  return value.replace(/_/g, ' ')
+}
+
+function titleCaseSignal(value: string) {
+  return humanizeSignal(value)
+    .split(' ')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatPayloadValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => formatPayloadValue(item))
+      .filter(Boolean)
+      .join(', ')
+  }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
+
+function getEventConfig(eventType: string) {
+  const direct = EVENT_CONFIG[eventType]
+  if (direct) {
+    return direct
+  }
+
+  if (eventType.startsWith('kirito_command_')) {
+    const lifecycle = eventType.replace('kirito_command_', '')
+    const lifecycleLabels: Record<string, { icon: React.ReactNode; severity: Severity; label: string }> = {
+      intake: { icon: <MessageSquare className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Intake' },
+      received: { icon: <MessageSquare className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Intake' },
+      classified: { icon: <Bot className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Routed' },
+      routed: { icon: <Bot className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Routed' },
+      dispatching: { icon: <ArrowRight className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Dispatching' },
+      dispatched: { icon: <ArrowRight className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Dispatched' },
+      queued: { icon: <Activity className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Queued' },
+      running: { icon: <Activity className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Running' },
+      local_action: { icon: <Globe className="w-3.5 h-3.5" />, severity: 'info', label: 'Kirito Local Action' },
+      awaiting_followup: { icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning', label: 'Kirito Awaiting Follow-up' },
+      awaiting_review: { icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning', label: 'Kirito Awaiting Review' },
+      completed: { icon: <Zap className="w-3.5 h-3.5" />, severity: 'success', label: 'Kirito Completed' },
+      failed: { icon: <AlertCircle className="w-3.5 h-3.5" />, severity: 'critical', label: 'Kirito Failed' },
+      retry: { icon: <AlertTriangle className="w-3.5 h-3.5" />, severity: 'warning', label: 'Kirito Retry' },
+    }
+
+    if (lifecycleLabels[lifecycle]) {
+      return lifecycleLabels[lifecycle]
+    }
+  }
+
+  return {
+    icon: <Activity className="w-3.5 h-3.5" />,
+    severity: 'info' as Severity,
+    label: titleCaseSignal(eventType),
+  }
+}
+
+function summarizePayload(payload: Record<string, unknown>) {
+  const entries = Object.entries(payload)
+  const prioritized = PRIORITY_PAYLOAD_KEYS.flatMap((key) => {
+    if (!(key in payload)) {
+      return []
+    }
+    return [[key, payload[key]] as const]
+  })
+  const remaining = entries.filter(([key]) => !PRIORITY_PAYLOAD_KEYS.includes(key))
+
+  return [...prioritized, ...remaining]
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${formatPayloadValue(value).slice(0, 30)}`)
+    .join(' • ')
+}
 
 function getRelativeTime(dateString: string | null): string {
   if (!dateString) return ''
@@ -85,7 +195,7 @@ export function SignalLedger({ events }: SignalLedgerProps) {
 
   const filteredEvents = useMemo(() => {
     return events.filter(e => {
-      const config = EVENT_CONFIG[e.event_type]
+      const config = getEventConfig(e.event_type)
       const severity = config?.severity ?? 'info'
       return activeSeverity.has(severity)
     })
@@ -152,11 +262,7 @@ export function SignalLedger({ events }: SignalLedgerProps) {
           ) : (
             <AnimatedList delay={400} className="gap-2">
               {filteredEvents.map((event) => {
-                const config = EVENT_CONFIG[event.event_type] ?? {
-                  icon: <Activity className="w-3.5 h-3.5" />,
-                  severity: 'info' as Severity,
-                  label: event.event_type.replace(/_/g, ' '),
-                }
+                const config = getEventConfig(event.event_type)
                 const styles = SEVERITY_STYLES[config.severity]
                 const isCritical = config.severity === 'critical' || config.severity === 'warning'
 
@@ -178,10 +284,7 @@ export function SignalLedger({ events }: SignalLedgerProps) {
                     {/* Payload summary */}
                     {event.payload && Object.keys(event.payload).length > 0 && (
                       <div className="mt-1.5 text-[11px] text-muted-foreground truncate">
-                        {Object.entries(event.payload)
-                          .slice(0, 3)
-                          .map(([k, v]) => `${k}: ${String(v).slice(0, 30)}`)
-                          .join(' • ')}
+                        {summarizePayload(event.payload)}
                       </div>
                     )}
                   </div>

@@ -312,12 +312,16 @@ class ClawdBotDaemon(AgentBase):
 
     async def health_check(self) -> dict:
         skills = list_installed_skills()
+        from clawdbot.browser_use_sidecar import browser_use_health
+
+        browser_use = await browser_use_health()
         return {
             "agent": self.name,
             "status": "running" if self._running else "stopped",
             "skills_available": len(skills),
             "managed_agents": len(self._agent_mesh),
             "runtime_capabilities": self._runtime_capabilities,
+            "browser_use": browser_use,
         }
 
     async def _bootstrap_runtime_capabilities(self, *, force: bool = False):
@@ -328,6 +332,7 @@ class ClawdBotDaemon(AgentBase):
         self._last_capability_refresh = now
         await self._ensure_agent_mesh()
         await self._resolve_bootstrap_capabilities()
+        await self._record_browser_use_runtime()
 
     async def _ensure_agent_mesh(self):
         try:
@@ -400,6 +405,29 @@ class ClawdBotDaemon(AgentBase):
             "managed_agents": [agent["name"] for agent in self._agent_mesh],
         }
         self._runtime_capabilities.update(runtime)
+        await db.set_config("clawdbot_capability_runtime", self._runtime_capabilities)
+
+    async def _record_browser_use_runtime(self):
+        from clawdbot.browser_use_sidecar import browser_use_health
+
+        try:
+            browser_use = await browser_use_health()
+        except Exception as exc:
+            browser_use = {
+                "enabled": False,
+                "status": "error",
+                "error": str(exc)[:200],
+            }
+
+        self._runtime_capabilities["browser_use_sidecar"] = {
+            "capability": "browser_use_sidecar",
+            "configured": bool(browser_use.get("enabled")),
+            "resolved": browser_use.get("status") == "ready",
+            "method": "http_sidecar",
+            "session": browser_use.get("session", ""),
+            "base_url": browser_use.get("base_url", ""),
+            "status": browser_use.get("status", "unknown"),
+        }
         await db.set_config("clawdbot_capability_runtime", self._runtime_capabilities)
 
     async def _execute_with_brain(self, task_type: str, payload: dict, default_handler) -> dict | None:
@@ -1088,6 +1116,35 @@ async def handle_browser_task(payload: dict):
             return await handle_web_scrape(payload)
 
     raise ValueError("No browser skill available and could not be resolved")
+
+
+async def handle_browser_flow(payload: dict):
+    """Run a browser_flow task through the live browser-use sidecar first."""
+    from clawdbot.browser_use_sidecar import browser_use_enabled, run_browser_flow
+
+    if browser_use_enabled():
+        try:
+            result = await run_browser_flow(payload)
+            await db.emit_event("browser_result", {
+                "result": str(result)[:2000],
+                "request_id": payload.get("request_id", ""),
+                "executor": "browser_use",
+                "mode": "browser_flow",
+            })
+            if isinstance(result, dict):
+                result.setdefault("executor", "browser_use")
+                result.setdefault("mode", "browser_flow")
+            return result
+        except Exception as exc:
+            logger.warning("browser-use browser_flow failed, falling back: %s", exc)
+
+    fallback_payload = dict(payload)
+    fallback_payload["mode"] = "browser_flow"
+    result = await handle_browser_task(fallback_payload)
+    if isinstance(result, dict):
+        result.setdefault("executor", "browser_use_fallback")
+        result.setdefault("mode", "browser_flow")
+    return result
 
 
 async def handle_agent_orchestration(payload: dict):
@@ -1854,6 +1911,7 @@ TASK_HANDLERS = {
     "verify_single_site": handle_site_verify,
     "verify_demo_site": handle_verify_demo_site,
     "browser_task": handle_browser_task,
+    "browser_flow": handle_browser_flow,
     "enrich_lead": handle_enrich_lead,
     "service_signup": handle_service_signup,
     "voice_call": handle_voice_call,

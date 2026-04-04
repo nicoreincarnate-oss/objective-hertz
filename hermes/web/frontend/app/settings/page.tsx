@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 const API_KEYS = [
   // AI & Models
   { id: 'anthropic', label: 'Claude / Anthropic', env: 'ANTHROPIC_API_KEY', required: true, category: 'ai', placeholder: 'sk-ant-...' },
+  { id: 'elevenlabs_api', label: 'ElevenLabs API Key', env: 'ELEVENLABS_API_KEY', required: false, category: 'ai', placeholder: 'sk_...' },
+  { id: 'elevenlabs_agent', label: 'ElevenLabs Agent ID', env: 'ELEVENLABS_AGENT_ID', required: false, category: 'ai', placeholder: 'agent_...' },
   { id: 'kling_access', label: 'Kling AI (Access Key)', env: 'KLING_ACCESS_KEY', required: false, category: 'ai', placeholder: 'Access key...' },
   { id: 'kling_secret', label: 'Kling AI (Secret Key)', env: 'KLING_SECRET_KEY', required: false, category: 'ai', placeholder: 'Secret key...' },
   { id: 'recraft', label: 'Recraft AI (Images)', env: 'RECRAFT_API_KEY', required: false, category: 'ai', placeholder: 'rc_...' },

@@ -28,6 +28,7 @@ const AGENTS = [
   { id: 'titan', name: 'Titan', role: 'Revenue Engine', icon: Bot, color: '#39f3e2', avatar: '/assets/generated/agents/titan.svg' },
   { id: 'clawdbot', name: 'ClawdBot', role: 'Site Builder', icon: Shield, color: '#62f1b5', avatar: '/assets/generated/agents/clawdbot.svg' },
   { id: 'hermes', name: 'Hermes', role: 'Alerts / Comms', icon: Radio, color: '#ffb347', avatar: '/assets/generated/agents/hermes.svg' },
+  { id: 'deerflow_research', name: 'DeerFlow', role: 'Continuous R&D', icon: Bot, color: '#b794ff', avatar: '/assets/generated/agents/hermes.svg' },
 ]
 
 const PRIORITIES = [

@@ -12,6 +12,7 @@ const DAEMON_META: Record<string, { label: string; color: string; icon: string }
   titan: { label: 'Titan', color: '#39f3e2', icon: '/assets/generated/agents/titan.png' },
   clawdbot: { label: 'ClawdBot', color: '#62f1b5', icon: '/assets/generated/agents/clawdbot.png' },
   hermes: { label: 'Hermes', color: '#ffb347', icon: '/assets/generated/agents/hermes.png' },
+  deerflow_research: { label: 'DeerFlow', color: '#b794ff', icon: '/assets/generated/agents/hermes.png' },
 }
 
 function getHeartbeatStatus(lastHeartbeat: string | null): 'green' | 'amber' | 'red' {

@@ -372,6 +372,8 @@ async def _send_telegram(message: str) -> bool:
 
 async def send_morning_briefing() -> bool:
     """Send the daily morning briefing to Nico."""
+    from pathlib import Path
+
     from shared.db import fetch_val
 
     total_leads = await fetch_val("SELECT COUNT(*) FROM clients") or 0
@@ -413,6 +415,19 @@ async def send_morning_briefing() -> bool:
     except Exception:
         pass
 
+    deerflow_section = ""
+    try:
+        brief_dir = Path(__file__).resolve().parents[2] / "output" / "deerflow" / "daily"
+        latest_brief = sorted(brief_dir.glob("*-daily-evolution-brief.md"))[-1] if brief_dir.exists() else None
+        if latest_brief is not None:
+            deerflow_section = (
+                f"\n*DeerFlow (24h):*\n"
+                f"  Latest brief: {latest_brief.name}\n"
+                f"  Path: {latest_brief}\n"
+            )
+    except Exception:
+        pass
+
     message = (
         f"*Good morning, Nico!*\n\n"
         f"*Yesterday:*\n"
@@ -422,6 +437,7 @@ async def send_morning_briefing() -> bool:
         f"*Revenue:* ${revenue:.2f}\n"
         f"*Pending review:* {pending_review}\n"
         f"{ruflo_section}\n"
+        f"{deerflow_section}\n"
         f"_Perseus is running. Titan is working._"
     )
 

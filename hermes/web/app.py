@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 from decimal import Decimal
 import hmac
+import httpx
 import json
 import logging
 import os
@@ -30,6 +31,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, StreamingResponse
 
+from hermes.web.kirito_router import route_kirito_command
+from hermes.web.kirito_runtime import build_status_graph, normalize_dispatch_plan, serialize_route_plan
 from hermes.web.operator_chat import create_operator_dispatch
 from hermes.web.presenter import build_dashboard_view_model
 from shared import db
@@ -832,6 +835,8 @@ _CONFIG_ALLOWLIST = {
 _API_KEY_REGISTRY = {
     # AI & Models
     "anthropic": {"env": "ANTHROPIC_API_KEY", "label": "Claude / Anthropic", "required": True, "category": "ai"},
+    "elevenlabs_api": {"env": "ELEVENLABS_API_KEY", "label": "ElevenLabs API Key", "required": False, "category": "ai"},
+    "elevenlabs_agent": {"env": "ELEVENLABS_AGENT_ID", "label": "ElevenLabs Agent ID", "required": False, "category": "ai"},
     "kling_access": {"env": "KLING_ACCESS_KEY", "label": "Kling AI (Access Key)", "required": False, "category": "ai"},
     "kling_secret": {"env": "KLING_SECRET_KEY", "label": "Kling AI (Secret Key)", "required": False, "category": "ai"},
     "recraft": {"env": "RECRAFT_API_KEY", "label": "Recraft AI (Images)", "required": False, "category": "ai"},
@@ -870,6 +875,130 @@ _API_KEY_REGISTRY = {
     "conway_api": {"env": "CONWAY_API_KEY", "label": "Conway API Key", "required": False, "category": "crypto"},
     "base_rpc": {"env": "BASE_RPC_URL", "label": "Base L2 RPC URL", "required": False, "category": "crypto"},
 }
+
+
+async def _get_managed_key_value(key_id: str) -> str:
+    """Resolve a dashboard-managed key from DB override first, then env."""
+    meta = _API_KEY_REGISTRY.get(key_id)
+    if not meta:
+        return ""
+
+    db_val = await get_config(f"api_key_{key_id}", None)
+    if db_val:
+        return str(db_val).strip()
+
+    return os.environ.get(meta["env"], "").strip()
+
+
+def _format_payload_brief(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+
+    message = str(payload.get("message") or "").strip()
+    if message:
+        return message[:140]
+
+    summary_parts = []
+    for key in ("target_agent", "intent", "goal", "topic", "subject", "source"):
+        value = payload.get(key)
+        if value:
+            summary_parts.append(f"{key}={value}")
+    return ", ".join(summary_parts)[:140]
+
+
+async def _build_kirito_contextual_update() -> tuple[str, dict]:
+    daemon_rows = await fetch_all(
+        "SELECT agent_name, status, last_heartbeat FROM agent_registry ORDER BY agent_name"
+    )
+    tasks = await fetch_all(
+        "SELECT task_type, payload, priority, status, created_at "
+        "FROM task_queue ORDER BY created_at DESC LIMIT 6"
+    )
+    events = await fetch_all(
+        "SELECT event_type, payload, created_at FROM events ORDER BY created_at DESC LIMIT 6"
+    )
+
+    try:
+        from shared.governance import _enabled, get_pending_approvals
+
+        pending_approvals = await get_pending_approvals() if _enabled() else []
+    except Exception:
+        pending_approvals = []
+
+    daemon_snapshot = []
+    for row in daemon_rows:
+        name = row.get("agent_name", "unknown")
+        paused = await get_config(f"{name}_paused", False)
+        daemon_snapshot.append({
+            "name": name,
+            "status": row.get("status", "unknown"),
+            "paused": bool(paused),
+            "last_heartbeat": str(row["last_heartbeat"]) if row.get("last_heartbeat") else None,
+        })
+
+    task_snapshot = []
+    for row in tasks:
+        payload = row.get("payload", {})
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        task_snapshot.append({
+            "task_type": row.get("task_type", "task"),
+            "status": row.get("status", "unknown"),
+            "priority": row.get("priority", 5),
+            "created_at": str(row["created_at"]) if row.get("created_at") else None,
+            "brief": _format_payload_brief(payload),
+        })
+
+    event_snapshot = []
+    for row in events:
+        payload = row.get("payload", {})
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        event_snapshot.append({
+            "event_type": row.get("event_type", "event"),
+            "created_at": str(row["created_at"]) if row.get("created_at") else None,
+            "brief": _format_payload_brief(payload),
+        })
+
+    daemon_line = ", ".join(
+        f"{daemon['name']}={daemon['status']}{' paused' if daemon['paused'] else ''}"
+        for daemon in daemon_snapshot
+    ) or "no daemon telemetry"
+    task_line = "; ".join(
+        f"{task['task_type']} [{task['status']}/p{task['priority']}]"
+        + (f" — {task['brief']}" if task["brief"] else "")
+        for task in task_snapshot[:4]
+    ) or "no queued tasks"
+    event_line = "; ".join(
+        f"{event['event_type']}"
+        + (f" — {event['brief']}" if event["brief"] else "")
+        for event in event_snapshot[:4]
+    ) or "no recent events"
+
+    contextual_update = (
+        "Operational context update for Hermes inside PERSEUS. "
+        "You are speaking with Kirito's voice and persona, but you are acting as Hermes: "
+        "the operator-facing research, coordination, and strategy assistant for Objective Hertz. "
+        "Use your ElevenLabs knowledge bases for Kirito, the operator, and meat, then blend in this live system brief. "
+        "Do not announce that you received a hidden system update unless the operator explicitly asks.\n\n"
+        f"Daemon posture: {daemon_line}.\n"
+        f"Pending approvals: {len(pending_approvals)}.\n"
+        f"Recent tasks: {task_line}.\n"
+        f"Recent events: {event_line}."
+    )
+
+    return contextual_update, {
+        "daemons": daemon_snapshot,
+        "tasks": task_snapshot,
+        "events": event_snapshot,
+        "pending_approvals": len(pending_approvals),
+    }
 
 
 @app.get("/api/config")
@@ -1073,7 +1202,7 @@ async def api_daemons():
 @app.post("/api/daemons/{name}/action")
 async def api_daemon_action(name: str, request: Request):
     """Pause/resume a daemon via config flag."""
-    valid_daemons = {"perseus", "titan", "hermes", "clawdbot"}
+    valid_daemons = {"perseus", "titan", "hermes", "clawdbot", "deerflow_research"}
     if name not in valid_daemons:
         return JSONResponse({"error": f"Unknown daemon: {name}"}, status_code=400)
 
@@ -1387,6 +1516,571 @@ async def api_keys_list():
             "source": "dashboard" if db_val else ("env" if env_val else "none"),
         }
     return JSONResponse(result)
+
+
+@app.get("/api/voice/elevenlabs/context")
+async def kirito_voice_context():
+    """Build a compact live Hermes brief for Kirito voice sessions."""
+    contextual_update, snapshot = await _build_kirito_contextual_update()
+    return JSONResponse({
+        "contextual_update": contextual_update,
+        "snapshot": snapshot,
+    })
+
+
+@app.get("/api/voice/elevenlabs/session")
+async def kirito_voice_session():
+    """Create a private ElevenLabs conversation token plus live Hermes context."""
+    api_key = await _get_managed_key_value("elevenlabs_api")
+    agent_id = await _get_managed_key_value("elevenlabs_agent")
+
+    if not api_key or not agent_id:
+        return JSONResponse(
+            {
+                "error": "Kirito voice is not configured. Add ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID in War Room Settings."
+            },
+            status_code=503,
+        )
+
+    contextual_update, snapshot = await _build_kirito_contextual_update()
+
+    url = f"https://api.elevenlabs.io/v1/convai/conversation/token?agent_id={quote(agent_id)}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(url, headers={"xi-api-key": api_key})
+
+    if response.status_code >= 400:
+        detail = response.text[:300]
+        logger.error(
+            "ElevenLabs conversation token request failed: status=%s detail=%s",
+            response.status_code,
+            detail,
+        )
+        return JSONResponse(
+            {"error": "Failed to create ElevenLabs conversation token.", "detail": detail},
+            status_code=502,
+        )
+
+    body = response.json()
+    token = str(body.get("token") or "").strip()
+    if not token:
+        return JSONResponse(
+            {"error": "ElevenLabs token response was empty."},
+            status_code=502,
+        )
+
+    return JSONResponse(
+        {
+            "agent_id": agent_id,
+            "conversation_token": token,
+            "contextual_update": contextual_update,
+            "dynamic_variables": {
+                "assistant_identity": "Hermes speaking through Kirito",
+                "operator_surface": "PERSEUS War Room desktop buddy",
+            },
+            "user_id": "perseus-operator",
+            "snapshot": snapshot,
+        }
+    )
+
+
+@app.post("/api/kirito/command")
+async def api_kirito_command(request: Request):
+    """Route a Kirito/Hermes operator command to the best execution lane."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    text = " ".join(str(body.get("text", "")).strip().split())
+    if not text:
+        return JSONResponse({"error": "text is required"}, status_code=400)
+
+    source = str(body.get("source", "kirito_ui") or "kirito_ui")
+    mode = str(body.get("mode", "text") or "text")
+    conversation_id = str(body.get("conversation_id", "") or "")
+    context = body.get("context", {})
+    if not isinstance(context, dict):
+        context = {}
+
+    request_id = str(body.get("request_id") or secrets.token_hex(8))
+    autonomy_mode = str(body.get("autonomy_mode", "full") or "full")
+    auth_context = body.get("auth_context", {})
+    if not isinstance(auth_context, dict):
+        auth_context = {}
+    active_surface = str(body.get("active_surface", "") or "")
+
+    plan = route_kirito_command(
+        text,
+        context={
+            **context,
+            "autonomy_mode": autonomy_mode,
+            "auth_context": auth_context,
+            "active_surface": active_surface,
+        },
+    )
+    plan_payload = normalize_dispatch_plan(serialize_route_plan(plan))
+    dispatch_mode = (
+        "local_action"
+        if plan_payload["local_action"]
+        else "capability"
+        if plan_payload["target_agent"] in {"hermes", "orchestrator", "system_executor", "deerflow_research"} or plan_payload["capability"] in {
+            "ask",
+            "operator_command",
+            "briefing_custom",
+            "desktop_control",
+            "desktop_exec",
+            "system_action",
+            "screen_context",
+            "auth_checkpoint",
+            "evolution_research_cycle",
+            "paper_scan",
+            "repo_scan",
+            "daily_evolution_brief",
+        }
+        else "task_queue"
+    )
+
+    await emit_event(
+        "kirito_command_received",
+        {
+            "request_id": request_id,
+            "step": "received",
+            "spans": ["kirito", "intake"],
+            "executor": "hermes",
+            "risk": "low",
+            "text": text,
+            "source": source,
+            "mode": mode,
+            "conversation_id": conversation_id,
+            "autonomy_mode": autonomy_mode,
+            "result_summary": f"Received operator request: {text[:120]}",
+            "sender": "hermes",
+        },
+    )
+    await emit_event(
+        "kirito_command_classified",
+        {
+            "request_id": request_id,
+            "step": "classified",
+            "spans": ["kirito", "routing", str(plan_payload["domain"])],
+            "executor": plan_payload["executor"],
+            "risk": plan_payload["risk_class"],
+            "intent": plan_payload["intent"],
+            "task_type": plan_payload["task_type"],
+            "capability": plan_payload["capability"],
+            "target_agent": plan_payload["target_agent"],
+            "confidence": plan_payload["confidence"],
+            "reasoning": plan_payload["rationale"],
+            "domain": plan_payload["domain"],
+            "selected_executor": plan_payload["executor"],
+            "risk_class": plan_payload["risk_class"],
+            "capability_family": plan_payload["capability_family"],
+            "result_summary": str(plan_payload["rationale"])[:180],
+            "sender": "hermes",
+        },
+    )
+    await emit_event(
+        "kirito_command_planned",
+        {
+            "request_id": request_id,
+            "step": "planned",
+            "spans": ["kirito", "plan", str(plan_payload["domain"])],
+            "executor": plan_payload["executor"],
+            "risk": plan_payload["risk_class"],
+            "intent": plan_payload["intent"],
+            "domain": plan_payload["domain"],
+            "selected_executor": plan_payload["executor"],
+            "executor_kind": plan_payload["executor_kind"],
+            "target_agent": plan_payload["target_agent"],
+            "task_type": plan_payload["task_type"],
+            "capability": plan_payload["capability"],
+            "risk_class": plan_payload["risk_class"],
+            "visibility_mode": plan_payload["visibility_mode"],
+            "supports_auth": plan_payload["supports_auth"],
+            "supports_full_autonomy": plan_payload["supports_full_autonomy"],
+            "fallback_executor": plan_payload["fallback_executor"],
+            "result_summary": f"Planned {plan_payload['task_type']} via {plan_payload['executor']}.",
+            "sender": "hermes",
+        },
+    )
+
+    try:
+        from shared.comms import call_agent_capability, record_decision, request_task
+
+        await record_decision(
+            agent="hermes",
+            decision_type="kirito_command_route",
+            context={
+                "request_id": request_id,
+                "source": source,
+                "mode": mode,
+                "conversation_id": conversation_id,
+                "autonomy_mode": autonomy_mode,
+                "context": context,
+            },
+            decision=plan_payload,
+            reasoning=str(plan_payload["rationale"]),
+        )
+
+        dispatch: dict[str, object] = {
+            "status": "accepted",
+            "dispatch_mode": dispatch_mode,
+            "target_agent": plan_payload["target_agent"],
+            "task_type": plan_payload["task_type"],
+            "capability": plan_payload["capability"],
+            "selected_executor": plan_payload["executor"],
+            "risk_class": plan_payload["risk_class"],
+            "visibility_mode": plan_payload["visibility_mode"],
+        }
+
+        local_action = None
+        if plan_payload["local_action"]:
+            dashboard = str((plan_payload.get("payload") or {}).get("dashboard", "main") or "main")
+            target = "/"
+            if dashboard in {"sales", "pipeline"}:
+                target = "/pipeline"
+            elif dashboard in {"autopilot", "approvals"}:
+                target = "/autopilot"
+            local_action = {
+                "action": "open_dashboard",
+                "target": target,
+            }
+            await emit_event(
+                "kirito_command_local_action",
+                {
+                    "request_id": request_id,
+                    "step": "local_action",
+                    "spans": ["kirito", "local_action", "desktop"],
+                    "executor": "desktop.local_action",
+                    "risk": "low",
+                    "action": "open_dashboard",
+                    "target": target,
+                    "selected_executor": "desktop.local_action",
+                    "result_summary": f"Prepared local dashboard action for {target}.",
+                    "sender": "hermes",
+                },
+            )
+
+        payload = {
+            **(plan_payload.get("payload") or {}),
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+            "source": source,
+            "mode": mode,
+            "autonomy_mode": autonomy_mode,
+            "auth_context": auth_context,
+            "active_surface": active_surface,
+            "context": context,
+        }
+
+        if dispatch_mode == "task_queue" and plan_payload["task_type"]:
+            task_id = await request_task(str(plan_payload["task_type"]), payload, priority=3, dedupe=False)
+            dispatch["task_id"] = task_id
+            await emit_event(
+                "kirito_command_dispatched",
+                {
+                    "request_id": request_id,
+                    "step": "dispatched",
+                    "spans": ["kirito", "dispatch", str(plan_payload["domain"])],
+                    "executor": plan_payload["executor"],
+                    "risk": plan_payload["risk_class"],
+                    "task_id": task_id,
+                    "target_agent": plan_payload["target_agent"],
+                    "task_type": plan_payload["task_type"],
+                    "dispatch_mode": "task_queue",
+                    "selected_executor": plan_payload["executor"],
+                    "risk_class": plan_payload["risk_class"],
+                    "result_summary": f"Queued {plan_payload['task_type']} for {plan_payload['target_agent']}.",
+                    "sender": "hermes",
+                },
+            )
+        elif dispatch_mode == "capability" and plan_payload["capability"]:
+            await emit_event(
+                "executor_tool_started",
+                {
+                    "request_id": request_id,
+                    "step": "running",
+                    "spans": ["executor", str(plan_payload["executor"]), str(plan_payload["task_type"])],
+                    "executor": plan_payload["executor"],
+                    "risk": plan_payload["risk_class"],
+                    "selected_executor": plan_payload["executor"],
+                    "target_agent": plan_payload["target_agent"],
+                    "task_type": plan_payload["task_type"],
+                    "capability": plan_payload["capability"],
+                    "result_summary": f"Started {plan_payload['capability']} on {plan_payload['target_agent']}.",
+                    "sender": "hermes",
+                },
+            )
+            result = await call_agent_capability(
+                str(plan_payload["target_agent"]),
+                str(plan_payload["capability"]),
+                payload,
+                timeout=90,
+            )
+            if not result or result.get("error"):
+                detail = str((result or {}).get("error", "dispatch failed"))
+                await emit_event(
+                    "kirito_command_failed",
+                    {
+                        "request_id": request_id,
+                        "step": "failed",
+                        "spans": ["kirito", "dispatch", "failed"],
+                        "executor": plan_payload["executor"],
+                        "risk": plan_payload["risk_class"],
+                        "error": detail,
+                        "stage": "dispatch",
+                        "selected_executor": plan_payload["executor"],
+                        "result_summary": detail[:180],
+                        "sender": "hermes",
+                    },
+                )
+                return JSONResponse(
+                    {
+                        "accepted": False,
+                        "request_id": request_id,
+                        "classification": {
+                            "intent": plan_payload["intent"],
+                            "task_type": plan_payload["task_type"],
+                            "capability": plan_payload["capability"],
+                            "target_agent": plan_payload["target_agent"],
+                            "route": dispatch_mode,
+                            "confidence": plan_payload["confidence"],
+                            "domain": plan_payload["domain"],
+                            "selected_executor": plan_payload["executor"],
+                            "risk_class": plan_payload["risk_class"],
+                        },
+                        "error": detail,
+                    },
+                    status_code=502,
+                )
+
+            task_id = str(result.get("task_id") or f"a2a_{request_id}:accepted")
+            dispatch["task_id"] = task_id
+            dispatch["result"] = result
+            if isinstance(result, dict) and result.get("status") in {"auth_wait", "needs_auth"}:
+                await emit_event(
+                    "executor_auth_wait",
+                    {
+                        "request_id": request_id,
+                        "step": "awaiting_followup",
+                        "spans": ["executor", str(plan_payload["executor"]), "auth_wait"],
+                        "executor": plan_payload["executor"],
+                        "risk": plan_payload["risk_class"],
+                        "selected_executor": plan_payload["executor"],
+                        "target_agent": plan_payload["target_agent"],
+                        "reason": result.get("message") or result.get("reason") or "Authentication required",
+                        "channel": result.get("channel") or result.get("provider") or "auth",
+                        "result_summary": str(result.get("message") or result.get("reason") or "Authentication required")[:180],
+                        "sender": "hermes",
+                    },
+                )
+            await emit_event(
+                "kirito_command_dispatched",
+                {
+                    "request_id": request_id,
+                    "step": "dispatched",
+                    "spans": ["kirito", "dispatch", str(plan_payload["domain"])],
+                    "executor": plan_payload["executor"],
+                    "risk": plan_payload["risk_class"],
+                    "task_id": task_id,
+                    "target_agent": plan_payload["target_agent"],
+                    "task_type": plan_payload["task_type"],
+                    "capability": plan_payload["capability"],
+                    "dispatch_mode": "a2a_capability",
+                    "selected_executor": plan_payload["executor"],
+                    "risk_class": plan_payload["risk_class"],
+                    "result_summary": f"Dispatched {plan_payload['capability']} to {plan_payload['target_agent']}.",
+                    "sender": "hermes",
+                },
+            )
+            await emit_event(
+                "executor_tool_finished",
+                {
+                    "request_id": request_id,
+                    "step": "completed" if str(result.get("status") or "completed") not in {"auth_wait", "needs_auth"} else "awaiting_followup",
+                    "spans": ["executor", str(plan_payload["executor"]), str(plan_payload["task_type"])],
+                    "executor": plan_payload["executor"],
+                    "risk": plan_payload["risk_class"],
+                    "target_agent": plan_payload["target_agent"],
+                    "task_id": task_id,
+                    "selected_executor": plan_payload["executor"],
+                    "status": str(result.get("status") or "completed"),
+                    "result_summary": str(result.get("status") or result.get("answer") or "accepted")[:180],
+                    "artifacts": result.get("artifacts") if isinstance(result.get("artifacts"), list) else [],
+                    "replay_url": result.get("replay_url"),
+                    "sender": "hermes",
+                },
+            )
+            if not (isinstance(result, dict) and result.get("status") in {"auth_wait", "needs_auth"}):
+                await emit_event(
+                    "kirito_command_completed",
+                    {
+                        "request_id": request_id,
+                        "step": "completed",
+                        "spans": ["kirito", "completed", str(plan_payload["domain"])],
+                        "executor": plan_payload["executor"],
+                        "risk": plan_payload["risk_class"],
+                        "target_agent": plan_payload["target_agent"],
+                        "task_id": task_id,
+                        "selected_executor": plan_payload["executor"],
+                        "result_summary": str(result.get("status") or result.get("answer") or "accepted")[:180],
+                        "sender": "hermes",
+                    },
+                )
+        else:
+            dispatch["status"] = "local_action_only"
+            await emit_event(
+                "kirito_command_completed",
+                {
+                    "request_id": request_id,
+                    "step": "completed",
+                    "spans": ["kirito", "completed", "desktop"],
+                    "executor": "desktop.local_action",
+                    "risk": "low",
+                    "target_agent": "desktop",
+                    "task_id": None,
+                    "selected_executor": "desktop.local_action",
+                    "result_summary": "Local action prepared for desktop execution.",
+                    "sender": "hermes",
+                },
+            )
+
+        return JSONResponse(
+            {
+                "accepted": True,
+                "request_id": request_id,
+                "status_url": f"/api/kirito/command/status?command_id={request_id}",
+                "selected_executor": plan_payload["executor"],
+                "risk_class": plan_payload["risk_class"],
+                "plan": plan_payload,
+                "classification": {
+                    "intent": plan_payload["intent"],
+                    "task_type": plan_payload["task_type"],
+                    "capability": plan_payload["capability"],
+                    "target_agent": plan_payload["target_agent"],
+                    "route": dispatch_mode,
+                    "confidence": plan_payload["confidence"],
+                    "reasoning": plan_payload["rationale"],
+                    "requires_followup": plan_payload["requires_followup"],
+                    "followup_question": plan_payload["followup_question"],
+                    "domain": plan_payload["domain"],
+                    "selected_executor": plan_payload["executor"],
+                    "risk_class": plan_payload["risk_class"],
+                    "capability_family": plan_payload["capability_family"],
+                },
+                "dispatch": dispatch,
+                "local_action": local_action,
+                "preview": {
+                    "summary": plan_payload["rationale"],
+                },
+            }
+        )
+    except Exception as exc:
+        logger.exception("Kirito command dispatch failed")
+        await emit_event(
+            "kirito_command_failed",
+            {
+                "request_id": request_id,
+                "step": "failed",
+                "spans": ["kirito", "dispatch", "failed"],
+                "executor": plan_payload["executor"] if "plan_payload" in locals() else "hermes",
+                "risk": plan_payload["risk_class"] if "plan_payload" in locals() else "medium",
+                "error": str(exc),
+                "stage": "dispatch",
+                "result_summary": str(exc)[:180],
+                "sender": "hermes",
+            },
+        )
+        return JSONResponse(
+            {"accepted": False, "request_id": request_id, "error": str(exc)},
+            status_code=500,
+        )
+
+
+@app.get("/api/kirito/command/status")
+async def api_kirito_command_status(command_id: str = ""):
+    """Fetch recent Kirito command activity, optionally scoped to one request_id."""
+    normalized_id = command_id.strip()
+
+    if normalized_id:
+        event_rows = await fetch_all(
+            """SELECT id, event_type, payload, created_at
+               FROM events
+               WHERE (event_type LIKE 'kirito_command%%' OR event_type LIKE 'executor_%%')
+               AND payload::jsonb->>'request_id' = %s
+               ORDER BY created_at DESC LIMIT 12""",
+            (normalized_id,),
+        )
+        task_rows = await fetch_all(
+            """SELECT id, task_type, payload, priority, status, created_at, updated_at
+               FROM task_queue
+               WHERE payload::jsonb->>'request_id' = %s
+               ORDER BY created_at DESC LIMIT 6""",
+            (normalized_id,),
+        )
+    else:
+        event_rows = await fetch_all(
+            """SELECT id, event_type, payload, created_at
+               FROM events
+               WHERE event_type LIKE 'kirito_command%%' OR event_type LIKE 'executor_%%'
+               ORDER BY created_at DESC LIMIT 12"""
+        )
+        task_rows = await fetch_all(
+            """SELECT id, task_type, payload, priority, status, created_at, updated_at
+               FROM task_queue
+               WHERE payload::jsonb->>'source' LIKE 'kirito%%'
+               ORDER BY created_at DESC LIMIT 6"""
+        )
+
+    events = []
+    latest_request_id = normalized_id
+    for row in event_rows:
+        payload = row.get("payload", {})
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        if not latest_request_id:
+            latest_request_id = str(payload.get("request_id", "") or "")
+        events.append(
+            {
+                "id": row["id"],
+                "event_type": row["event_type"],
+                "payload": payload,
+                "created_at": str(row["created_at"]) if row.get("created_at") else None,
+            }
+        )
+
+    tasks = []
+    for row in task_rows:
+        payload = row.get("payload", {})
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        tasks.append(
+            {
+                "id": row["id"],
+                "task_type": row["task_type"],
+                "status": row["status"],
+                "priority": row.get("priority", 5),
+                "payload": payload,
+                "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                "updated_at": str(row["updated_at"]) if row.get("updated_at") else None,
+            }
+        )
+
+    return JSONResponse(
+        {
+            "command_id": latest_request_id,
+            "events": events,
+            "tasks": tasks,
+            "latest_event": events[0] if events else None,
+            **build_status_graph(events=events, tasks=tasks),
+        }
+    )
 
 
 @app.post("/api/keys")
