@@ -351,7 +351,13 @@ Examples:
 Return ONLY a JSON array. No explanation."""
 
         try:
-            result = await llm.generate(prompt, model="fast", max_tokens=2000, temperature=0.1)
+            result = await llm.generate(
+                prompt,
+                model="local-heavy",
+                max_tokens=2000,
+                temperature=0.1,
+                pipeline_stage="scout:evaluate_findings",
+            )
             start = result.find("[")
             end = result.rfind("]") + 1
             if start < 0 or end <= 0:
