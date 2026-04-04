@@ -62,6 +62,7 @@ TRANSITION_MATRIX: dict[AgentState, set[AgentState]] = {
         AgentState.IDLE,
         AgentState.PAUSED,
         AgentState.TERMINATED,
+        AgentState.EXECUTING,  # allow recovery: error -> claim next task
     },
     AgentState.TERMINATED: set(),  # terminal state — no transitions out
 }

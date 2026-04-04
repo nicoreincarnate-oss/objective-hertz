@@ -386,9 +386,13 @@ async def telemetry_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
 _ALERT_THRESHOLD = 0.8  # Downgrade Haiku at 80%
 
 
-def _get_budget_cap() -> float:
-    """Read budget cap from config, defaulting to $800."""
+async def _get_budget_cap() -> float:
+    """Read budget cap from DB config (operator-settable), falling back to env config then $800."""
     try:
+        from shared.db import get_config
+        db_cap = await get_config("monthly_budget_cap", None)
+        if db_cap is not None:
+            return float(db_cap)
         from shared.config import config
         return float(config.budget.monthly_cap)
     except Exception:
@@ -410,7 +414,7 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
     per-LLM-call model downgrade decisions (via ``requested_model`` in ctx).
     Fails CLOSED on DB error when consolidated flag is ON.
     """
-    cap = _get_budget_cap()
+    cap = await _get_budget_cap()
     stage_name = ctx.get("stage_name", "")
     daemon_name = ctx.get("daemon_name", "")
 
@@ -596,7 +600,7 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
             (month,),
         ) or 0
 
-        cap = _get_budget_cap()
+        cap = await _get_budget_cap()
         percent_used = float(total) / cap if cap > 0 else 1.0
 
         if percent_used >= 1.0:

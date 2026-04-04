@@ -99,6 +99,70 @@ async def _handle_magma_consolidate():
         logger.debug(f"MAGMA consolidation skipped: {e}")
 
 
+async def _handle_expire_stale_approvals():
+    """Auto-expire pending approvals older than their expires_at."""
+    try:
+        from shared.governance import auto_expire_stale
+        count = await auto_expire_stale()
+        if count:
+            logger.info("Expired %d stale approvals", count)
+    except (ImportError, Exception) as e:
+        logger.debug("expire_stale_approvals skipped: %s", e)
+
+
+async def _handle_collect_commit_metrics():
+    """Collect and record daily git commit metrics."""
+    try:
+        from tools.commit_metrics import collect_and_record
+        count = await collect_and_record(since_hours=24)
+        logger.info("Recorded %d commit metrics", count)
+    except (ImportError, Exception) as e:
+        logger.debug("collect_commit_metrics skipped: %s", e)
+
+
+async def _handle_wakeup_expire_stale():
+    """Expire stale wakeup requests."""
+    try:
+        from shared.wakeup_queue import WakeupQueue
+        queue = WakeupQueue()
+        count = await queue.expire_stale_requests()
+        if count:
+            logger.info("Expired %d stale wakeup requests", count)
+    except (ImportError, Exception) as e:
+        logger.debug("wakeup_expire_stale skipped: %s", e)
+
+
+async def _handle_wakeup_cleanup():
+    """Clean up old dispatched/expired wakeup requests."""
+    try:
+        from shared.wakeup_queue import WakeupQueue
+        queue = WakeupQueue()
+        count = await queue.cleanup_old_requests(older_than_hours=24)
+        if count:
+            logger.info("Cleaned up %d old wakeup requests", count)
+    except (ImportError, Exception) as e:
+        logger.debug("wakeup_cleanup skipped: %s", e)
+
+
+async def _handle_session_health_cleanup():
+    """Delete session_health rows older than 24h to prevent unbounded growth."""
+    try:
+        from shared import db
+        count = await db.fetch_val(
+            """WITH deleted AS (
+                   DELETE FROM session_health
+                   WHERE created_at < NOW() - INTERVAL '24 hours'
+                   RETURNING id
+               )
+               SELECT COUNT(*) FROM deleted"""
+        )
+        deleted = int(count) if count else 0
+        if deleted:
+            logger.info("Cleaned up %d stale session_health rows", deleted)
+    except Exception as e:
+        logger.debug("session_health_cleanup skipped: %s", e)
+
+
 async def _handle_operator_message(payload: dict):
     """Acknowledge an operator note routed from the War Room."""
     message = str(payload.get("message", "")).strip()
@@ -143,6 +207,14 @@ TASK_HANDLERS = {
     "graphrag_consolidation": graphrag_consolidation,
     "re_enrich_leads": re_enrich_active_leads,
     "magma_consolidate": _handle_magma_consolidate,
+    # Architecture additive (Phase 15)
+    "expire_stale_approvals": _handle_expire_stale_approvals,
+    "collect_commit_metrics": _handle_collect_commit_metrics,
+    # Event-driven wakeup (Phase 16)
+    "wakeup_expire_stale": _handle_wakeup_expire_stale,
+    "wakeup_cleanup": _handle_wakeup_cleanup,
+    # Session health (Phase 14)
+    "session_health_cleanup": _handle_session_health_cleanup,
 }
 
 

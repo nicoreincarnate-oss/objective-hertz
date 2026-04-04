@@ -42,6 +42,10 @@ SCHEDULES = [
     Schedule("deliverability_check", 1800, "Monitor deliverability and domain health", skippable=False),
     Schedule("sleep_cycle", 86400, "Nightly contrarian review — Opus debates system changes", skippable=False),
     Schedule("morning_briefing", 86400, "Morning briefing to Nico", skippable=False),
+    Schedule("evolution_research_cycle", 900, "Continuous DeerFlow research loop for system evolution", skippable=False, pipeline_stage="learning"),
+    Schedule("paper_scan", 3600, "Scan Stanford and arXiv for relevant new papers", skippable=False, pipeline_stage="learning"),
+    Schedule("repo_scan", 3600, "Scan trending and new GitHub repos relevant to Perseus", skippable=False, pipeline_stage="learning"),
+    Schedule("daily_evolution_brief", 86400, "Produce a 24-hour DeerFlow evolution brief", skippable=False, pipeline_stage="learning"),
     # Memory maintenance (DeerFlow Phase 3)
     Schedule("memory_cleanup", 86400, "Clean up expired daemon memories", skippable=False),
     # ClawdBot tasks
@@ -63,6 +67,8 @@ SCHEDULES = [
     # Event-driven wakeup maintenance (Phase 16)
     Schedule("wakeup_expire_stale", 300, "Expire stale wakeup requests", skippable=False),
     Schedule("wakeup_cleanup", 86400, "Clean up old dispatched/expired wakeup requests", skippable=True),
+    # Session health table cleanup (Phase 14) — prevents unbounded row growth
+    Schedule("session_health_cleanup", 3600, "Delete session_health rows older than 24h", skippable=True),
 ]
 
 SCHEDULE_MAP = {s.name: s for s in SCHEDULES}

@@ -434,22 +434,25 @@ class AgentBase(ABC):
         return count
 
     async def get_pending_tasks(self, task_type: str | None = None) -> list[dict]:
-        """Get pending tasks. Uses FOR UPDATE SKIP LOCKED when atomic checkout is enabled."""
-        lock_clause = "FOR UPDATE SKIP LOCKED" if _atomic_checkout_enabled() else ""
-        base_where = "WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))"
+        """Get pending task candidates for processing.
 
+        Note: concurrency safety is handled in claim_task(), not here.
+        Two agents seeing the same row is fine — only one will successfully
+        claim it via the atomic CTE in claim_task().
+        """
         if task_type:
-            query = f"""SELECT * FROM task_queue
-                        {base_where} AND task_type = %s
-                        ORDER BY priority ASC, created_at ASC LIMIT 50
-                        {lock_clause}"""
-            return await db.fetch_all(query, (task_type,))
-
-        query = f"""SELECT * FROM task_queue
-                    {base_where}
-                    ORDER BY priority ASC, created_at ASC LIMIT 50
-                    {lock_clause}"""
-        return await db.fetch_all(query)
+            return await db.fetch_all(
+                """SELECT * FROM task_queue
+                   WHERE (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                     AND task_type = %s
+                   ORDER BY priority ASC, created_at ASC LIMIT 50""",
+                (task_type,),
+            )
+        return await db.fetch_all(
+            """SELECT * FROM task_queue
+               WHERE status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3)
+               ORDER BY priority ASC, created_at ASC LIMIT 50""",
+        )
 
     async def claim_task(self, task_id: int) -> bool:
         """Claim a task (set status to running). Returns True if claimed."""
@@ -489,33 +492,24 @@ class AgentBase(ABC):
                 return False
 
         # Atomic checkout (Phase 12: FP-02)
+        # CTE pattern: SELECT FOR UPDATE SKIP LOCKED + UPDATE in a single statement.
+        # Both operations share the same transaction, so SKIP LOCKED is effective.
         if _atomic_checkout_enabled():
-            async with db.transaction() as conn:
-                await conn.execute("SAVEPOINT task_claim")
-                try:
-                    cursor = await conn.execute(
-                        """UPDATE task_queue
-                           SET status = 'running', started_at = NOW(), assigned_agent = %s
-                           WHERE id = %s
-                             AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
-                           RETURNING id""",
-                        (self.name, task_id),
-                    )
-                    row = await cursor.fetchone()
-                    if row is None:
-                        await conn.execute("ROLLBACK TO SAVEPOINT task_claim")
-                        return False
-                    await conn.execute("RELEASE SAVEPOINT task_claim")
-                    record_task_claimed(self.name)
-                    await self._transition(AgentState.EXECUTING)
-                    if _session_health_enabled() and self._working_memory is not None:
-                        self._working_memory.record_state_transition()
-                    return True
-                except Exception:
-                    await conn.execute("ROLLBACK TO SAVEPOINT task_claim")
-                    raise
+            row = await db.fetch_one(
+                """WITH locked AS (
+                       SELECT id FROM task_queue
+                       WHERE id = %s
+                         AND (status = 'pending' OR (status = 'failed' AND COALESCE(retry_count, 0) < 3))
+                       FOR UPDATE SKIP LOCKED
+                   )
+                   UPDATE task_queue
+                      SET status = 'running', started_at = NOW(), assigned_agent = %s
+                     FROM locked
+                    WHERE task_queue.id = locked.id
+                    RETURNING task_queue.id""",
+                (task_id, self.name),
+            )
         else:
-            # Existing behavior — unchanged
             row = await db.fetch_one(
                 """UPDATE task_queue
                    SET status = 'running', started_at = NOW(), assigned_agent = %s
@@ -524,12 +518,12 @@ class AgentBase(ABC):
                    RETURNING id""",
                 (self.name, task_id),
             )
-            if row is not None:
-                record_task_claimed(self.name)
-                await self._transition(AgentState.EXECUTING)
-                if _session_health_enabled() and self._working_memory is not None:
-                    self._working_memory.record_state_transition()
-            return row is not None
+        if row is not None:
+            record_task_claimed(self.name)
+            await self._transition(AgentState.EXECUTING)
+            if _session_health_enabled() and self._working_memory is not None:
+                self._working_memory.record_state_transition()
+        return row is not None
 
     async def complete_task(self, task_id: int):
         """Mark a task as completed."""
