@@ -1,0 +1,294 @@
+{
+  "name": "Instantly Webhook Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/instantly-events",
+        "responseMode": "lastNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{ $json.event_type }}",
+              "value2": "open",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{ $json.event_type }}",
+              "value2": "reply",
+              "output": 1
+            },
+            {
+              "operation": "equals",
+              "value1": "={{ $json.event_type }}",
+              "value2": "bounce",
+              "output": 2
+            }
+          ],
+          "fallbackOutput": 3
+        }
+      },
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE email_sequences SET opened_at = COALESCE(opened_at, NOW()), status = CASE WHEN status = 'sent' THEN 'opened' ELSE status END WHERE id = ( SELECT es.id FROM email_sequences es JOIN clients c ON c.id = es.client_id WHERE LOWER(c.email) = LOWER('{{ $json.email }}') AND es.sent_at IS NOT NULL ORDER BY es.sent_at DESC LIMIT 1 )",
+        "additionalFields": {}
+      },
+      "name": "Update Open Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 100],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE email_sequences SET replied_at = NOW(), status = 'replied' WHERE id = ( SELECT es.id FROM email_sequences es JOIN clients c ON c.id = es.client_id WHERE LOWER(c.email) = LOWER('{{ $json.email }}') AND es.sent_at IS NOT NULL ORDER BY es.sent_at DESC LIMIT 1 ) RETURNING client_id",
+        "additionalFields": {}
+      },
+      "name": "Update Reply Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.HERMES_URL || 'http://localhost:8082' }}/a2a",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "lead_interested"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $json.client_id }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $node['Webhook Trigger'].json.email }}"
+            },
+            {
+              "name": "reply_snippet",
+              "value": "={{ $node['Webhook Trigger'].json.reply_snippet }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Notify Hermes Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const bounceReason = $input.first().json.bounce_reason || '';\nconst isHardBounce = /invalid|unknown|does not exist|rejected|blocked|blacklisted/i.test(bounceReason);\nreturn [{ json: { ...($input.first().json), is_hard_bounce: isHardBounce } }];"
+      },
+      "name": "Classify Bounce",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [750, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.is_hard_bounce }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Is Hard Bounce?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH bounce_update AS ( UPDATE email_sequences SET status = 'bounced' WHERE id = ( SELECT es.id FROM email_sequences es JOIN clients c ON c.id = es.client_id WHERE LOWER(c.email) = LOWER('{{ $node[\"Webhook Trigger\"].json.email }}') AND es.sent_at IS NOT NULL ORDER BY es.sent_at DESC LIMIT 1 ) RETURNING client_id ) UPDATE clients SET status = 'unsubscribed', updated_at = NOW() FROM bounce_update WHERE clients.id = bounce_update.client_id",
+        "additionalFields": {}
+      },
+      "name": "Handle Hard Bounce",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, payload) VALUES ('soft_bounce_detected', '{\"email\": \"{{ $node[\"Webhook Trigger\"].json.email }}\", \"reason\": \"{{ $node[\"Webhook Trigger\"].json.bounce_reason }}\"}'::jsonb)",
+        "additionalFields": {}
+      },
+      "name": "Log Soft Bounce Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 600],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO outreach_metrics (date, domain, campaign, emails_sent, opens, replies, bounces) VALUES ( CURRENT_DATE, split_part('{{ $node[\"Webhook Trigger\"].json.email }}', '@', 2), '{{ $node[\"Webhook Trigger\"].json.campaign_id }}', 0, CASE WHEN '{{ $node[\"Webhook Trigger\"].json.event_type }}' = 'open' THEN 1 ELSE 0 END, CASE WHEN '{{ $node[\"Webhook Trigger\"].json.event_type }}' = 'reply' THEN 1 ELSE 0 END, CASE WHEN '{{ $node[\"Webhook Trigger\"].json.event_type }}' = 'bounce' THEN 1 ELSE 0 END ) ON CONFLICT (date, domain, campaign) DO UPDATE SET opens = outreach_metrics.opens + EXCLUDED.opens, replies = outreach_metrics.replies + EXCLUDED.replies, bounces = outreach_metrics.bounces + EXCLUDED.bounces",
+        "additionalFields": {}
+      },
+      "name": "Upsert Outreach Metrics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1500, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "ok",
+              "value": "true"
+            },
+            {
+              "name": "processed",
+              "value": "={{ $node['Webhook Trigger'].json.event_type }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Response OK",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1750, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO activity_log (entity_type, entity_id, action, details) VALUES ('n8n_workflow', NULL, 'instantly_webhook_error', '{\"error\": \"{{ $json.message }}\", \"event_type\": \"{{ $node[\"Webhook Trigger\"].json.event_type }}\", \"email\": \"{{ $node[\"Webhook Trigger\"].json.email }}\"}'::jsonb)",
+        "additionalFields": {}
+      },
+      "name": "Log Error to Activity Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1500, 600],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{"node": "Route by Event Type", "type": "main", "index": 0}]
+      ]
+    },
+    "Route by Event Type": {
+      "main": [
+        [{"node": "Update Open Status", "type": "main", "index": 0}],
+        [{"node": "Update Reply Status", "type": "main", "index": 0}],
+        [{"node": "Classify Bounce", "type": "main", "index": 0}],
+        []
+      ]
+    },
+    "Update Open Status": {
+      "main": [
+        [{"node": "Upsert Outreach Metrics", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Reply Status": {
+      "main": [
+        [{"node": "Notify Hermes Reply", "type": "main", "index": 0}]
+      ]
+    },
+    "Notify Hermes Reply": {
+      "main": [
+        [{"node": "Upsert Outreach Metrics", "type": "main", "index": 0}]
+      ]
+    },
+    "Classify Bounce": {
+      "main": [
+        [{"node": "Is Hard Bounce?", "type": "main", "index": 0}]
+      ]
+    },
+    "Is Hard Bounce?": {
+      "main": [
+        [{"node": "Handle Hard Bounce", "type": "main", "index": 0}],
+        [{"node": "Log Soft Bounce Event", "type": "main", "index": 0}]
+      ]
+    },
+    "Handle Hard Bounce": {
+      "main": [
+        [{"node": "Upsert Outreach Metrics", "type": "main", "index": 0}]
+      ]
+    },
+    "Log Soft Bounce Event": {
+      "main": [
+        [{"node": "Upsert Outreach Metrics", "type": "main", "index": 0}]
+      ]
+    },
+    "Upsert Outreach Metrics": {
+      "main": [
+        [{"node": "Response OK", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "meta": {
+      "perseus_version": "1.0.0"
+    }
+  }
+}

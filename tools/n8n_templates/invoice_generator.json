@@ -1,0 +1,301 @@
+{
+  "name": "Invoice Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/invoice-generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, status: 'generating' }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "name": "Respond Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.id, c.business_name, c.contact_name, c.email, c.industry, c.country, c.notes, c.final_site_url, d.amount, d.status as deal_status, d.id as deal_id FROM clients c LEFT JOIN deals d ON d.client_id = c.id WHERE c.id = {{ $node['Webhook Trigger'].json.client_id }} ORDER BY d.created_at DESC LIMIT 1",
+        "additionalFields": {}
+      },
+      "name": "Fetch Deal Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first().json;\nconst webhookData = $node['Webhook Trigger'].json;\nconst customPricing = webhookData.custom_pricing || {};\n\n// Parse price from notes field [price_offered: $X]\nlet priceFromNotes = 299; // default\nconst notes = input.notes || '';\nconst priceMatch = notes.match(/\\[price_offered:\\s*\\$?(\\d+(?:\\.\\d{2})?)\\]/);\nif (priceMatch) {\n  priceFromNotes = parseFloat(priceMatch[1]);\n}\n\nconst websitePrice = customPricing.website_price || priceFromNotes;\nconst hostingMonthly = customPricing.hosting_monthly || 52;\nconst receptionistMonthly = customPricing.receptionist_monthly || 0;\n\nconst lineItems = [\n  { description: 'Professional Website Design & Development', amount: websitePrice },\n  { description: 'First Month Hosting & Maintenance', amount: hostingMonthly }\n];\n\nif (receptionistMonthly > 0) {\n  lineItems.push({ description: 'AI Receptionist (Monthly)', amount: receptionistMonthly });\n}\n\nconst total = lineItems.reduce((sum, item) => sum + item.amount, 0);\n\nreturn [{ json: {\n  ...input,\n  line_items: lineItems,\n  total: total,\n  currency: 'USD',\n  website_price: websitePrice,\n  hosting_monthly: hostingMonthly\n}}];"
+      },
+      "name": "Calculate Pricing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const input = $input.first().json;\nconst webhookData = $node['Webhook Trigger'].json;\n\nconst lineItemsHtml = input.line_items.map(item =>\n  `<tr><td style=\"padding:8px;border-bottom:1px solid #eee\">${item.description}</td><td style=\"padding:8px;border-bottom:1px solid #eee;text-align:right\">$${item.amount.toFixed(2)}</td></tr>`\n).join('');\n\nconst invoiceHtml = `\n<div style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px\">\n  <h1 style=\"color:#1a1a2e;border-bottom:2px solid #16213e;padding-bottom:10px\">Invoice</h1>\n  <p><strong>To:</strong> ${input.contact_name || input.business_name}</p>\n  <p><strong>Business:</strong> ${input.business_name}</p>\n  <p><strong>Date:</strong> ${new Date().toISOString().split('T')[0]}</p>\n  <p><strong>Deliverable:</strong> <a href=\"${webhookData.site_url}\">${webhookData.site_url}</a></p>\n  <table style=\"width:100%;border-collapse:collapse;margin:20px 0\">\n    <thead><tr style=\"background:#f4f4f8\"><th style=\"padding:8px;text-align:left\">Description</th><th style=\"padding:8px;text-align:right\">Amount</th></tr></thead>\n    <tbody>${lineItemsHtml}</tbody>\n    <tfoot><tr><td style=\"padding:8px;font-weight:bold\">Total</td><td style=\"padding:8px;text-align:right;font-weight:bold\">$${input.total.toFixed(2)} ${input.currency}</td></tr></tfoot>\n  </table>\n  <div style=\"background:#f9f9f9;padding:15px;border-radius:5px;margin-top:20px\">\n    <h3 style=\"margin-top:0\">Payment Options</h3>\n    <p>Pay via Stripe: <a href=\"${process.env.STRIPE_PAYMENT_LINK || '#'}\">Click here to pay securely</a></p>\n    <p>Or contact us for bank transfer details.</p>\n  </div>\n</div>`;\n\nreturn [{ json: { ...input, invoice_html: invoiceHtml, subject: `Invoice: Professional Website for ${input.business_name}` } }];"
+      },
+      "name": "Generate Invoice HTML",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.deal_id }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Deal Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE deals SET amount = {{ $json.total }}, status = 'pending', notes = 'Invoice generated via N8N workflow' WHERE id = {{ $json.deal_id }}",
+        "additionalFields": {}
+      },
+      "name": "Update Existing Deal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1750, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO deals (client_id, product, amount, status, notes) VALUES ({{ $node['Webhook Trigger'].json.client_id }}, 'website', {{ $json.total }}, 'pending', 'Invoice auto-generated via N8N workflow')",
+        "additionalFields": {}
+      },
+      "name": "Create New Deal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1750, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SMTP_API_URL || 'https://api.resend.com/emails' }}",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "from",
+              "value": "={{ $env.INVOICE_FROM_EMAIL || 'invoices@perseus.agency' }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "name": "html",
+              "value": "={{ $json.invoice_html }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "name": "Send Invoice Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2000, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "4",
+          "name": "Email API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clients SET status = 'invoiced', updated_at = NOW() WHERE id = {{ $node['Webhook Trigger'].json.client_id }}",
+        "additionalFields": {}
+      },
+      "name": "Update Client Status Invoiced",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.HERMES_URL || 'http://localhost:8082' }}/a2a",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "invoice_sent"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $node['Webhook Trigger'].json.client_id }}"
+            },
+            {
+              "name": "amount",
+              "value": "={{ $json.total || $node['Calculate Pricing'].json.total }}"
+            },
+            {
+              "name": "business_name",
+              "value": "={{ $node['Webhook Trigger'].json.business_name }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Notify Hermes Invoice Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO activity_log (entity_type, entity_id, action, details) VALUES ('n8n_workflow', {{ $node['Webhook Trigger'].json.client_id }}, 'invoice_email_failed', '{\"error\": \"{{ $json.message }}\", \"client_id\": {{ $node[\"Webhook Trigger\"].json.client_id }}}'::jsonb)",
+        "additionalFields": {}
+      },
+      "name": "Log Email Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2250, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO review_queue (item_type, client_id, content, status) VALUES ('invoice', {{ $node['Webhook Trigger'].json.client_id }}, '{\"reason\": \"email_send_failed\", \"invoice_html\": \"stored\", \"amount\": {{ $node['Calculate Pricing'].json.total }}}'::jsonb, 'pending_review')",
+        "additionalFields": {}
+      },
+      "name": "Queue for Manual Send",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2500, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{"node": "Respond Accepted", "type": "main", "index": 0}]
+      ]
+    },
+    "Respond Accepted": {
+      "main": [
+        [{"node": "Fetch Deal Data", "type": "main", "index": 0}]
+      ]
+    },
+    "Fetch Deal Data": {
+      "main": [
+        [{"node": "Calculate Pricing", "type": "main", "index": 0}]
+      ]
+    },
+    "Calculate Pricing": {
+      "main": [
+        [{"node": "Generate Invoice HTML", "type": "main", "index": 0}]
+      ]
+    },
+    "Generate Invoice HTML": {
+      "main": [
+        [{"node": "Deal Exists?", "type": "main", "index": 0}]
+      ]
+    },
+    "Deal Exists?": {
+      "main": [
+        [{"node": "Update Existing Deal", "type": "main", "index": 0}],
+        [{"node": "Create New Deal", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Existing Deal": {
+      "main": [
+        [{"node": "Send Invoice Email", "type": "main", "index": 0}]
+      ]
+    },
+    "Create New Deal": {
+      "main": [
+        [{"node": "Send Invoice Email", "type": "main", "index": 0}]
+      ]
+    },
+    "Send Invoice Email": {
+      "main": [
+        [{"node": "Update Client Status Invoiced", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Client Status Invoiced": {
+      "main": [
+        [{"node": "Notify Hermes Invoice Sent", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "",
+    "meta": {
+      "perseus_version": "1.0.0"
+    }
+  }
+}

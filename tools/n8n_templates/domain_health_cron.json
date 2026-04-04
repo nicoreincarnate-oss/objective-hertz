@@ -1,0 +1,454 @@
+{
+  "name": "Domain Health Cron",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "name": "Hourly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sh.id AS health_id, sh.hosting_id, sh.http_status AS last_status, sh.response_time_ms AS last_response_time, sh.ssl_valid, sh.ssl_expiry, sh.notes, hs.domain, hs.client_id, hs.netlify_site_id, hs.status AS subscription_status, c.business_name, c.email FROM site_health sh JOIN hosting_subscriptions hs ON hs.id = sh.hosting_id JOIN clients c ON c.id = hs.client_id WHERE hs.status = 'active' ORDER BY sh.checked_at ASC",
+        "additionalFields": {}
+      },
+      "name": "Fetch Active Sites",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "name": "Batch Sites",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://{{ $json.domain }}",
+        "method": "HEAD",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      "name": "HTTP Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.statusCode }}",
+              "operation": "equal",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "name": "Is Healthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO site_health (hosting_id, checked_at, http_status, response_time_ms, ssl_valid, notes) VALUES ( {{ $node['Batch Sites'].json.hosting_id }}, NOW(), {{ $json.statusCode || 200 }}, {{ $json.responseTime || 0 }}, true, 'Healthy - cron check' )",
+        "additionalFields": {}
+      },
+      "name": "Record Healthy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1500, 150],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const batchItem = $node['Batch Sites'].json;\nconst statusCode = $json.statusCode || 0;\n\n// Count consecutive failures by checking recent site_health records\n// We track this in the function node since site_health doesn't have consecutive_failures column\n// The downstream Postgres node will count recent failures\nreturn [{ json: {\n  ...batchItem,\n  check_status_code: statusCode,\n  check_time: new Date().toISOString(),\n  is_failure: true\n}}];"
+      },
+      "name": "Prepare Failure Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1500, 450]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO site_health (hosting_id, checked_at, http_status, response_time_ms, ssl_valid, notes) VALUES ( {{ $json.hosting_id }}, NOW(), {{ $json.check_status_code }}, 0, false, 'Health check failed - cron' )",
+        "additionalFields": {}
+      },
+      "name": "Record Unhealthy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1750, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) AS consecutive_failures FROM ( SELECT http_status, checked_at FROM site_health WHERE hosting_id = {{ $json.hosting_id }} ORDER BY checked_at DESC LIMIT 3 ) recent WHERE http_status IS NULL OR http_status >= 400 OR http_status = 0",
+        "additionalFields": {}
+      },
+      "name": "Count Consecutive Failures",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2000, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.consecutive_failures }}",
+              "operation": "largerEqual",
+              "value2": 3
+            }
+          ]
+        }
+      },
+      "name": "3+ Consecutive Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2250, 450]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/alert-router",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "site_down"
+            },
+            {
+              "name": "severity",
+              "value": "critical"
+            },
+            {
+              "name": "source",
+              "value": "n8n-domain-health"
+            },
+            {
+              "name": "message",
+              "value": "={{ $node['Prepare Failure Data'].json.domain }} has been down for {{ $json.consecutive_failures }} consecutive checks"
+            },
+            {
+              "name": "payload",
+              "value": "={{ JSON.stringify({ domain: $node['Prepare Failure Data'].json.domain, client_id: $node['Prepare Failure Data'].json.client_id, business_name: $node['Prepare Failure Data'].json.business_name }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Alert Critical Down",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2500, 350]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/alert-router",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "domain_warning"
+            },
+            {
+              "name": "severity",
+              "value": "warning"
+            },
+            {
+              "name": "source",
+              "value": "n8n-domain-health"
+            },
+            {
+              "name": "message",
+              "value": "={{ $node['Prepare Failure Data'].json.domain }} health check failed ({{ $json.consecutive_failures }} failures)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Alert Warning Degraded",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2500, 550]
+    },
+    {
+      "parameters": {
+        "functionCode": "const batchItem = $node['Batch Sites'].json;\nconst sslExpiry = batchItem.ssl_expiry;\nif (!sslExpiry) return [{ json: { ...batchItem, ssl_alert: 'none' } }];\n\nconst expiryDate = new Date(sslExpiry);\nconst now = new Date();\nconst daysUntilExpiry = Math.floor((expiryDate - now) / (1000 * 60 * 60 * 24));\n\nlet sslAlert = 'none';\nif (daysUntilExpiry <= 0) sslAlert = 'critical';\nelse if (daysUntilExpiry <= 14) sslAlert = 'warning';\n\nreturn [{ json: { ...batchItem, ssl_alert: sslAlert, days_until_ssl_expiry: daysUntilExpiry } }];"
+      },
+      "name": "SSL Expiry Check",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1750, 150]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{ $json.ssl_alert }}",
+              "value2": "critical",
+              "output": 0
+            },
+            {
+              "operation": "equals",
+              "value1": "={{ $json.ssl_alert }}",
+              "value2": "warning",
+              "output": 1
+            }
+          ],
+          "fallbackOutput": 2
+        }
+      },
+      "name": "SSL Alert Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [2000, 150]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/alert-router",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "ssl_expired"
+            },
+            {
+              "name": "severity",
+              "value": "critical"
+            },
+            {
+              "name": "source",
+              "value": "n8n-domain-health"
+            },
+            {
+              "name": "message",
+              "value": "SSL certificate EXPIRED for {{ $json.domain }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Alert SSL Critical",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2250, 50]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/alert-router",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "ssl_expiring"
+            },
+            {
+              "name": "severity",
+              "value": "warning"
+            },
+            {
+              "name": "source",
+              "value": "n8n-domain-health"
+            },
+            {
+              "name": "message",
+              "value": "SSL certificate for {{ $json.domain }} expires in {{ $json.days_until_ssl_expiry }} days"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Alert SSL Warning",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2250, 175]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "name": "Rate Limit Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2750, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, payload, acknowledged) VALUES ('domain_health_sweep', '{\"checked_at\": \"{{ $now.toISO() }}\", \"triggered_by\": \"n8n_cron\"}'::jsonb, true)",
+        "additionalFields": {}
+      },
+      "name": "Log Sweep Summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [3000, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Hourly Schedule": {
+      "main": [
+        [{"node": "Fetch Active Sites", "type": "main", "index": 0}]
+      ]
+    },
+    "Fetch Active Sites": {
+      "main": [
+        [{"node": "Batch Sites", "type": "main", "index": 0}]
+      ]
+    },
+    "Batch Sites": {
+      "main": [
+        [{"node": "HTTP Health Check", "type": "main", "index": 0}]
+      ]
+    },
+    "HTTP Health Check": {
+      "main": [
+        [{"node": "Is Healthy?", "type": "main", "index": 0}]
+      ]
+    },
+    "Is Healthy?": {
+      "main": [
+        [{"node": "Record Healthy", "type": "main", "index": 0}],
+        [{"node": "Prepare Failure Data", "type": "main", "index": 0}]
+      ]
+    },
+    "Record Healthy": {
+      "main": [
+        [{"node": "SSL Expiry Check", "type": "main", "index": 0}]
+      ]
+    },
+    "SSL Expiry Check": {
+      "main": [
+        [{"node": "SSL Alert Level", "type": "main", "index": 0}]
+      ]
+    },
+    "SSL Alert Level": {
+      "main": [
+        [{"node": "Alert SSL Critical", "type": "main", "index": 0}],
+        [{"node": "Alert SSL Warning", "type": "main", "index": 0}],
+        [{"node": "Rate Limit Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Alert SSL Critical": {
+      "main": [
+        [{"node": "Rate Limit Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Alert SSL Warning": {
+      "main": [
+        [{"node": "Rate Limit Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Prepare Failure Data": {
+      "main": [
+        [{"node": "Record Unhealthy", "type": "main", "index": 0}]
+      ]
+    },
+    "Record Unhealthy": {
+      "main": [
+        [{"node": "Count Consecutive Failures", "type": "main", "index": 0}]
+      ]
+    },
+    "Count Consecutive Failures": {
+      "main": [
+        [{"node": "3+ Consecutive Failures?", "type": "main", "index": 0}]
+      ]
+    },
+    "3+ Consecutive Failures?": {
+      "main": [
+        [{"node": "Alert Critical Down", "type": "main", "index": 0}],
+        [{"node": "Alert Warning Degraded", "type": "main", "index": 0}]
+      ]
+    },
+    "Alert Critical Down": {
+      "main": [
+        [{"node": "Rate Limit Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Alert Warning Degraded": {
+      "main": [
+        [{"node": "Rate Limit Wait", "type": "main", "index": 0}]
+      ]
+    },
+    "Rate Limit Wait": {
+      "main": [
+        [{"node": "Batch Sites", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Mazatlan",
+    "meta": {
+      "perseus_version": "1.0.0"
+    }
+  }
+}

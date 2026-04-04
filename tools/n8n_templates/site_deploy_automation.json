@@ -1,0 +1,442 @@
+{
+  "name": "Site Deploy Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/site-deploy",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, status: 'processing' }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "name": "Respond Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, business_name, email, contact_name, industry, country, demo_site_url, final_site_url FROM clients WHERE id = {{ $node['Webhook Trigger'].json.client_id }}",
+        "additionalFields": {}
+      },
+      "name": "Fetch Client Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $node['Webhook Trigger'].json.domain }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Has Custom Domain?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.cloudflare.com/client/v4/zones/{{ $env.CLOUDFLARE_ZONE_ID }}/dns_records",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "type",
+              "value": "CNAME"
+            },
+            {
+              "name": "name",
+              "value": "={{ $node['Webhook Trigger'].json.domain }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $node['Webhook Trigger'].json.site_url }}"
+            },
+            {
+              "name": "proxied",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "name": "Cloudflare DNS Setup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Cloudflare API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.netlify.com/api/v1/sites",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "custom_domain",
+              "value": "={{ $node['Webhook Trigger'].json.domain }}"
+            },
+            {
+              "name": "name",
+              "value": "={{ $node['Webhook Trigger'].json.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Netlify Deploy Custom Domain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1500, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "Netlify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.netlify.com/api/v1/sites",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "name",
+              "value": "={{ $node['Webhook Trigger'].json.business_name.toLowerCase().replace(/[^a-z0-9]/g, '-') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Netlify Deploy Subdomain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 450],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3",
+          "name": "Netlify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "name": "Wait DNS Propagation",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1750, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['Webhook Trigger'].json.domain ? 'https://' + $node['Webhook Trigger'].json.domain : $node['Webhook Trigger'].json.site_url }}",
+        "method": "GET",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true
+            }
+          }
+        }
+      },
+      "name": "Health Check Site",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.statusCode }}",
+              "operation": "equal",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "name": "Site Healthy?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO site_health (hosting_id, checked_at, http_status, response_time_ms, ssl_valid, notes) VALUES ( (SELECT id FROM hosting_subscriptions WHERE client_id = {{ $node['Webhook Trigger'].json.client_id }} LIMIT 1), NOW(), 200, {{ $json.responseTime || 0 }}, true, 'Initial deploy health check passed' )",
+        "additionalFields": {}
+      },
+      "name": "Update Site Health OK",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2500, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clients SET final_site_url = '{{ $node[\"Webhook Trigger\"].json.domain ? \"https://\" + $node[\"Webhook Trigger\"].json.domain : $node[\"Webhook Trigger\"].json.site_url }}', updated_at = NOW() WHERE id = {{ $node['Webhook Trigger'].json.client_id }}",
+        "additionalFields": {}
+      },
+      "name": "Update Client Site URL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2750, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.HERMES_URL || 'http://localhost:8082' }}/a2a",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "site_deployed"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $node['Webhook Trigger'].json.client_id }}"
+            },
+            {
+              "name": "url",
+              "value": "={{ $node['Webhook Trigger'].json.domain ? 'https://' + $node['Webhook Trigger'].json.domain : $node['Webhook Trigger'].json.site_url }}"
+            },
+            {
+              "name": "business_name",
+              "value": "={{ $node['Webhook Trigger'].json.business_name }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Notify Hermes Deploy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [3000, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL || 'http://localhost:5678' }}/webhook/invoice-generate",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "client_id",
+              "value": "={{ $node['Webhook Trigger'].json.client_id }}"
+            },
+            {
+              "name": "business_name",
+              "value": "={{ $node['Webhook Trigger'].json.business_name }}"
+            },
+            {
+              "name": "site_url",
+              "value": "={{ $node['Webhook Trigger'].json.domain ? 'https://' + $node['Webhook Trigger'].json.domain : $node['Webhook Trigger'].json.site_url }}"
+            },
+            {
+              "name": "site_type",
+              "value": "={{ $node['Webhook Trigger'].json.site_type }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Trigger Invoice Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [3250, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO events (event_type, payload) VALUES ('pipeline_error', '{\"stage\": \"site_deploy\", \"client_id\": {{ $node[\"Webhook Trigger\"].json.client_id }}, \"error\": \"Health check failed after deploy\", \"business_name\": \"{{ $node[\"Webhook Trigger\"].json.business_name }}\"}'::jsonb)",
+        "additionalFields": {}
+      },
+      "name": "Log Deploy Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2500, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Perseus Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.HERMES_URL || 'http://localhost:8082' }}/a2a",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "site_deploy_blocked"
+            },
+            {
+              "name": "severity",
+              "value": "critical"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $node['Webhook Trigger'].json.client_id }}"
+            },
+            {
+              "name": "message",
+              "value": "Site deploy health check failed for {{ $node['Webhook Trigger'].json.business_name }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Alert Hermes Deploy Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2750, 450]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{"node": "Respond Accepted", "type": "main", "index": 0}]
+      ]
+    },
+    "Respond Accepted": {
+      "main": [
+        [{"node": "Fetch Client Data", "type": "main", "index": 0}]
+      ]
+    },
+    "Fetch Client Data": {
+      "main": [
+        [{"node": "Has Custom Domain?", "type": "main", "index": 0}]
+      ]
+    },
+    "Has Custom Domain?": {
+      "main": [
+        [{"node": "Cloudflare DNS Setup", "type": "main", "index": 0}],
+        [{"node": "Netlify Deploy Subdomain", "type": "main", "index": 0}]
+      ]
+    },
+    "Cloudflare DNS Setup": {
+      "main": [
+        [{"node": "Netlify Deploy Custom Domain", "type": "main", "index": 0}]
+      ]
+    },
+    "Netlify Deploy Custom Domain": {
+      "main": [
+        [{"node": "Wait DNS Propagation", "type": "main", "index": 0}]
+      ]
+    },
+    "Netlify Deploy Subdomain": {
+      "main": [
+        [{"node": "Wait DNS Propagation", "type": "main", "index": 0}]
+      ]
+    },
+    "Wait DNS Propagation": {
+      "main": [
+        [{"node": "Health Check Site", "type": "main", "index": 0}]
+      ]
+    },
+    "Health Check Site": {
+      "main": [
+        [{"node": "Site Healthy?", "type": "main", "index": 0}]
+      ]
+    },
+    "Site Healthy?": {
+      "main": [
+        [{"node": "Update Site Health OK", "type": "main", "index": 0}],
+        [{"node": "Log Deploy Failure", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Site Health OK": {
+      "main": [
+        [{"node": "Update Client Site URL", "type": "main", "index": 0}]
+      ]
+    },
+    "Update Client Site URL": {
+      "main": [
+        [{"node": "Notify Hermes Deploy", "type": "main", "index": 0}]
+      ]
+    },
+    "Notify Hermes Deploy": {
+      "main": [
+        [{"node": "Trigger Invoice Workflow", "type": "main", "index": 0}]
+      ]
+    },
+    "Log Deploy Failure": {
+      "main": [
+        [{"node": "Alert Hermes Deploy Failure", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "meta": {
+      "perseus_version": "1.0.0"
+    }
+  }
+}
