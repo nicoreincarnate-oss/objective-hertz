@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get Started — Checkout | Athena Studios</title>
+  <meta name="description" content="Start your custom website project with Athena Studios. Professional websites for local businesses starting at $149. See a preview before you pay.">
+  <meta property="og:title" content="Get Started — Checkout | Athena Studios">
+  <meta property="og:description" content="Start your custom website project with Athena Studios. Professional websites for local businesses starting at $149.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ===== CHECKOUT PAGE STYLES ===== */
+
+    .checkout-hero {
+      position: relative;
+      padding: 140px 24px 80px;
+      overflow: hidden;
+      background: #0a0520;
+    }
+    .checkout-hero .shader-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .checkout-hero .shader-overlay {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(10, 5, 20, 0.5) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .checkout-hero .grid-overlay {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+    .checkout-hero-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    /* ===== CHECKOUT LAYOUT ===== */
+    .checkout-section {
+      padding: 64px 24px 100px;
+      background: transparent;
+      position: relative;
+      z-index: 1;
+    }
+    .checkout-layout {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 48px;
+      max-width: 1100px;
+      margin: 0 auto;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .checkout-layout {
+        grid-template-columns: 1fr;
+      }
+      .order-summary {
+        position: static !important;
+      }
+    }
+
+    /* ===== FORM STYLES ===== */
+    .form-group {
+      margin-bottom: 24px;
+    }
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 8px;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 16px;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: rgba(167, 139, 250, 0.5);
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+    }
+    .form-input::placeholder, .form-textarea::placeholder {
+      color: rgba(255,255,255,0.25);
+    }
+    .form-textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .form-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='rgba(255,255,255,0.4)' viewBox='0 0 16 16'%3E%3Cpath d='M4.646 5.646a.5.5 0 0 1 .708 0L8 8.293l2.646-2.647a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 16px center;
+      padding-right: 44px;
+      cursor: pointer;
+    }
+    .form-select option {
+      background: #0a0520;
+      color: #fff;
+    }
+
+    /* ===== ORDER SUMMARY CARD ===== */
+    .order-summary {
+      position: sticky;
+      top: 100px;
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 32px;
+    }
+    .order-summary h3 {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: 22px;
+      color: var(--white);
+      margin-bottom: 24px;
+    }
+    .order-package {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .order-package-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--white);
+    }
+    .order-package-price {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gold);
+    }
+    .order-features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 24px;
+    }
+    .order-features li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+    }
+    .order-features li svg {
+      flex-shrink: 0;
+      color: var(--gold);
+    }
+    .order-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.08);
+      margin: 24px 0;
+    }
+    .order-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .order-total-label {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--white);
+    }
+    .order-total-price {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--white);
+    }
+    .stripe-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 20px;
+    }
+    .stripe-badge svg {
+      color: rgba(255,255,255,0.35);
+    }
+    .trust-signals {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+    .trust-signal {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.45);
+      background: rgba(255,255,255,0.03);
+      padding: 6px 12px;
+      border-radius: 100px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .trust-signal svg {
+      width: 14px;
+      height: 14px;
+      color: var(--gold);
+    }
+
+    /* ===== SUBMIT BUTTON ===== */
+    .checkout-submit-wrap {
+      margin-top: 8px;
+    }
+    .checkout-submit {
+      width: 100%;
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 54px;
+      border-radius: 100px;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      overflow: hidden;
+      transform-style: preserve-3d;
+      transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+    }
+    .checkout-submit:hover {
+      transform: translateY(-1px) scale(1.01);
+    }
+    .checkout-submit:active {
+      transform: translateY(1px) scale(0.98);
+    }
+
+    /* ===== RISK REVERSAL ===== */
+    .risk-reversal {
+      text-align: center;
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: 12px;
+      background: rgba(167, 139, 250, 0.05);
+      border: 1px solid rgba(167, 139, 250, 0.1);
+    }
+    .risk-reversal p {
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.6;
+    }
+    .risk-reversal strong {
+      color: var(--gold);
+    }
+
+    /* ===== STATUS MESSAGE ===== */
+    .form-status {
+      display: none;
+      text-align: center;
+      padding: 16px;
+      margin-top: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .form-status.show {
+      display: block;
+    }
+    .form-status.info {
+      background: rgba(167, 139, 250, 0.1);
+      border: 1px solid rgba(167, 139, 250, 0.2);
+      color: var(--gold-light);
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 768px) {
+      .checkout-hero {
+        padding: 120px 20px 60px;
+      }
+      .checkout-layout {
+        gap: 32px;
+      }
+      .order-summary {
+        padding: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Custom cursor -->
+  <div class="custom-cursor" id="cursor"></div>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar" id="navbar">
+    <a href="index.html" class="nav-logo">ATHENA <span>Studios</span></a>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="navLinks">
+      <a href="portfolio.html">Portfolio</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="checkout.html">Checkout</a>
+      <a href="index.html" class="btn-metal btn-sm" data-metal style="height:40px;padding:0 22px;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label" style="font-size:13px;">Home</span></a>
+    </div>
+  </nav>
+
+  <!-- Full-page waves background -->
+  <div data-waves style="position:fixed;inset:0;z-index:0;"></div>
+
+  <!-- ===== HERO / HEADER ===== -->
+  <section class="checkout-hero" style="position:relative;z-index:1;">
+    <div class="checkout-hero-content reveal">
+      <h1 class="section-heading" style="font-size: clamp(32px, 5vw, 48px); margin-bottom: 16px;">
+        Let's build your <span class="text-shimmer">website</span>
+      </h1>
+      <p class="section-sub text-center" style="margin-bottom: 0;">
+        Tell us about your business and we'll get started.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== CHECKOUT FORM + ORDER SUMMARY ===== -->
+  <section class="checkout-section">
+    <div class="checkout-layout">
+
+      <!-- LEFT: Form -->
+      <div class="reveal">
+        <form id="checkoutForm" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="fullName">Full Name</label>
+            <input type="text" id="fullName" name="fullName" class="form-input" placeholder="John Smith" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="email">Email</label>
+            <input type="email" id="email" name="email" class="form-input" placeholder="you@business.com" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="businessName">Business Name</label>
+            <input type="text" id="businessName" name="businessName" class="form-input" placeholder="Your Business Name" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="businessType">Business Type</label>
+            <select id="businessType" name="businessType" class="form-select" required>
+              <option value="" disabled selected>Select your industry</option>
+              <option value="dental">Dental</option>
+              <option value="plumbing">Plumbing</option>
+              <option value="restaurant">Restaurant</option>
+              <option value="salon">Salon</option>
+              <option value="contractor">Contractor</option>
+              <option value="electrician">Electrician</option>
+              <option value="chiropractor">Chiropractor</option>
+              <option value="auto-repair">Auto Repair</option>
+              <option value="landscaping">Landscaping</option>
+              <option value="fitness">Fitness</option>
+              <option value="law">Law</option>
+              <option value="real-estate">Real Estate</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="package">Package</label>
+            <select id="package" name="package" class="form-select" required>
+              <option value="landing" data-price="149" data-label="Landing Page">Landing Page &mdash; $149</option>
+              <option value="professional" data-price="299" data-label="Professional Website" selected>Professional Website &mdash; $299</option>
+              <option value="premium" data-price="custom" data-label="Premium">Premium &mdash; Custom Quote</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="details">Tell us about your business</label>
+            <textarea id="details" name="details" class="form-textarea" placeholder="What does your business do? Any specific features or pages you need? Existing website URL?"></textarea>
+          </div>
+
+          <div class="checkout-submit-wrap">
+            <button type="submit" class="btn-metal btn-lg checkout-submit" data-metal>
+              <div class="btn-metal-shader"></div>
+              <div class="btn-metal-inner"></div>
+              <span class="btn-metal-label" style="font-size: 15px;">Continue to Payment</span>
+            </button>
+          </div>
+
+          <div id="formStatus" class="form-status"></div>
+
+          <div class="risk-reversal reveal">
+            <p>See a preview of your site before you pay. <strong>100% satisfaction guaranteed.</strong></p>
+          </div>
+        </form>
+      </div>
+
+      <!-- RIGHT: Order Summary -->
+      <div class="order-summary reveal reveal-delay-2">
+        <h3>Order Summary</h3>
+
+        <div class="order-package">
+          <span class="order-package-name" id="summaryPackageName">Professional Website</span>
+          <span class="order-package-price" id="summaryPackagePrice">$299</span>
+        </div>
+
+        <ul class="order-features" id="summaryFeatures">
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Custom design tailored to your brand
+          </li>
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Mobile-responsive layout
+          </li>
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            SEO optimization
+          </li>
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Contact form integration
+          </li>
+          <li>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Delivered in 5-7 days
+          </li>
+        </ul>
+
+        <div class="order-divider"></div>
+
+        <div class="order-total">
+          <span class="order-total-label">Total</span>
+          <span class="order-total-price" id="summaryTotal">$299</span>
+        </div>
+
+        <div class="stripe-badge">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12.667 7.333H3.333M12.667 7.333L8 2.667M12.667 7.333v4a1.333 1.333 0 0 1-1.334 1.333H4.667A1.333 1.333 0 0 1 3.333 11.333v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="5.333" y="4" width="5.333" height="6.667" rx="0.667" stroke="currentColor" stroke-width="1.5"/></svg>
+          <!-- Lock icon -->
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3.333" y="7.333" width="9.333" height="6" rx="1.333" stroke="currentColor" stroke-width="1.5"/><path d="M5.333 7.333V5.333a2.667 2.667 0 1 1 5.334 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Secure checkout powered by Stripe
+        </div>
+
+        <div class="trust-signals">
+          <div class="trust-signal">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M8 1.333l2.06 4.174 4.607.67-3.334 3.25.787 4.586L8 11.507l-4.12 2.166.787-4.586L1.333 5.837l4.607-.33L8 1.333z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            30-day money back
+          </div>
+          <div class="trust-signal">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            No hidden fees
+          </div>
+          <div class="trust-signal">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.333" stroke="currentColor" stroke-width="1.2"/><path d="M8 5.333V8l2 1.333" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Cancel anytime
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="index.html" class="nav-logo" style="font-size:22px;">ATHENA <span style="color:#a78bfa;">Studios</span></a>
+        <p>Professional websites for local businesses worldwide. Craft, transparency, and fair pricing.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="pricing.html">Custom Websites</a>
+        <a href="pricing.html">Landing Pages</a>
+        <a href="pricing.html">Managed Hosting</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="portfolio.html">Portfolio</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="checkout.html">Get Started</a>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <a href="mailto:hello@athenastudios.com">hello@athenastudios.com</a>
+        <a href="checkout.html">Book a Call</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Athena Studios. All rights reserved.</span>
+      <span>Privacy &middot; Terms</span>
+    </div>
+  </footer>
+
+  <!-- ===== SHARED SCRIPTS ===== -->
+  <script src="waves.js"></script>
+  <script src="shared.js"></script>
+
+  <!-- ===== CHECKOUT LOGIC ===== -->
+  <script>
+    // Package data for dynamic order summary updates
+    const packages = {
+      landing: {
+        name: 'Landing Page',
+        price: 149,
+        priceLabel: '$149',
+        features: [
+          'Single-page design',
+          'Mobile-responsive layout',
+          'Contact form integration',
+          'Basic SEO setup',
+          'Delivered in 3-5 days'
+        ]
+      },
+      professional: {
+        name: 'Professional Website',
+        price: 299,
+        priceLabel: '$299',
+        features: [
+          'Custom design tailored to your brand',
+          'Mobile-responsive layout',
+          'SEO optimization',
+          'Contact form integration',
+          'Delivered in 5-7 days'
+        ]
+      },
+      premium: {
+        name: 'Premium',
+        price: null,
+        priceLabel: 'Custom',
+        features: [
+          'Full custom design + branding',
+          'Multi-page website',
+          'Advanced SEO + analytics',
+          'Booking / e-commerce integration',
+          'Priority support + revisions',
+          'Delivered on your timeline'
+        ]
+      }
+    };
+
+    const checkIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.333 4L6 11.333 2.667 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    const packageSelect = document.getElementById('package');
+    const summaryName = document.getElementById('summaryPackageName');
+    const summaryPrice = document.getElementById('summaryPackagePrice');
+    const summaryFeatures = document.getElementById('summaryFeatures');
+    const summaryTotal = document.getElementById('summaryTotal');
+
+    function updateOrderSummary(pkgKey) {
+      const pkg = packages[pkgKey];
+      if (!pkg) return;
+
+      summaryName.textContent = pkg.name;
+      summaryPrice.textContent = pkg.priceLabel;
+      summaryTotal.textContent = pkg.priceLabel;
+
+      summaryFeatures.innerHTML = pkg.features.map(f =>
+        '<li>' + checkIcon + ' ' + f + '</li>'
+      ).join('');
+    }
+
+    packageSelect.addEventListener('change', function() {
+      updateOrderSummary(this.value);
+    });
+
+    // Form submission with Stripe placeholder
+    const form = document.getElementById('checkoutForm');
+    const formStatus = document.getElementById('formStatus');
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      // Basic validation
+      const name = document.getElementById('fullName').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const businessName = document.getElementById('businessName').value.trim();
+      const businessType = document.getElementById('businessType').value;
+
+      if (!name || !email || !businessName || !businessType) {
+        formStatus.textContent = 'Please fill in all required fields.';
+        formStatus.className = 'form-status show info';
+        return;
+      }
+
+      // Show redirect message
+      formStatus.textContent = 'Redirecting to Stripe checkout...';
+      formStatus.className = 'form-status show info';
+
+      // TODO: Replace with actual Stripe checkout session creation
+      // fetch('/api/create-checkout-session', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({
+      //     name, email, businessName, businessType,
+      //     package: packageSelect.value,
+      //     details: document.getElementById('details').value
+      //   })
+      // })
+      // .then(res => res.json())
+      // .then(data => { window.location.href = data.url; })
+      // .catch(err => { formStatus.textContent = 'Something went wrong. Please try again.'; });
+
+      setTimeout(function() {
+        alert('Stripe checkout will be integrated here. Contact hello@athenastudios.com to proceed.');
+        formStatus.textContent = '';
+        formStatus.className = 'form-status';
+      }, 800);
+    });
+
+    // Scroll reveal for checkout page elements
+    const revealEls = document.querySelectorAll('.reveal');
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1 });
+    revealEls.forEach(el => revealObserver.observe(el));
+  </script>
+
+</body>
+</html>

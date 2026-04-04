@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Our Work — Website Portfolio | Athena Studios</title>
+  <meta name="description" content="See real websites we've built for local businesses. Dental clinics, plumbing companies, restaurants, and more. Custom design starting at $299.">
+  <meta property="og:title" content="Our Work — Website Portfolio | Athena Studios">
+  <meta property="og:description" content="See real websites we've built for local businesses. Custom design starting at $299.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ===== PORTFOLIO-SPECIFIC STYLES ===== */
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1024px) {
+      .portfolio-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .portfolio-grid { grid-template-columns: 1fr; }
+    }
+
+    .portfolio-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s;
+      transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+      transform-style: preserve-3d;
+    }
+    .portfolio-card:hover {
+      transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 60px rgba(93, 63, 211, 0.1);
+    }
+    .portfolio-card .card-spotlight {
+      border-radius: 20px;
+    }
+
+    .portfolio-preview {
+      width: 100%;
+      height: 200px;
+      background: linear-gradient(135deg, #1a0a3e, #2d1b69);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.25);
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .portfolio-card h3 {
+      font-family: 'DM Serif Display', serif;
+      color: var(--white);
+      font-size: 22px;
+      margin-bottom: 4px;
+    }
+    .portfolio-card .portfolio-location {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    .portfolio-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .portfolio-tags span {
+      background: rgba(167, 139, 250, 0.15);
+      color: #a78bfa;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 12px;
+      border-radius: 100px;
+      letter-spacing: 0.02em;
+    }
+
+    .portfolio-card .view-link {
+      color: var(--gold);
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.2s, gap 0.3s;
+    }
+    .portfolio-card .view-link:hover {
+      color: var(--gold-light);
+      gap: 10px;
+    }
+
+    /* Hero adjustments for portfolio page */
+    .portfolio-hero {
+      position: relative;
+      min-height: 75vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 140px 24px 80px;
+      overflow: hidden;
+      background: #0a0520;
+    }
+    .portfolio-hero .hero-content {
+      position: relative;
+      z-index: 2;
+    }
+    .portfolio-hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(36px, 5vw, 56px);
+      color: var(--white);
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+    .portfolio-hero p {
+      font-size: 19px;
+      color: var(--warm-slate);
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Custom cursor -->
+  <div class="custom-cursor" id="cursor"></div>
+
+  <!-- Particles -->
+  <div class="particles" id="particles"></div>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar" id="navbar">
+    <a href="index.html" class="nav-logo">ATHENA <span>Studios</span></a>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="navLinks">
+      <a href="index.html">Home</a>
+      <a href="portfolio.html">Portfolio</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="checkout.html" class="btn-metal btn-sm" data-metal style="height:40px;padding:0 22px;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label" style="font-size:13px;">Get Started</span></a>
+    </div>
+  </nav>
+
+  <!-- Full-page waves background -->
+  <div data-waves style="position:fixed;inset:0;z-index:0;"></div>
+
+  <!-- ===== HERO ===== -->
+  <section class="portfolio-hero">
+    <div class="hero-content">
+      <h1 class="reveal">See what <span class="text-shimmer">$299</span> looks like</h1>
+      <p class="reveal reveal-delay-1">Real websites. Real businesses. Real results.</p>
+    </div>
+  </section>
+
+  <!-- ===== PORTFOLIO SHOWCASE ===== -->
+  <section class="section-full" style="padding: 80px 24px;">
+    <div style="max-width:1200px;margin:0 auto;">
+      <div style="text-align:center;margin-bottom:56px;">
+        <h2 class="section-heading reveal">Our recent work</h2>
+        <p class="reveal reveal-delay-1" style="color:var(--muted);font-size:17px;max-width:560px;margin:16px auto 0;">Every site is custom designed for the business. No templates, no shortcuts.</p>
+      </div>
+
+      <div class="portfolio-grid">
+        <!-- Card 1: Dental Clinic -->
+        <div class="portfolio-card reveal reveal-delay-1" data-tilt>
+          <div class="card-spotlight"></div>
+          <div class="portfolio-preview">Preview Coming Soon</div>
+          <h3>Dental Clinic</h3>
+          <p class="portfolio-location">Austin, TX</p>
+          <div class="portfolio-tags">
+            <span>Online Booking</span>
+            <span>Patient Reviews</span>
+            <span>Insurance Info</span>
+            <span>Mobile-First</span>
+          </div>
+          <a href="#" class="view-link">View Live Site <span>&rarr;</span></a>
+        </div>
+
+        <!-- Card 2: Plumbing Company -->
+        <div class="portfolio-card reveal reveal-delay-2" data-tilt>
+          <div class="card-spotlight"></div>
+          <div class="portfolio-preview">Preview Coming Soon</div>
+          <h3>Plumbing Company</h3>
+          <p class="portfolio-location">Denver, CO</p>
+          <div class="portfolio-tags">
+            <span>Service Areas</span>
+            <span>Emergency CTA</span>
+            <span>Before/After</span>
+            <span>SEO Optimized</span>
+          </div>
+          <a href="#" class="view-link">View Live Site <span>&rarr;</span></a>
+        </div>
+
+        <!-- Card 3: Restaurant -->
+        <div class="portfolio-card reveal reveal-delay-3" data-tilt>
+          <div class="card-spotlight"></div>
+          <div class="portfolio-preview">Preview Coming Soon</div>
+          <h3>Restaurant</h3>
+          <p class="portfolio-location">Miami, FL</p>
+          <div class="portfolio-tags">
+            <span>Menu Display</span>
+            <span>Reservations</span>
+            <span>Photo Gallery</span>
+            <span>Google Maps</span>
+          </div>
+          <a href="#" class="view-link">View Live Site <span>&rarr;</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== INDUSTRIES ===== -->
+  <section class="section-full" style="padding: 80px 24px;">
+    <div style="max-width:1000px;margin:0 auto;text-align:center;">
+      <h2 class="section-heading reveal">We build for:</h2>
+    </div>
+    <div class="industries-grid" style="margin-top:48px;">
+      <div class="industry-chip reveal"><span class="chip-icon">&#x1F9B7;</span> Dentists</div>
+      <div class="industry-chip reveal reveal-delay-1"><span class="chip-icon">&#x1F527;</span> Plumbers</div>
+      <div class="industry-chip reveal reveal-delay-1"><span class="chip-icon">&#x1F37D;</span> Restaurants</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x1F487;</span> Salons</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x1F3D7;</span> Contractors</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x26A1;</span> Electricians</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F9D1;&#x200D;&#x2695;&#xFE0F;</span> Chiropractors</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F697;</span> Auto Repair</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F333;</span> Landscaping</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x1F3CB;</span> Fitness Studios</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x2696;</span> Law Offices</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x1F3E0;</span> Real Estate</div>
+    </div>
+    <p class="text-center reveal" style="margin-top:32px;color:var(--muted);font-size:15px;text-align:center;">Don't see your industry? We build for any local business.</p>
+  </section>
+
+  <!-- ===== CTA BANNER ===== -->
+  <section class="cta-section">
+    <div class="lamp"></div>
+    <div style="position:relative;z-index:1;max-width:700px;margin:0 auto;text-align:center;">
+      <h2 class="section-heading reveal" style="font-size:clamp(32px,4.5vw,48px);">Want to see what your site could look like?</h2>
+      <p class="reveal" style="font-size:18px;margin:20px auto 36px;max-width:580px;line-height:1.7;">We will design a free preview page for your business &mdash; no commitment.</p>
+      <div class="reveal" style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+        <div class="btn-metal-wrap"><a href="checkout.html" class="btn-metal btn-lg" data-metal style="padding:0 44px;height:56px;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label" style="font-size:16px;">Get Your Free Preview</span></a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="index.html" class="nav-logo" style="font-size:22px;">ATHENA <span style="color:#a78bfa;">Studios</span></a>
+        <p>Professional websites for local businesses worldwide. Craft, transparency, and fair pricing.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="index.html">Custom Websites</a>
+        <a href="#">Landing Pages</a>
+        <a href="#">Managed Hosting</a>
+        <a href="#">Email Marketing</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="#">About</a>
+        <a href="portfolio.html">Portfolio</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="#">Blog</a>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <a href="mailto:hello@athenastudios.com">hello@athenastudios.com</a>
+        <a href="#">Book a Call</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Athena Studios. All rights reserved.</span>
+      <span>Privacy &middot; Terms</span>
+    </div>
+  </footer>
+
+  <script src="waves.js"></script>
+  <script src="shared.js"></script>
+
+  <script>
+    // Particles for portfolio page
+    const particlesEl = document.getElementById('particles');
+    if (particlesEl) {
+      for (let i = 0; i < 30; i++) {
+        const p = document.createElement('div');
+        p.classList.add('particle');
+        p.style.left = Math.random() * 100 + '%';
+        p.style.animationDuration = (8 + Math.random() * 12) + 's';
+        p.style.animationDelay = (-Math.random() * 20) + 's';
+        p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+        particlesEl.appendChild(p);
+      }
+    }
+  </script>
+</body>
+</html>

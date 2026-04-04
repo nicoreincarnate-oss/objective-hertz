@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Websites for Local Businesses | Athena Studios</title>
+  <meta name="description" content="Professional websites for dentists, plumbers, restaurants, and local businesses. Custom design starting at $299. No templates. Live in days.">
+  <meta property="og:title" content="Custom Websites for Local Businesses | Athena Studios">
+  <meta property="og:description" content="Professional websites for dentists, plumbers, restaurants, and local businesses. Custom design starting at $299. No templates. Live in days.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.82/build/spline-viewer.js"></script>
+  <style>
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #b8b0d0;
+      background: #0a0520;
+      font-size: 17px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    /* ===== CSS VARIABLES — Purple Shader Palette ===== */
+    :root {
+      --navy: #0a0520;
+      --navy-mid: #1a0a3e;
+      --deep-navy: #06020f;
+      --purple: #2d1b69;
+      --purple-mid: #3d2580;
+      --purple-light: #5a3d99;
+      --gold: #a78bfa;
+      --gold-light: #c4b5fd;
+      --gold-dark: #7c3aed;
+      --white: #FFFFFF;
+      --soft-gray: #0e0824;
+      --light-gold: #ede9fe;
+      --warm-slate: #b8b0d0;
+      --muted: #8a80a8;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-light: rgba(255, 255, 255, 0.12);
+      --success: #38A169;
+      --trust-blue: #818cf8;
+      --glow-purple: rgba(93, 63, 211, 0.3);
+      --glow-gold: rgba(167, 139, 250, 0.3);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15);
+      --shadow-md: 0 10px 25px rgba(0,0,0,0.25), 0 4px 10px rgba(0,0,0,0.15);
+      --shadow-lg: 0 25px 50px -12px rgba(0,0,0,0.4), 0 12px 24px -8px rgba(0,0,0,0.25);
+      --glass-bg: rgba(255, 255, 255, 0.04);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-hover: rgba(255, 255, 255, 0.08);
+    }
+
+    /* ===== FLOATING NAVBAR ===== */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      padding: 0 48px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(10, 5, 32, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(93, 63, 211, 0.1);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s;
+    }
+    .navbar.hidden { transform: translateY(-100%); }
+    .navbar.scrolled { background: rgba(6, 2, 15, 0.95); }
+    .nav-logo {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--white);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+    }
+    .nav-logo span {
+      background: linear-gradient(135deg, #a78bfa, #e0e0e0, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .nav-links { display: flex; gap: 32px; align-items: center; }
+    .nav-links a {
+      color: rgba(255,255,255,0.75);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: color 0.2s;
+      position: relative;
+    }
+    .nav-links a:hover { color: var(--white); }
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background: var(--gold);
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .nav-links a:hover::after { width: 100%; }
+    .nav-cta {
+      background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%) !important;
+      color: #999 !important;
+      padding: 10px 24px !important;
+      border-radius: 100px;
+      font-weight: 500 !important;
+      border: 1px solid rgba(255,255,255,0.08) !important;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+      position: relative;
+      overflow: hidden;
+    }
+    .nav-cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4) !important;
+      color: #ccc !important;
+      border-color: rgba(255,255,255,0.15) !important;
+    }
+    .nav-cta::after { display: none !important; }
+
+    /* Mobile nav */
+    .nav-toggle { display: none; background: none; border: none; cursor: pointer; padding: 8px; }
+    .nav-toggle span { display: block; width: 24px; height: 2px; background: var(--white); margin: 5px 0; transition: 0.3s; border-radius: 2px; }
+
+    @media (max-width: 768px) {
+      .navbar { padding: 0 20px; }
+      .nav-toggle { display: block; }
+      .nav-links {
+        position: fixed;
+        top: 72px;
+        left: 0;
+        right: 0;
+        background: rgba(6, 2, 15, 0.98);
+        backdrop-filter: blur(20px);
+        flex-direction: column;
+        padding: 24px;
+        gap: 16px;
+        transform: translateY(-120%);
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .nav-links.open { transform: translateY(0); }
+    }
+
+    /* ===== HERO SECTION ===== */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      background: #0a0520;
+    }
+
+    /* WebGL Shader Canvas */
+    .shader-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    /* Gradient overlay to darken edges and improve text readability */
+    .shader-overlay {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(10, 5, 20, 0.5) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Floating particles */
+    .particles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .particle {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: rgba(167, 139, 250, 0.4);
+      border-radius: 50%;
+      animation: particle-float linear infinite;
+    }
+    @keyframes particle-float {
+      0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateY(-10vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* Grid overlay */
+    .grid-overlay {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+      padding: 120px 24px 80px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.25);
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gold);
+      margin-bottom: 32px;
+      animation: fadeInUp 0.8s ease-out 0.2s both;
+    }
+    .hero-badge .dot {
+      width: 6px; height: 6px;
+      background: var(--gold);
+      border-radius: 50%;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.5); }
+    }
+
+    .hero h1 {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: clamp(40px, 6vw, 64px);
+      font-weight: 400;
+      line-height: 1.08;
+      color: var(--white);
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      animation: fadeInUp 0.8s ease-out 0.4s both;
+    }
+    /* Chrome/purple shimmer text */
+    .text-shimmer {
+      background: linear-gradient(
+        90deg,
+        #8b5cf6 0%,
+        #a78bfa 20%,
+        #e0e0e0 35%,
+        #ffffff 50%,
+        #e0e0e0 65%,
+        #a78bfa 80%,
+        #8b5cf6 100%
+      );
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 4s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0% { background-position: 100% 50%; }
+      100% { background-position: -100% 50%; }
+    }
+
+    /* Word rotate effect */
+    .word-rotate {
+      display: inline-block;
+      position: relative;
+      overflow: hidden;
+      height: 1.2em;
+      vertical-align: bottom;
+      min-width: 140px;
+    }
+    .word-rotate-inner {
+      display: flex;
+      flex-direction: column;
+      animation: word-cycle 10s ease-in-out infinite;
+    }
+    .word-rotate-inner span {
+      display: block;
+      height: 1.2em;
+      line-height: 1.2;
+      background: linear-gradient(90deg, #a78bfa, #e0e0e0, #c4b5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: 500;
+    }
+    @keyframes word-cycle {
+      0%, 18% { transform: translateY(0); }
+      22%, 43% { transform: translateY(-1.2em); }
+      47%, 68% { transform: translateY(-2.4em); }
+      72%, 93% { transform: translateY(-3.6em); }
+      97%, 100% { transform: translateY(0); }
+    }
+
+    .hero-sub {
+      font-size: clamp(16px, 2vw, 19px);
+      color: rgba(255,255,255,0.7);
+      max-width: 640px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+      animation: fadeInUp 0.8s ease-out 0.6s both;
+    }
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      animation: fadeInUp 0.8s ease-out 0.8s both;
+    }
+
+    /* ===== LIQUID METAL BUTTONS ===== */
+    @keyframes ripple-animation {
+      0% { transform: translate(-50%, -50%) scale(0); opacity: 0.6; }
+      100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+    }
+
+    .btn-metal-wrap {
+      display: inline-block;
+      perspective: 1000px;
+    }
+    .btn-metal {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-radius: 100px;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      overflow: hidden;
+      transform-style: preserve-3d;
+      transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+    }
+    /* Sizing variants */
+    .btn-metal.btn-lg { width: auto; height: 50px; padding: 0 36px; }
+    .btn-metal.btn-md { width: auto; height: 46px; padding: 0 28px; }
+    .btn-metal.btn-sm { width: auto; height: 40px; padding: 0 22px; }
+
+    /* Text label floats above */
+    .btn-metal-label {
+      position: relative;
+      z-index: 30;
+      font-size: 14px;
+      font-weight: 400;
+      color: #666;
+      text-shadow: 0px 1px 2px rgba(0,0,0,0.5);
+      pointer-events: none;
+      transform: translateZ(20px);
+      transition: color 0.3s;
+      white-space: nowrap;
+    }
+    .btn-metal:hover .btn-metal-label { color: #999; }
+
+    /* Inner dark pill */
+    .btn-metal-inner {
+      position: absolute;
+      inset: 2px;
+      border-radius: 100px;
+      background: linear-gradient(180deg, #202020 0%, #000000 100%);
+      z-index: 20;
+      transform: translateZ(10px);
+      transition: box-shadow 0.15s ease;
+    }
+    .btn-metal:active .btn-metal-inner {
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+    }
+
+    /* Shader canvas container — the actual liquid metal surface */
+    .btn-metal-shader {
+      position: absolute;
+      inset: 0;
+      border-radius: 100px;
+      overflow: hidden;
+      z-index: 10;
+      transform: translateZ(0);
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,0.3),
+        0 36px 14px rgba(0,0,0,0.02),
+        0 20px 12px rgba(0,0,0,0.08),
+        0 9px 9px rgba(0,0,0,0.12),
+        0 2px 5px rgba(0,0,0,0.15);
+      transition: box-shadow 0.15s ease;
+    }
+    .btn-metal-shader canvas {
+      width: 100% !important;
+      height: 100% !important;
+      display: block !important;
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      border-radius: 100px !important;
+    }
+    .btn-metal:hover .btn-metal-shader {
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,0.4),
+        0 12px 6px rgba(0,0,0,0.05),
+        0 8px 5px rgba(0,0,0,0.1),
+        0 4px 4px rgba(0,0,0,0.15),
+        0 1px 2px rgba(0,0,0,0.2);
+    }
+    .btn-metal:active .btn-metal-shader {
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,0.5),
+        0 1px 2px rgba(0,0,0,0.3);
+    }
+    .btn-metal:hover { transform: translateY(-1px) scale(1.01); }
+    .btn-metal:active { transform: translateY(1px) scale(0.98); }
+
+    /* Fallback for secondary/outline style (no shader, just dark) */
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 400;
+      padding: 14px 32px;
+      border-radius: 100px;
+      cursor: pointer;
+      text-decoration: none;
+      position: relative;
+      overflow: hidden;
+      color: #666;
+      background: linear-gradient(180deg, #181818 0%, #000 100%);
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 2px 5px rgba(0,0,0,0.15);
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .btn-secondary:hover {
+      color: #999;
+      border-color: rgba(255,255,255,0.1);
+      transform: translateY(-1px);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.4), 0 8px 16px rgba(0,0,0,0.2);
+    }
+
+    /* btn-gold-outline is now also liquid metal */
+    .btn-gold-outline { /* Alias — use btn-metal markup instead */ }
+
+    /* Trust signals */
+    .trust-signals {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 48px;
+      animation: fadeInUp 0.8s ease-out 1s both;
+    }
+    .trust-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: rgba(255,255,255,0.55);
+      font-weight: 500;
+    }
+    .trust-icon {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: rgba(56, 161, 105, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .trust-icon svg { width: 12px; height: 12px; }
+
+    /* ===== SCROLL ANIMATIONS ===== */
+    .reveal {
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== SECTION LAYOUTS ===== */
+    .section {
+      padding: 100px 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .section-full {
+      padding: 100px 24px;
+    }
+    .section-heading {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: clamp(28px, 4vw, 40px);
+      color: var(--white);
+      line-height: 1.15;
+      letter-spacing: -0.015em;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 18px;
+      color: var(--warm-slate);
+      max-width: 650px;
+      line-height: 1.7;
+    }
+    .text-center { text-align: center; margin-left: auto; margin-right: auto; }
+
+    /* ===== PROBLEM SECTION ===== */
+    .problem-section {
+      background: var(--soft-gray);
+      position: relative;
+      overflow: visible;
+    }
+    .problem-section::before {
+      content: '';
+      position: absolute;
+      top: -100px;
+      right: -100px;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(93,63,211,0.1) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .problem-section::after {
+      content: '';
+      position: absolute;
+      bottom: -100px;
+      left: -100px;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(167,139,250,0.05) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .pain-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-top: 48px;
+    }
+    /* Robot sits on left edge, cards on right */
+    .problem-layout {
+      position: relative;
+      margin-top: 56px;
+      min-height: 520px;
+    }
+    .robot-container {
+      position: absolute;
+      left: -80px;
+      top: -20px;
+      width: 500px;
+      height: 560px;
+      overflow: visible;
+      background: transparent;
+      border: none;
+      z-index: 1;
+      pointer-events: auto;
+    }
+    .robot-container spline-viewer {
+      --spline-viewer-background: transparent !important;
+    }
+    .pain-cards-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      margin-left: auto;
+      max-width: 560px;
+      position: relative;
+      z-index: 3;
+    }
+    @media (max-width: 1024px) {
+      .robot-container {
+        left: -160px;
+        width: 400px;
+        height: 480px;
+      }
+      .pain-cards-stack { max-width: 500px; }
+    }
+    @media (max-width: 768px) {
+      .robot-container { display: none; }
+      .pain-cards-stack { max-width: 100%; }
+    }
+
+    /* 3D Card tilt effect — glass on dark */
+    .pain-card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 36px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                  box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                  border-color 0.3s;
+      transform-style: preserve-3d;
+      cursor: default;
+    }
+    .pain-card:hover {
+      transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 30px rgba(93,63,211,0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    /* Card spotlight — purple glow */
+    .card-spotlight {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+      background: radial-gradient(400px circle at var(--cx, 50%) var(--cy, 50%),
+        rgba(93, 63, 211, 0.12) 0%, rgba(167, 139, 250, 0.04) 40%, transparent 60%);
+      pointer-events: none;
+      border-radius: inherit;
+    }
+    .pain-card:hover .card-spotlight,
+    .pricing-card:hover .card-spotlight { opacity: 1; }
+
+    .pain-icon {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      background: rgba(93, 63, 211, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      color: var(--purple-light);
+    }
+    .pain-icon svg { width: 28px; height: 28px; stroke: #a78bfa; }
+    .pain-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--white);
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .pain-card p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ===== HOW IT WORKS ===== */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      margin-top: 56px;
+      position: relative;
+    }
+    /* Tracing beam between steps */
+    .steps-grid::before {
+      content: '';
+      position: absolute;
+      top: 40px;
+      left: calc(16.66% + 28px);
+      right: calc(16.66% + 28px);
+      height: 2px;
+      background: rgba(255,255,255,0.06);
+    }
+    .tracing-beam {
+      position: absolute;
+      top: 40px;
+      left: calc(16.66% + 28px);
+      height: 2px;
+      width: 0;
+      background: linear-gradient(90deg, var(--gold), var(--gold-light));
+      transition: width 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
+      z-index: 1;
+    }
+    .steps-grid.visible .tracing-beam {
+      width: calc(100% - 33.32% - 56px);
+    }
+
+    .step-card {
+      text-align: center;
+      padding: 0 32px;
+      position: relative;
+      z-index: 2;
+    }
+    .step-number {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.05);
+      border: 2px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--white);
+      margin: 0 auto 24px;
+      transition: all 0.5s;
+    }
+    .steps-grid.visible .step-card .step-number {
+      border-color: var(--gold);
+      background: var(--gold);
+      color: var(--navy);
+      box-shadow: 0 0 24px rgba(167, 139, 250, 0.4), 0 0 60px rgba(93, 63, 211, 0.2);
+    }
+    .steps-grid.visible .step-card:nth-child(3) .step-number { transition-delay: 0.3s; }
+    .steps-grid.visible .step-card:nth-child(4) .step-number { transition-delay: 0.6s; }
+
+    .step-card h3 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--white);
+      margin-bottom: 12px;
+    }
+    .step-card p {
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    @media (max-width: 768px) {
+      .steps-grid { grid-template-columns: 1fr; gap: 40px; }
+      .steps-grid::before, .tracing-beam { display: none; }
+    }
+
+    /* ===== PRICING SECTION ===== */
+    .pricing-section {
+      background: linear-gradient(180deg, var(--soft-gray) 0%, #120730 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 56px;
+      max-width: 1100px;
+      margin-left: auto;
+      margin-right: auto;
+      align-items: start;
+    }
+    .pricing-card {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 40px 32px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s, border-color 0.3s;
+      transform-style: preserve-3d;
+    }
+    .pricing-card:hover {
+      transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 30px rgba(93,63,211,0.1);
+      border-color: rgba(255,255,255,0.15);
+    }
+    .pricing-card .card-spotlight { border-radius: 20px; }
+
+    /* Recommended card with border beam */
+    .pricing-card.recommended {
+      border: 2px solid var(--gold);
+      transform: scale(1.04);
+      z-index: 2;
+      box-shadow: 0 20px 60px rgba(93, 63, 211, 0.2), 0 0 40px rgba(167, 139, 250, 0.1);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .pricing-card.recommended:hover {
+      transform: scale(1.04) perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px);
+    }
+
+    /* Border beam animation */
+    .border-beam {
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+    .border-beam::before {
+      content: '';
+      position: absolute;
+      width: 80px;
+      height: 80px;
+      background: radial-gradient(circle, rgba(167,139,250,0.6) 0%, transparent 70%);
+      border-radius: 50%;
+      animation: beam-orbit 6s linear infinite;
+      filter: blur(4px);
+    }
+    @keyframes beam-orbit {
+      0% { top: -40px; left: 50%; }
+      25% { top: 50%; left: calc(100% - 10px); }
+      50% { top: calc(100% - 10px); left: 50%; }
+      75% { top: 50%; left: -40px; }
+      100% { top: -40px; left: 50%; }
+    }
+
+    .recommended-badge {
+      display: inline-block;
+      background: var(--gold);
+      color: var(--navy);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 6px 16px;
+      border-radius: 100px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .pricing-card .price {
+      font-size: clamp(40px, 5vw, 52px);
+      font-weight: 700;
+      color: var(--white);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .pricing-card .price-sub {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .pricing-card .desc {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .feature-list {
+      list-style: none;
+      margin-bottom: 32px;
+    }
+    .feature-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      font-size: 15px;
+      color: var(--muted);
+    }
+    .feature-list .check {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: rgba(56, 161, 105, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .feature-list .check svg { width: 12px; height: 12px; color: var(--success); }
+
+    .pricing-anchor {
+      text-align: center;
+      margin-top: 40px;
+      font-size: 16px;
+      color: var(--muted);
+    }
+    .pricing-anchor strong { color: var(--navy); }
+
+    @media (max-width: 900px) {
+      .pricing-grid { grid-template-columns: 1fr; max-width: 420px; }
+      .pricing-card.recommended { transform: none; order: -1; }
+      .pricing-card.recommended:hover { transform: translateY(-6px); }
+    }
+
+    /* ===== STATS BAR ===== */
+    .stats-bar {
+      background: linear-gradient(180deg, #120730 0%, #0a0520 100%);
+      padding: 56px 24px;
+      position: relative;
+      overflow: hidden;
+      border-top: 1px solid rgba(93, 63, 211, 0.15);
+      border-bottom: 1px solid rgba(93, 63, 211, 0.15);
+    }
+    .stats-bar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(93,63,211,0.1) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 50%, rgba(167,139,250,0.06) 0%, transparent 50%);
+      pointer-events: none;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      max-width: 1000px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+    .stat-item { text-align: center; }
+    .stat-number {
+      font-size: clamp(36px, 5vw, 48px);
+      font-weight: 700;
+      color: var(--gold);
+      line-height: 1.1;
+      margin-bottom: 4px;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+      font-weight: 500;
+    }
+    .stat-item::after {
+      content: '';
+      display: block;
+      width: 40px;
+      height: 2px;
+      background: var(--gold);
+      margin: 12px auto 0;
+      opacity: 0.4;
+    }
+
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ===== INDUSTRIES ===== */
+    .industries-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+    .industry-chip {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.8);
+      transition: all 0.3s;
+      cursor: default;
+    }
+    .industry-chip:hover {
+      border-color: rgba(93,63,211,0.4);
+      box-shadow: 0 4px 20px rgba(93, 63, 211, 0.15);
+      transform: translateY(-2px);
+      background: rgba(255,255,255,0.06);
+    }
+    .industry-chip .chip-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: rgba(93, 63, 211, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 768px) {
+      .industries-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ===== FAQ ===== */
+    .faq-list {
+      max-width: 720px;
+      margin: 48px auto 0;
+    }
+    .faq-item { border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .faq-question {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--white);
+      text-align: left;
+      line-height: 1.4;
+      font-family: inherit;
+    }
+    .faq-icon {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.3s;
+      color: var(--muted);
+      font-size: 18px;
+      margin-left: 16px;
+    }
+    .faq-item.open .faq-icon {
+      border-color: var(--gold);
+      color: var(--gold);
+      transform: rotate(45deg);
+    }
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .faq-item.open .faq-answer { max-height: 300px; }
+    .faq-answer p {
+      padding-bottom: 24px;
+      font-size: 16px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* ===== FINAL CTA ===== */
+    .cta-section {
+      background: linear-gradient(180deg, #0a0520 0%, #1a0a3e 50%, #0a0520 100%);
+      text-align: center;
+      padding: 100px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Lamp effect — purple */
+    .lamp {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 350px;
+      background: conic-gradient(
+        from 180deg at 50% 0%,
+        transparent 0deg,
+        rgba(93, 63, 211, 0.12) 50deg,
+        rgba(167, 139, 250, 0.15) 80deg,
+        rgba(93, 63, 211, 0.2) 90deg,
+        rgba(167, 139, 250, 0.15) 100deg,
+        rgba(93, 63, 211, 0.12) 130deg,
+        transparent 180deg
+      );
+      pointer-events: none;
+      filter: blur(50px);
+    }
+    .cta-section .section-heading { color: var(--white); }
+    .cta-section p { color: rgba(255,255,255,0.7); }
+    .cta-risk {
+      font-size: 14px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    /* ===== FOOTER ===== */
+    .footer {
+      background: #06020f;
+      padding: 64px 24px 32px;
+      color: rgba(255,255,255,0.4);
+      border-top: 1px solid rgba(93, 63, 211, 0.1);
+    }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 48px;
+    }
+    .footer-brand p {
+      font-size: 14px;
+      margin-top: 16px;
+      line-height: 1.6;
+      max-width: 300px;
+    }
+    .footer h4 {
+      color: var(--white);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .footer a {
+      display: block;
+      color: rgba(255,255,255,0.5);
+      text-decoration: none;
+      font-size: 14px;
+      padding: 4px 0;
+      transition: color 0.2s;
+    }
+    .footer a:hover { color: var(--gold); }
+    .footer-bottom {
+      max-width: 1200px;
+      margin: 48px auto 0;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+
+    @media (max-width: 768px) {
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-bottom { flex-direction: column; gap: 8px; }
+    }
+
+    /* ===== CUSTOM CURSOR ===== */
+    @media (hover: hover) {
+      .custom-cursor {
+        width: 24px; height: 24px;
+        border: 2px solid var(--gold);
+        border-radius: 50%;
+        position: fixed;
+        pointer-events: none;
+        z-index: 9999;
+        transition: width 0.2s, height 0.2s, border-color 0.2s, transform 0.08s;
+        transform: translate(-50%, -50%);
+        mix-blend-mode: difference;
+        opacity: 0;
+      }
+      .custom-cursor.active { opacity: 1; }
+      .custom-cursor.hovering {
+        width: 48px; height: 48px;
+        border-color: var(--gold-light);
+        background: rgba(167, 139, 250, 0.08);
+      }
+    }
+    @media (hover: none) {
+      .custom-cursor { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Custom cursor -->
+  <div class="custom-cursor" id="cursor"></div>
+
+  <!-- ===== NAVBAR ===== -->
+  <nav class="navbar" id="navbar">
+    <a href="#" class="nav-logo">ATHENA <span>Studios</span></a>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="navLinks">
+      <a href="portfolio.html">Portfolio</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="checkout.html" class="btn-metal btn-sm" data-metal style="height:40px;padding:0 22px;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label" style="font-size:13px;">Get Started</span></a>
+    </div>
+  </nav>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero" id="hero">
+    <canvas class="shader-canvas" id="shaderCanvas"></canvas>
+    <div class="shader-overlay"></div>
+    <div class="grid-overlay"></div>
+    <div class="particles" id="particles"></div>
+
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        Now serving businesses worldwide
+      </div>
+      <h1>Professional websites<br>shouldn't cost <span class="text-shimmer">$5,000.</span></h1>
+      <p class="hero-sub">
+        Custom-designed websites for
+        <span class="word-rotate">
+          <span class="word-rotate-inner">
+            <span>dentists</span>
+            <span>plumbers</span>
+            <span>restaurants</span>
+            <span>salons</span>
+          </span>
+        </span>
+        and local businesses worldwide. No templates. No surprises. Just a site that gets you customers.
+      </p>
+      <div class="hero-buttons">
+        <div class="btn-metal-wrap"><a href="checkout.html" class="btn-metal btn-lg" data-metal><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">Get Started &mdash; $299</span></a></div>
+        <div class="btn-metal-wrap"><a href="#pricing" class="btn-metal btn-lg" data-metal><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">View Pricing &darr;</span></a></div>
+      </div>
+      <div class="trust-signals">
+        <div class="trust-item">
+          <span class="trust-icon"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          500+ local businesses served
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          Custom design, not templates
+        </div>
+        <div class="trust-item">
+          <span class="trust-icon"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          Live in days, not months
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== PROBLEM ===== -->
+  <section class="section-full problem-section" id="about">
+    <div class="section" style="padding-top:0;padding-bottom:0;">
+      <div class="text-center reveal">
+        <h2 class="section-heading">Your competitors have websites. Do you?</h2>
+        <p class="section-sub text-center" style="margin-top:16px;">97% of consumers search online before visiting a local business. If you are not there, you are invisible to every potential customer who searches before they buy.</p>
+      </div>
+      <div class="problem-layout">
+        <!-- 3D Robot -->
+        <div class="robot-container">
+          <spline-viewer url="https://prod.spline.design/PyzDhpQ9E5f1E3MT/scene.splinecode" style="width:100%;height:100%;background:transparent;" loading="lazy"></spline-viewer>
+        </div>
+        <!-- Pain cards -->
+        <div class="pain-cards-stack">
+          <div class="pain-card reveal reveal-delay-1" data-tilt>
+            <div class="card-spotlight"></div>
+            <div class="pain-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
+            </div>
+            <h3>Losing customers to competitors</h3>
+            <p>Every day, potential customers search for your services and find your competitors instead. They have websites. You don't.</p>
+          </div>
+          <div class="pain-card reveal reveal-delay-2" data-tilt>
+            <div class="card-spotlight"></div>
+            <div class="pain-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h3>Answering the same questions by phone</h3>
+            <p>Hours, services, location, pricing. A website answers these 24/7 so you can focus on what you do best.</p>
+          </div>
+          <div class="pain-card reveal reveal-delay-3" data-tilt>
+            <div class="card-spotlight"></div>
+            <div class="pain-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="10" r="3"/></svg>
+            </div>
+            <h3>Missing "near me" searches</h3>
+            <p>When someone searches "dentist near me" or "plumber in [your city]", without a website, you simply don't exist.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== HOW IT WORKS ===== -->
+  <section class="section" id="services">
+    <div class="text-center reveal">
+      <h2 class="section-heading">Three steps to your new website</h2>
+      <p class="section-sub text-center" style="margin-top:12px;">No jargon. No months of waiting. Just results.</p>
+    </div>
+    <div class="steps-grid reveal" id="stepsGrid">
+      <div class="tracing-beam"></div>
+      <div class="step-card">
+        <div class="step-number">1</div>
+        <h3>Tell us about your business</h3>
+        <p>We learn what makes you different. Your services, your customers, your story.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">2</div>
+        <h3>We design your site</h3>
+        <p>A custom website built specifically for your business. Not a template with your logo swapped in.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-number">3</div>
+        <h3>Go live and get customers</h3>
+        <p>Your site launches. Your phone rings more. That is the goal.</p>
+      </div>
+    </div>
+    <div class="text-center reveal" style="margin-top:48px;">
+      <div class="btn-metal-wrap"><a href="checkout.html" class="btn-metal btn-lg" data-metal><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">Start Your Project &mdash; $299</span></a></div>
+    </div>
+  </section>
+
+  <!-- ===== PRICING ===== -->
+  <section class="section-full pricing-section" id="pricing">
+    <div class="section" style="padding-top:0;padding-bottom:0;">
+      <div class="text-center reveal">
+        <h2 class="section-heading">Transparent pricing. No surprises.</h2>
+        <p class="section-sub text-center" style="margin-top:12px;">Everything is included. No hidden fees. No contracts.</p>
+      </div>
+      <div class="pricing-grid">
+        <div class="pricing-card reveal reveal-delay-1" data-tilt>
+          <div class="card-spotlight"></div>
+          <div class="price">$149</div>
+          <div class="price-sub">one-time</div>
+          <div class="desc">One page. One goal. Perfect for a specific campaign or service promotion.</div>
+          <ul class="feature-list">
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> 1 custom-designed page</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Mobile-responsive layout</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Contact form or click-to-call</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Basic SEO setup</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Delivered in 24-48 hours</li>
+          </ul>
+          <div class="btn-metal-wrap" style="width:100%;"><a href="checkout.html" class="btn-metal btn-md" data-metal style="width:100%;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">Get a Landing Page</span></a></div>
+        </div>
+        <div class="pricing-card recommended reveal reveal-delay-2" data-tilt>
+          <div class="border-beam"></div>
+          <div class="card-spotlight"></div>
+          <span class="recommended-badge">RECOMMENDED</span>
+          <div class="price">$299</div>
+          <div class="price-sub">one-time</div>
+          <div class="desc">5 custom pages. Everything a local business needs to get found and get customers.</div>
+          <ul class="feature-list">
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> 5 custom-designed pages</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Mobile-responsive design</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Contact form + Google Maps</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Full SEO setup + schema markup</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Social media integration</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Google Analytics 4</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Delivered in days</li>
+          </ul>
+          <div class="btn-metal-wrap" style="width:100%;"><a href="checkout.html" class="btn-metal btn-md" data-metal style="width:100%;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">Get Started &mdash; $299</span></a></div>
+        </div>
+        <div class="pricing-card reveal reveal-delay-3" data-tilt>
+          <div class="card-spotlight"></div>
+          <div class="price">Custom</div>
+          <div class="price-sub">quote</div>
+          <div class="desc">For businesses that need more. E-commerce, booking systems, multi-location.</div>
+          <ul class="feature-list">
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Everything in Professional</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Additional pages (6-15)</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Online booking integration</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> E-commerce (up to 50 products)</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Multi-location support</li>
+            <li><span class="check"><svg fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#38A169" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Priority support</li>
+          </ul>
+          <div class="btn-metal-wrap" style="width:100%;"><a href="checkout.html" class="btn-metal btn-md" data-metal style="width:100%;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label">Request a Quote</span></a></div>
+        </div>
+      </div>
+      <p class="pricing-anchor reveal">The average agency charges <strong>$3,000 &ndash; $10,000</strong> for what we deliver at <strong style="color:var(--gold);">$299</strong>.</p>
+    </div>
+  </section>
+
+  <!-- ===== STATS BAR ===== -->
+  <div class="stats-bar">
+    <div class="stats-grid">
+      <div class="stat-item reveal">
+        <div class="stat-number" data-count="500" data-suffix="+">0</div>
+        <div class="stat-label">Websites delivered</div>
+      </div>
+      <div class="stat-item reveal reveal-delay-1">
+        <div class="stat-number" data-count="48" data-suffix="hr">0</div>
+        <div class="stat-label">Average delivery</div>
+      </div>
+      <div class="stat-item reveal reveal-delay-2">
+        <div class="stat-number" data-count="299" data-prefix="$">0</div>
+        <div class="stat-label">Starting price</div>
+      </div>
+      <div class="stat-item reveal reveal-delay-3">
+        <div class="stat-number" data-count="4.9" data-suffix="/5">0</div>
+        <div class="stat-label">Client satisfaction</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== INDUSTRIES ===== -->
+  <section class="section">
+    <div class="text-center reveal">
+      <h2 class="section-heading">Built for businesses like yours</h2>
+      <p class="section-sub text-center" style="margin-top:12px;">We design for any local business. Here are some of the industries we serve.</p>
+    </div>
+    <div class="industries-grid">
+      <div class="industry-chip reveal"><span class="chip-icon">&#x1F9B7;</span> Dentists</div>
+      <div class="industry-chip reveal reveal-delay-1"><span class="chip-icon">&#x1F527;</span> Plumbers</div>
+      <div class="industry-chip reveal reveal-delay-1"><span class="chip-icon">&#x1F37D;</span> Restaurants</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x1F487;</span> Salons</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x1F3D7;</span> Contractors</div>
+      <div class="industry-chip reveal reveal-delay-2"><span class="chip-icon">&#x26A1;</span> Electricians</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F9D1;&#x200D;&#x2695;&#xFE0F;</span> Chiropractors</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F697;</span> Auto Repair</div>
+      <div class="industry-chip reveal reveal-delay-3"><span class="chip-icon">&#x1F333;</span> Landscaping</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x1F3CB;</span> Fitness Studios</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x2696;</span> Law Offices</div>
+      <div class="industry-chip reveal reveal-delay-4"><span class="chip-icon">&#x1F3E0;</span> Real Estate</div>
+    </div>
+    <p class="text-center reveal" style="margin-top:32px;color:var(--muted);font-size:15px;">Don't see your industry? We build for any local business.</p>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <section class="section-full" style="background:var(--soft-gray);" id="faq">
+    <div class="section" style="padding-top:0;padding-bottom:0;">
+      <div class="text-center reveal">
+        <h2 class="section-heading">Frequently asked questions</h2>
+      </div>
+      <div class="faq-list">
+        <div class="faq-item reveal">
+          <button class="faq-question">Is $299 really the full price?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>Yes. $299 covers the complete design and build of your 5-page website. There are no hidden fees, setup costs, or surprise charges. Hosting is separate at $52/month if you would like us to manage it.</p></div>
+        </div>
+        <div class="faq-item reveal reveal-delay-1">
+          <button class="faq-question">How can you charge so much less than other agencies?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>We have streamlined our design process to eliminate the overhead that makes agencies expensive. No account managers, no long meetings, no months of back-and-forth. You get the same quality result in a fraction of the time.</p></div>
+        </div>
+        <div class="faq-item reveal reveal-delay-1">
+          <button class="faq-question">What if I don't like the design?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>We offer 30 days of free revisions after your site launches. If you are not happy with the direction during the build, we will adjust until it is right.</p></div>
+        </div>
+        <div class="faq-item reveal reveal-delay-2">
+          <button class="faq-question">Can I see an example before I commit?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>Yes. We will design a free preview page for your business before you pay anything. If you like it, we continue. If not, no charge.</p></div>
+        </div>
+        <div class="faq-item reveal reveal-delay-2">
+          <button class="faq-question">What about hosting?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>Hosting keeps your site online, fast, and secure. We offer managed hosting at $52/month which includes SSL, backups, security updates, and uptime monitoring. You can also host elsewhere if you prefer.</p></div>
+        </div>
+        <div class="faq-item reveal reveal-delay-3">
+          <button class="faq-question">Do you work with businesses outside the US?<span class="faq-icon">+</span></button>
+          <div class="faq-answer"><p>We work with local businesses worldwide. Our clients include businesses in North America, Europe, Latin America, and Asia-Pacific.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== FINAL CTA ===== -->
+  <section class="cta-section" id="contact">
+    <div class="lamp"></div>
+    <div style="position:relative;z-index:1;max-width:700px;margin:0 auto;">
+      <h2 class="section-heading reveal" style="font-size:clamp(32px,4.5vw,48px);">Ready to get found online?</h2>
+      <p class="reveal" style="font-size:18px;margin:20px auto 36px;max-width:550px;line-height:1.7;">Every day without a website is a day your competitors get the customers who should be yours.</p>
+      <div class="reveal" style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;">
+        <div class="btn-metal-wrap"><a href="checkout.html" class="btn-metal btn-lg" data-metal style="padding:0 44px;height:56px;"><div class="btn-metal-shader"></div><div class="btn-metal-inner"></div><span class="btn-metal-label" style="font-size:16px;">Get Started Today</span></a></div>
+      </div>
+      <p class="cta-risk reveal" style="margin-top:20px;">See a preview of your site before you pay a cent.</p>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a href="#" class="nav-logo" style="font-size:22px;">ATHENA <span style="color:#a78bfa;">Studios</span></a>
+        <p>Professional websites for local businesses worldwide. Craft, transparency, and fair pricing.</p>
+      </div>
+      <div>
+        <h4>Services</h4>
+        <a href="pricing.html">Custom Websites</a>
+        <a href="pricing.html">Landing Pages</a>
+        <a href="pricing.html">Managed Hosting</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="portfolio.html">Portfolio</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="checkout.html">Get Started</a>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <a href="mailto:hello@athenastudios.com">hello@athenastudios.com</a>
+        <a href="checkout.html">Book a Call</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2026 Athena Studios. All rights reserved.</span>
+      <span>Privacy &middot; Terms</span>
+    </div>
+  </footer>
+
+  <script>
+    // ===== FLOATING NAVBAR =====
+    let lastScroll = 0;
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      const y = window.scrollY;
+      navbar.classList.toggle('hidden', y > lastScroll && y > 100);
+      navbar.classList.toggle('scrolled', y > 50);
+      lastScroll = y;
+    });
+
+    // Mobile nav toggle
+    document.getElementById('navToggle').addEventListener('click', () => {
+      document.getElementById('navLinks').classList.toggle('open');
+    });
+    document.querySelectorAll('#navLinks a').forEach(a =>
+      a.addEventListener('click', () => document.getElementById('navLinks').classList.remove('open'))
+    );
+
+    // ===== WEBGL SHADER BACKGROUND =====
+    (function() {
+      const canvas = document.getElementById('shaderCanvas');
+      const gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
+      if (!gl) { canvas.style.background = 'linear-gradient(135deg, #0a0520 0%, #1a0a3e 50%, #0a0520 100%)'; return; }
+
+      const scale = 0.35;
+      function resize() {
+        canvas.width = canvas.clientWidth * scale;
+        canvas.height = canvas.clientHeight * scale;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      const vs = `#version 300 es
+        precision highp float;
+        in vec4 position;
+        void main(){gl_Position=position;}`;
+
+      const fs = `#version 300 es
+        precision highp float;
+        out vec4 O;
+        uniform vec2 resolution;
+        uniform float time;
+        #define FC gl_FragCoord.xy
+        #define T time
+        #define R resolution
+        #define MN min(R.x,R.y)
+
+        float rnd(vec2 p){
+          p=fract(p*vec2(12.9898,78.233));
+          p+=dot(p,p+34.56);
+          return fract(p.x*p.y);
+        }
+        float noise(vec2 p){
+          vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);
+          float a=rnd(i),b=rnd(i+vec2(1,0)),c=rnd(i+vec2(0,1)),d=rnd(i+1.);
+          return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);
+        }
+        float fbm(vec2 p){
+          float t=0.,a=1.; mat2 m=mat2(1.,-.5,.2,1.2);
+          for(int i=0;i<5;i++){t+=a*noise(p);p*=2.*m;a*=.5;}
+          return t;
+        }
+        float clouds(vec2 p){
+          float d=1.,t=0.;
+          for(float i=0.;i<3.;i++){
+            float a=d*fbm(i*10.+p.x*.2+.2*(1.+i)*p.y+d+i*i+p);
+            t=mix(t,d,a);d=a;p*=2./(i+1.);
+          }
+          return t;
+        }
+        void main(void){
+          vec2 uv=(FC-.5*R)/MN,st=uv*vec2(2,1);
+          vec3 col=vec3(0);
+          float bg=clouds(vec2(st.x+T*.5,-st.y));
+          uv*=1.-.3*(sin(T*.2)*.5+.5);
+          for(float i=1.;i<12.;i++){
+            uv+=.1*cos(i*vec2(.1+.01*i,.8)+i*i+T*.5+.1*uv.x);
+            vec2 p=uv;
+            float d=length(p);
+            col+=.00125/d*(cos(sin(i)*vec3(3,1,2))+1.);
+            float b=noise(i+p+bg*1.731);
+            col+=.002*b/length(max(p,vec2(b*p.x*.02,p.y)));
+            col=mix(col,vec3(bg*.12,bg*.05,bg*.25),d);
+          }
+          O=vec4(col,1);
+        }`;
+
+      function makeShader(src, type) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+      }
+      const prog = gl.createProgram();
+      gl.attachShader(prog, makeShader(vs, gl.VERTEX_SHADER));
+      gl.attachShader(prog, makeShader(fs, gl.FRAGMENT_SHADER));
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,1,-1,-1,1,1,1,-1]), gl.STATIC_DRAW);
+      const pos = gl.getAttribLocation(prog, 'position');
+      gl.enableVertexAttribArray(pos);
+      gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+      const uRes = gl.getUniformLocation(prog, 'resolution');
+      const uTime = gl.getUniformLocation(prog, 'time');
+
+      let running = true;
+      let lastFrame = 0;
+      function render(t) {
+        if (!running) return;
+        requestAnimationFrame(render);
+        if (t - lastFrame < 50) return; // cap at ~20fps
+        lastFrame = t;
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, t * 0.001);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+      requestAnimationFrame(render);
+
+      // Pause when not visible
+      const heroObs = new IntersectionObserver(([e]) => {
+        running = e.isIntersecting;
+        if (running) requestAnimationFrame(render);
+      }, { threshold: 0.1 });
+      heroObs.observe(canvas);
+    })();
+
+    // ===== CUSTOM CURSOR =====
+    const cursor = document.getElementById('cursor');
+    if (window.matchMedia('(hover: hover)').matches) {
+      document.addEventListener('mousemove', (e) => {
+        cursor.style.left = e.clientX + 'px';
+        cursor.style.top = e.clientY + 'px';
+        if (!cursor.classList.contains('active')) cursor.classList.add('active');
+      });
+      document.querySelectorAll('a, button, [data-tilt]').forEach(el => {
+        el.addEventListener('mouseenter', () => cursor.classList.add('hovering'));
+        el.addEventListener('mouseleave', () => cursor.classList.remove('hovering'));
+      });
+    }
+
+    // ===== PARTICLES =====
+    const particlesEl = document.getElementById('particles');
+    for (let i = 0; i < 30; i++) {
+      const p = document.createElement('div');
+      p.classList.add('particle');
+      p.style.left = Math.random() * 100 + '%';
+      p.style.animationDuration = (8 + Math.random() * 12) + 's';
+      p.style.animationDelay = (-Math.random() * 20) + 's';
+      p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+      particlesEl.appendChild(p);
+    }
+
+    // ===== 3D CARD TILT + SPOTLIGHT =====
+    document.querySelectorAll('[data-tilt]').forEach(card => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+        card.style.setProperty('--rx', ((y - cy) / cy * -4) + 'deg');
+        card.style.setProperty('--ry', ((x - cx) / cx * 4) + 'deg');
+        card.style.setProperty('--cx', x + 'px');
+        card.style.setProperty('--cy', y + 'px');
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.setProperty('--rx', '0deg');
+        card.style.setProperty('--ry', '0deg');
+      });
+    });
+
+    // ===== BUTTON RIPPLE =====
+    document.querySelectorAll('[data-ripple]').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        const rect = this.getBoundingClientRect();
+        const ripple = document.createElement('span');
+        ripple.classList.add('ripple');
+        ripple.style.left = (e.clientX - rect.left) + 'px';
+        ripple.style.top = (e.clientY - rect.top) + 'px';
+        this.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 600);
+      });
+    });
+
+    // ===== SCROLL REVEAL =====
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) entry.target.classList.add('visible');
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // ===== ANIMATED COUNTERS =====
+    const counterObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const el = entry.target;
+        const target = parseFloat(el.dataset.count);
+        const prefix = el.dataset.prefix || '';
+        const suffix = el.dataset.suffix || '';
+        const isFloat = target % 1 !== 0;
+        const duration = 2000;
+        const start = performance.now();
+        function update(now) {
+          const progress = Math.min((now - start) / duration, 1);
+          const ease = 1 - Math.pow(1 - progress, 3);
+          const current = isFloat ? (target * ease).toFixed(1) : Math.floor(target * ease);
+          el.textContent = prefix + current + suffix;
+          if (progress < 1) requestAnimationFrame(update);
+          else el.textContent = prefix + (isFloat ? target.toFixed(1) : target) + suffix;
+        }
+        requestAnimationFrame(update);
+        counterObserver.unobserve(el);
+      });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.stat-number').forEach(el => counterObserver.observe(el));
+
+    // ===== FAQ ACCORDION =====
+    document.querySelectorAll('.faq-question').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const item = btn.parentElement;
+        const isOpen = item.classList.contains('open');
+        document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
+        if (!isOpen) item.classList.add('open');
+      });
+    });
+
+    // ===== SMOOTH SCROLL =====
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  </script>
+
+  <!-- Liquid Metal — tiny texture, upscaled by browser, animated via CSS -->
+  <script>
+  requestIdleCallback(function() {
+    const W = 128, H = 24;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+
+    // Fast hash noise
+    function h(x,y){const n=Math.sin(x*127.1+y*311.7)*43758.5;return n-Math.floor(n);}
+    function sn(x,y){
+      const ix=x|0,iy=y|0,fx=x-ix,fy=y-iy;
+      const sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);
+      return h(ix,iy)+(h(ix+1,iy)-h(ix,iy))*sx+(h(ix,iy+1)-h(ix,iy))*sy+(h(ix,iy)-h(ix+1,iy)-h(ix,iy+1)+h(ix+1,iy+1))*sx*sy;
+    }
+    function fb(x,y){let v=0,a=.5;for(let i=0;i<3;i++){v+=a*sn(x,y);x*=2.1;y*=2.1;a*=.5;}return v;}
+
+    const d = ctx.createImageData(W,H);
+    for(let py=0;py<H;py++){
+      for(let px=0;px<W;px++){
+        const u=px/W,v=py/H;
+        const n1=fb(u*6+1.7,v*3+.3);
+        const n2=fb(u*5+n1*1.5,v*2.5-.3);
+        const hi=Math.max(0,Math.min(1,(n2-.3)/.4));
+        const sh=Math.max(0,Math.min(1,(.6-n1)/.3));
+        let r=20+sh*55+hi*95,g=20+sh*55+hi*95,b=25+sh*60+hi*105;
+        r+=Math.sin(n1*6.28)*8;b+=Math.cos(n2*6.28)*8;
+        const i=(py*W+px)*4;
+        d.data[i]=r|0;d.data[i+1]=g|0;d.data[i+2]=b|0;d.data[i+3]=255;
+      }
+    }
+    ctx.putImageData(d,0,0);
+    const url=c.toDataURL();
+
+    const s=document.createElement('style');
+    s.textContent=`
+      @keyframes metal-flow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+      .btn-metal-shader{background-image:url(${url})!important;background-size:200% 100%!important;animation:metal-flow 8s ease-in-out infinite!important;}
+      .btn-metal:hover .btn-metal-shader{animation-duration:3s!important;}
+    `;
+    document.head.appendChild(s);
+    c.width=c.height=0;
+  });
+  </script>
+</body>
+</html>
