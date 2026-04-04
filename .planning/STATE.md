@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-03-31T09:20:00.000Z"
+last_updated: "2026-04-01T20:35:00.000Z"
 progress:
   total_phases: 27
   completed_phases: 10
@@ -17,13 +17,13 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-29)
 **Core value:** Every email reads like a human who actually looked at the business
-**Current focus:** Phase 16 — Event-Driven Wakeup Queue
+**Current focus:** Approved Scales/Hermes integration planning against the active War Room frontend in `hermes/web/frontend/`
 
 ## Current Phase
 
 **Phase:** 16
 **Status:** Phase 16 Complete
-**Next action:** All Paperclip integration phases complete (11-16)
+**Next action:** Convert the approved Scales/Hermes plan into file-level implementation tasks for the buddy and autopilot surfaces
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -67,6 +67,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Planning Artifacts
 
 - `.planning/INTEL-INTEGRATION-PLANNING.md` — SEED ideation output
+- `.planning/SCALES-HERMES-INTEGRATION-PLAN.md` — Approved product integration plan pinned to `hermes/web/frontend/`
 - `.planning/codebase/` — 8 codebase analysis documents (2579 lines)
 - `.planning/discovery/` — 3 discovery reports + debate synthesis + 3 approach evaluations
 - `.planning/PROJECT.md` — Full scope project definition

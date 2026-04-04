@@ -20,7 +20,7 @@ All daemons communicate via A2A (agent-to-agent), Postgres (shared task queue + 
 cp .env.example .env          # Configure API keys
 pip install -r requirements.txt
 make up                       # Start Docker (Postgres, Qdrant, Mem0, N8N)
-make start                    # Start Hermes gateway + workers + dashboard
+make start                    # Start Hermes gateway + workers + dashboard + sidecars
 ```
 
 ## Autonomy Rules
@@ -71,6 +71,7 @@ $200 Claude Max + ~$100 Instantly.ai + tools/domains + GPU training buffer.
 | Skills | ClawdBot (26 capabilities, 3 registries, safety vetting) |
 | Email | Instantly.ai (campaign-based, warmup, account rotation) |
 | Scraping | Firecrawl + browser-use |
+| Heavy Local Research | AirLLM (optional, long-context offline analysis and memory digestion) |
 | Sites | ClawdBot (site_builder.py) + Recraft (images) + Netlify (deploy) |
 | Payments | Stripe (primary) + Wise (fallback) |
 | DB | Postgres + Qdrant + Mem0 |
@@ -80,12 +81,12 @@ $200 Claude Max + ~$100 Instantly.ai + tools/domains + GPU training buffer.
 
 ```bash
 make setup     # First-run: prompts for API keys, generates secrets, builds frontend
-make start     # Start everything (Docker + Hermes gateway + workers + War Room)
+make start     # Start everything (Docker + Hermes gateway + workers + War Room + sidecars)
 make stop      # Stop everything
-make status    # System status (Hermes gateway + workers + Docker + Ollama)
+make status    # System status (Hermes gateway + workers + Docker + Ollama + sidecars)
 make dashboard # Start dashboard backend standalone (dev mode, port 8500)
 make logs      # Tail all daemon logs
-make health    # Quick health check (Postgres, Qdrant, Mem0, N8N, Ollama)
+make health    # Quick health check (Postgres, Qdrant, Mem0, N8N, Ollama, sidecars)
 make restart   # Stop + start
 make up        # Docker services only
 make down     # Stop Docker
@@ -94,7 +95,7 @@ make down     # Stop Docker
 ## 24/7 Operation (macOS LaunchAgents)
 
 ```bash
-./scripts/install-launchagents.sh   # Install all 5 LaunchAgent plists
+./scripts/install-launchagents.sh   # Install the LaunchAgent plists
 # Auto-starts on login, auto-restarts on crash
 ```
 
@@ -102,7 +103,7 @@ make down     # Stop Docker
 
 ```
 openjarvis/       Orchestrator framework (A2A, agents, WorkflowEngine, security, tools)
-shared/           LLM client (Claude+Ollama), DB pool, comms layer, skill loader, MAGMA
+shared/           LLM client (Claude+Ollama+AirLLM policy), DB pool, comms layer, skill loader, MAGMA
 perseus/          Scheduler daemon, agent registry, health, self-audit
 titan/            Pipeline (10 stages), state machine, memory, training, review mode
 hermes/           Telegram alerts, FastAPI API, War Room web UI

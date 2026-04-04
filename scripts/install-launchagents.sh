@@ -8,7 +8,7 @@ TARGET_DIR="$HOME/Library/LaunchAgents"
 
 echo "Installing Perseus LaunchAgents..."
 
-for plist in com.perseus.master.plist com.perseus.titan.plist com.perseus.clawdbot.plist com.perseus.dashboard.plist com.perseus.frontend.plist; do
+for plist in com.perseus.master.plist com.perseus.titan.plist com.perseus.clawdbot.plist com.perseus.browser-use.plist com.perseus.dashboard.plist com.perseus.frontend.plist; do
     cp "$PLIST_DIR/$plist" "$TARGET_DIR/$plist"
     echo "  Installed $plist"
 done
@@ -36,6 +36,7 @@ echo "To start now:"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.master.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.titan.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
+echo "  launchctl load ~/Library/LaunchAgents/com.perseus.browser-use.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.dashboard.plist"
 echo "  launchctl load ~/Library/LaunchAgents/com.perseus.frontend.plist"
 echo "  hermes gateway install"
@@ -45,6 +46,7 @@ echo "To stop:"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.master.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.titan.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
+echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.browser-use.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.dashboard.plist"
 echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.frontend.plist"
 echo "  hermes gateway stop"

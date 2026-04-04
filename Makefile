@@ -9,11 +9,11 @@ help: ## Show this help
 setup: ## First-run setup — prompts for API keys, generates secrets, creates .env
 	@bash ./scripts/setup-perseus.sh
 
-start: ## Start Perseus workers + official Hermes + dashboard/frontend
+start: ## Start Perseus workers + official Hermes + dashboard/frontend + sidecars
 	@if [ ! -f .env ]; then echo "No .env found — running first-time setup..."; bash ./scripts/setup-perseus.sh; fi
 	@./scripts/start-perseus.sh
 
-stop: ## Stop Perseus workers + official Hermes + dashboard/frontend
+stop: ## Stop Perseus workers + official Hermes + dashboard/frontend + sidecars
 	@./scripts/stop-perseus.sh
 
 up: ## Start Docker services only (Postgres, Qdrant, Mem0, N8N)
@@ -41,7 +41,7 @@ status: ## System status
 	@echo "======================================"
 	@echo ""
 	@echo "=== Local Processes ==="
-	@for agent in orchestrator titan clawdbot hermes dashboard frontend; do \
+	@for agent in system_executor deerflow_research screenpipe orchestrator titan clawdbot hermes dashboard frontend; do \
 		if [ -f logs/pids/$$agent.pid ] && kill -0 $$(cat logs/pids/$$agent.pid) 2>/dev/null; then \
 			echo "  $$agent: RUNNING (PID: $$(cat logs/pids/$$agent.pid))"; \
 		else \
@@ -58,18 +58,19 @@ status: ## System status
 	@echo "=== Ollama ==="
 	@curl -sf http://localhost:11434/api/tags 2>/dev/null | python3 -c "import sys,json; [print(f'  {m[\"name\"]}') for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null || echo "  Not responding"
 	@echo ""
+	@echo "=== Sidecars ==="
+	@PERSEUS_HEALTH_NO_ALERT=1 ./scripts/health-check.sh >/tmp/perseus-health.out 2>/dev/null || true
+	@grep -E '^[[:space:]]*(OpenHands|DeerFlow|browser-use|Peekaboo|Screenpipe)' /tmp/perseus-health.out 2>/dev/null || echo "  No donor sidecar output"
+	@rm -f /tmp/perseus-health.out
+	@echo ""
 	@echo "=== Disk ==="
 	@df -h / | tail -1
 
 logs: ## Tail daemon logs
-	@tail -f logs/perseus.log logs/titan.log logs/clawdbot.log logs/dashboard.log $(HOME)/.hermes/logs/gateway.log 2>/dev/null || echo "No log files yet"
+	@tail -f logs/perseus.log logs/titan.log logs/clawdbot.log logs/system_executor.log logs/deerflow_research.log logs/screenpipe.log logs/dashboard.log $(HOME)/.hermes/logs/gateway.log 2>/dev/null || echo "No log files yet"
 
 health: ## Quick health check
-	@echo "Postgres:  $$(docker exec perseus-postgres pg_isready 2>/dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "Qdrant:    $$(curl -sf http://localhost:6333/collections > /dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "Mem0:      $$(curl -sf http://localhost:8888/health > /dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "N8N:       $$(curl -sf http://localhost:5678/healthz > /dev/null && echo 'OK' || echo 'DOWN')"
-	@echo "Ollama:    $$(curl -sf http://localhost:11434/api/tags > /dev/null && echo 'OK' || echo 'DOWN')"
+	@PERSEUS_HEALTH_NO_ALERT=1 ./scripts/health-check.sh
 
 dashboard: ## Start dashboard backend (standalone, port 8500)
 	$(PYTHON) -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 --reload

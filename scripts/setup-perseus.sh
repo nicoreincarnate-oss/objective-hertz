@@ -178,6 +178,9 @@ fi
 header "Optional Integrations (press Enter to skip any)"
 
 prompt_value "ANTHROPIC_API_KEY" "Anthropic API key (Claude)" "$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d= -f2)" "optional" "secret"
+prompt_value "LLM_API_KEY" "OpenHands LLM API key" "$(grep '^LLM_API_KEY=' "$ENV_FILE" | cut -d= -f2)" "optional" "secret"
+prompt_value "OPENHANDS_MODEL" "OpenHands model (LiteLLM format, e.g. anthropic/claude-sonnet-4-5-20250929)" "$(grep '^OPENHANDS_MODEL=' "$ENV_FILE" | cut -d= -f2)" "optional" ""
+prompt_value "OPENHANDS_WORKSPACE" "OpenHands workspace root (repo path)" "$(grep '^OPENHANDS_WORKSPACE=' "$ENV_FILE" | cut -d= -f2)" "optional" ""
 prompt_value "TELEGRAM_BOT_TOKEN" "Telegram bot token" "$(grep '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2)" "optional" "secret"
 prompt_value "TELEGRAM_CHAT_ID" "Telegram chat ID (your user ID)" "$(grep '^TELEGRAM_CHAT_ID=' "$ENV_FILE" | cut -d= -f2)" "optional" ""
 prompt_value "FIRECRAWL_API_KEY" "Firecrawl API key" "$(grep '^FIRECRAWL_API_KEY=' "$ENV_FILE" | cut -d= -f2)" "optional" "secret"

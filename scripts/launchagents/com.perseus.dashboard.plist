@@ -6,7 +6,7 @@
     <string>com.perseus.dashboard</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/Users/majovega/Desktop/Projects/objective-hertz/.venv312/bin/python</string>
         <string>-m</string>
         <string>uvicorn</string>
         <string>hermes.web.app:app</string>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop Perseus workers + official Hermes + dashboard
+# Stop Perseus workers + official Hermes + dashboard + donor sidecars
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +16,7 @@ echo "════════════════════════�
 echo "  PERSEUS — Stopping Hermes + Workers"
 echo "═══════════════════════════════════════"
 
-for agent in frontend dashboard orchestrator clawdbot titan perseus; do
+for agent in screenpipe system_executor deerflow_research browser-use peekaboo frontend dashboard orchestrator clawdbot titan perseus; do
     PID_FILE="$PID_DIR/$agent.pid"
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")

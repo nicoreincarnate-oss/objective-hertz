@@ -1,11 +1,32 @@
 #!/bin/bash
-# Start Perseus workers + official Hermes + dashboard
+# Start Perseus workers + official Hermes + dashboard + donor sidecars
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 PID_DIR="$ROOT_DIR/logs/pids"
 LOG_DIR="$ROOT_DIR/logs"
+source "$ROOT_DIR/.env" 2>/dev/null || true
+source "$SCRIPT_DIR/sidecars.sh"
+PYTHON_BIN="$ROOT_DIR/.venv312/bin/python"
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+fi
+if [ ! -x "$PYTHON_BIN" ]; then
+    PYTHON_BIN="python3"
+fi
+SCREENPIPE_URL="${SCREENPIPE_URL:-http://localhost:3030}"
+SCREENPIPE_PID_FILE="$PID_DIR/screenpipe.pid"
+SCREENPIPE_LOG_FILE="$LOG_DIR/screenpipe.log"
+
+screenpipe_port() {
+    local port
+    port="$(printf '%s' "$SCREENPIPE_URL" | sed -n 's#.*://[^/]*:\([0-9][0-9]*\).*#\1#p')"
+    if [ -z "$port" ]; then
+        port=3030
+    fi
+    printf '%s\n' "$port"
+}
 
 # Ensure PATH includes Homebrew + Docker for LaunchAgent contexts
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
@@ -77,15 +98,44 @@ stop_stale_listener() {
     fi
 }
 
+start_screenpipe_sidecar() {
+    local enabled="${SCREENPIPE_ENABLED:-true}"
+    case "${enabled,,}" in
+        false|0|no)
+            echo "  ↷ Screenpipe sidecar disabled"
+            return 0
+            ;;
+    esac
+
+    if curl -sf "$SCREENPIPE_URL/health" > /dev/null 2>&1; then
+        echo "  ✓ Screenpipe already healthy at $SCREENPIPE_URL"
+        return 0
+    fi
+
+    local start_command="${SCREENPIPE_START_COMMAND:-npx -y screenpipe@latest record}"
+    if [[ "$start_command" == *"npx"* ]] && ! command -v npx &> /dev/null; then
+        echo "  ✗ Screenpipe requested but npx is not available"
+        return 1
+    fi
+
+    echo "  Starting Screenpipe sidecar..."
+    stop_stale_listener "$(screenpipe_port)" "$ROOT_DIR" "screenpipe" || exit 1
+    SCREENPIPE_URL="$SCREENPIPE_URL" nohup bash -lc "$start_command" > "$SCREENPIPE_LOG_FILE" 2>&1 &
+    echo $! > "$SCREENPIPE_PID_FILE"
+    wait_for_pid "$(cat "$SCREENPIPE_PID_FILE")" "Screenpipe"
+    wait_for_http "$SCREENPIPE_URL/health" "Screenpipe" 60
+    echo "  ✓ Screenpipe sidecar healthy at $SCREENPIPE_URL (PID: $(cat "$SCREENPIPE_PID_FILE"))"
+}
+
 echo "═══════════════════════════════════════"
 echo "  OPENJARVIS — Starting The Boss"
 echo "═══════════════════════════════════════"
 
 # 0. Validate Python version
-python3 -c "import sys; assert sys.version_info >= (3, 11), f'Python 3.11+ required, got {sys.version}'" || exit 1
+"$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 11), f'Python 3.11+ required, got {sys.version}'" || exit 1
 
 # 1. Start Docker services
-echo "[1/7] Starting Docker services..."
+echo "[1/9] Starting Docker services..."
 cd "$ROOT_DIR"
 if ! command -v docker &> /dev/null; then
     echo "  ✗ docker not found in PATH — install Docker Desktop or add it to PATH"
@@ -130,7 +180,7 @@ fi
 echo "  ✓ Docker services running, Postgres ready, schema applied"
 
 # 2. Start Ollama (if not already running)
-echo "[2/7] Checking Ollama..."
+echo "[2/9] Checking Ollama..."
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "  Starting Ollama..."
     ollama serve &
@@ -138,26 +188,45 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
 fi
 echo "  ✓ Ollama running"
 
-# 3. Sync Hermes soul + local skills
-echo "[3/7] Syncing Hermes soul + skills..."
+# 3. Start Screenpipe sidecar for live screen context
+echo "[3/9] Starting Screenpipe sidecar..."
+start_screenpipe_sidecar
+
+# 4. Sync Hermes soul + local skills
+echo "[4/9] Syncing Hermes soul + skills..."
 bash "$ROOT_DIR/scripts/sync-hermes-agent.sh"
 
-# 4. Start official Hermes gateway
-echo "[4/7] Starting official Hermes gateway..."
+# 5. Start official Hermes gateway
+echo "[5/9] Starting official Hermes gateway..."
 if ! hermes gateway start > /dev/null 2>&1; then
     hermes gateway install > /dev/null 2>&1 || true
     hermes gateway start > /dev/null 2>&1
 fi
 echo "  ✓ Hermes gateway running"
 
-# 5. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
-echo "[5/7] Starting OpenJarvis Orchestrator (boss)..."
+# 6. Start donor sidecars using the shared registry
+echo "[6/9] Starting donor sidecars..."
+sidecar_start_if_needed "system_executor" "OpenHands / system executor"
+sidecar_start_if_needed "deerflow_research" "DeerFlow research daemon"
+case "${CLAWDBOT_BROWSER_USE_ENABLED:-true}" in
+    false|0|no)
+        echo "  ↷ browser-use donor disabled"
+        ;;
+    *)
+        sidecar_start_if_needed "browser-use" "browser-use donor"
+        ;;
+esac
+sidecar_start_if_needed "peekaboo" "Peekaboo donor"
+
+# 7. Start OpenJarvis Orchestrator (THE boss — manages Titan, Hermes, ClawdBot)
+echo "[7/9] Starting OpenJarvis Orchestrator (boss)..."
 cd "$ROOT_DIR"
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 SKIP_INTERNAL_DASHBOARD=1 nohup python3 orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
+LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" ORCHESTRATOR_A2A=1 SKIP_INTERNAL_DASHBOARD=1 nohup "$PYTHON_BIN" orchestrator.py > "$LOG_DIR/orchestrator.log" 2>&1 &
 echo $! > "$PID_DIR/orchestrator.pid"
 wait_for_pid "$(cat "$PID_DIR/orchestrator.pid")" "OpenJarvis"
 echo "  ✓ OpenJarvis started (PID: $(cat $PID_DIR/orchestrator.pid))"
 echo "  OpenJarvis will spawn Titan, Hermes, and ClawdBot as vassals."
+echo "  OpenJarvis will also spawn Ruflo for engineering tasks."
 echo "  Waiting for vassals to come up..."
 sleep 5
 wait_for_http "http://localhost:9000/.well-known/agent.json" "OpenJarvis A2A" 30
@@ -167,18 +236,18 @@ echo "  Metrics    Titan:      http://localhost:9101/metrics"
 echo "  Metrics    Hermes:     http://localhost:9102/metrics"
 echo "  Metrics    ClawdBot:   http://localhost:9103/metrics"
 
-# 6. Start dashboard backend
-echo "[6/7] Starting dashboard backend..."
-LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup python3 -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
+# 8. Start dashboard backend
+echo "[8/9] Starting dashboard backend..."
+LOG_TO_STDOUT=0 PYTHONPATH="$ROOT_DIR" nohup "$PYTHON_BIN" -m uvicorn hermes.web.app:app --host 0.0.0.0 --port 8500 > "$LOG_DIR/dashboard.log" 2>&1 &
 echo $! > "$PID_DIR/dashboard.pid"
 wait_for_pid "$(cat "$PID_DIR/dashboard.pid")" "Dashboard backend"
 wait_for_http "http://localhost:8500/api/liveness" "Dashboard backend"
 echo "  ✓ Dashboard backend started on :8500 (PID: $(cat $PID_DIR/dashboard.pid))"
 echo "  Metrics    Dashboard:  http://localhost:8500/metrics"
 
-# 7. Start War Room frontend (Next.js)
+# 9. Start War Room frontend (Next.js)
 FRONTEND_DIR="$ROOT_DIR/hermes/web/frontend"
-echo "[7/7] Starting War Room frontend..."
+echo "[9/9] Starting War Room frontend..."
 if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     cd "$FRONTEND_DIR"
     stop_stale_listener 3000 "$FRONTEND_DIR" "frontend" || exit 1
@@ -203,10 +272,15 @@ echo "════════════════════════�
 echo "  OPENJARVIS IS LIVE — THE BOSS + VASSALS"
 echo "═══════════════════════════════════════"
 echo "  Hermes     Gateway: launchd service"
+if [ -f "$PID_DIR/system_executor.pid" ]; then
+echo "  OpenHands / system executor PID: $(cat $PID_DIR/system_executor.pid)"
+fi
+echo "  Screenpipe Sidecar: $SCREENPIPE_URL"
 echo "  OpenJarvis PID: $(cat $PID_DIR/orchestrator.pid) (port 9000)"
 echo "  Titan      managed by OpenJarvis (port 9001)"
 echo "  Hermes     managed by OpenJarvis (port 9002)"
 echo "  ClawdBot   managed by OpenJarvis (port 9003)"
+echo "  Ruflo      managed by OpenJarvis (port 9004)"
 echo "  Dashboard  PID: $(cat $PID_DIR/dashboard.pid)"
 if [ -f "$PID_DIR/frontend.pid" ]; then
 echo "  Frontend   PID: $(cat $PID_DIR/frontend.pid)"
