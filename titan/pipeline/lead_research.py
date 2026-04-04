@@ -9,6 +9,12 @@ import logging
 import re
 from typing import Any
 
+try:
+    from tools.tavily_client import tavily_available, research_business as tavily_research
+    HAS_TAVILY = True
+except ImportError:
+    HAS_TAVILY = False
+
 from shared.comms import request_task_result
 from shared.db import execute, fetch_all
 from shared.llm_client import llm
@@ -240,16 +246,70 @@ async def _scrape_business_info(lead: dict) -> str | dict:
             if extract:
                 parts.append(extract.get("markdown_excerpt", ""))
 
+        # Tavily enrichment — complementary web context alongside Firecrawl scraping
+        tavily_enrichment = await _enrich_with_tavily(lead)
+        if tavily_enrichment:
+            if tavily_enrichment.get("overall_summary"):
+                parts.append(tavily_enrichment["overall_summary"][:400])
+            # Merge Tavily search results into the search_results pool
+            tavily_search_results = []
+            for src_url in tavily_enrichment.get("sources", []):
+                tavily_search_results.append({
+                    "title": "",
+                    "url": src_url,
+                    "description": "",
+                })
+            if tavily_enrichment.get("competitors"):
+                for comp in tavily_enrichment["competitors"][:3]:
+                    tavily_search_results.append({
+                        "title": comp.get("name", ""),
+                        "url": comp.get("url", ""),
+                        "description": comp.get("snippet", ""),
+                    })
+
+        existing_search_results = profile.get("search_results", []) if isinstance(profile, dict) else []
+        merged_search_results = existing_search_results + (tavily_search_results if tavily_enrichment else [])
+
         if parts:
             return {
                 "summary": "\n".join(part for part in parts if part).strip()[:1000],
-                "search_results": profile.get("search_results", []) if isinstance(profile, dict) else [],
+                "search_results": merged_search_results,
                 "website_extract": profile.get("website_extract", {}) if isinstance(profile, dict) else {},
+                "tavily_enrichment": tavily_enrichment,
             }
 
-        return {"summary": "No additional info found.", "search_results": [], "website_extract": {}}
+        return {"summary": "No additional info found.", "search_results": merged_search_results, "website_extract": {}}
     except Exception:
         return "No additional info found."
+
+
+async def _enrich_with_tavily(lead: dict) -> dict | None:
+    """Fetch complementary web context from Tavily for a lead.
+
+    Returns the Tavily enrichment dict, or None if unavailable/failed.
+    Tavily provides web search context (reviews, competitors, social presence)
+    that complements Firecrawl's direct site scraping.
+    """
+    if not HAS_TAVILY or not tavily_available():
+        return None
+
+    business_name = lead.get("business_name", "").strip()
+    if not business_name:
+        return None
+
+    location = ", ".join(
+        part for part in [lead.get("city", ""), lead.get("country", "")] if part
+    )
+
+    try:
+        enrichment = await tavily_research(business_name, location=location)
+        if enrichment and enrichment.get("overall_summary"):
+            logger.info(f"Tavily enrichment added for lead {lead.get('id', '?')}")
+            return enrichment
+    except Exception as e:
+        logger.debug(f"Tavily enrichment failed for {business_name}: {e}")
+
+    return None
 
 
 async def _generate_research_data(prompt: str, lead: dict) -> dict:

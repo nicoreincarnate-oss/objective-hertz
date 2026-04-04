@@ -16,6 +16,7 @@ import hmac
 import json
 import logging
 import os
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -32,6 +33,103 @@ from shared.observability import (
 )
 
 logger = logging.getLogger("perseus.a2a")
+
+# ── ToolRegistry import guard ────────────────────────────────────────
+
+try:
+    from shared.tool_registry import UnifiedToolRegistry
+    _TOOL_REGISTRY_AVAILABLE = True
+except ImportError:
+    _TOOL_REGISTRY_AVAILABLE = False
+
+
+# ── Capability cache for AgentCard auto-population ───────────────────
+
+_CAPABILITY_CACHE_TTL = 60  # seconds
+
+
+class _CapabilityCache:
+    """Thread-safe TTL cache for registry-derived capabilities."""
+
+    __slots__ = ("_capabilities", "_details", "_last_refresh")
+
+    def __init__(self) -> None:
+        self._capabilities: list[str] = []
+        self._details: list[dict[str, Any]] = []
+        self._last_refresh: float = 0.0
+
+    @property
+    def stale(self) -> bool:
+        return (time.monotonic() - self._last_refresh) > _CAPABILITY_CACHE_TTL
+
+    def update(self, capabilities: list[str], details: list[dict[str, Any]]) -> None:
+        self._capabilities = capabilities
+        self._details = details
+        self._last_refresh = time.monotonic()
+
+    @property
+    def capabilities(self) -> list[str]:
+        return self._capabilities
+
+    @property
+    def details(self) -> list[dict[str, Any]]:
+        return self._details
+
+    @property
+    def populated(self) -> bool:
+        return bool(self._capabilities)
+
+    def invalidate(self) -> None:
+        """Force the next access to re-query the registry."""
+        self._last_refresh = 0.0
+
+
+def _build_capabilities_from_registry() -> tuple[list[str], list[dict[str, Any]]]:
+    """Query UnifiedToolRegistry and build AgentCard-compatible capability lists.
+
+    Returns (capability_names, capability_details) where details are grouped
+    by category for richer discovery.
+    """
+    if not _TOOL_REGISTRY_AVAILABLE:
+        return [], []
+    try:
+        registry = UnifiedToolRegistry()
+        specs = registry.available()
+        if not specs:
+            return [], []
+
+        capabilities: list[str] = []
+        details: list[dict[str, Any]] = []
+        by_category: dict[str, list[dict[str, Any]]] = {}
+
+        for spec in specs:
+            capabilities.append(spec.name)
+            tool_info: dict[str, Any] = {"name": spec.name, "description": spec.description}
+            if spec.category:
+                tool_info["category"] = spec.category
+            if spec.tags:
+                tool_info["tags"] = spec.tags
+            if spec.tool_type:
+                tool_info["tool_type"] = spec.tool_type.value
+
+            cat = spec.category or "general"
+            by_category.setdefault(cat, []).append(tool_info)
+
+        for cat, tools in sorted(by_category.items()):
+            details.append({"category": cat, "tools": tools})
+
+        return capabilities, details
+    except Exception:
+        logger.debug("Failed to query ToolRegistry for capabilities", exc_info=True)
+        return [], []
+
+
+def refresh_capabilities(cache: _CapabilityCache) -> _CapabilityCache:
+    """Public helper that CapabilityRouter (or tests) can call to force-refresh."""
+    caps, details = _build_capabilities_from_registry()
+    if caps:
+        cache.update(caps, details)
+    return cache
 
 
 # ── A2A protocol types (mirrors OpenJarvis a2a/protocol.py) ──────────
@@ -94,9 +192,22 @@ def create_a2a_app(
     """
     app = FastAPI(title=f"{agent_card.name} A2A Server", docs_url=None, redoc_url=None)
     tasks: dict[str, dict[str, Any]] = {}
+    _cap_cache = _CapabilityCache()
+    # Stash on app for external access (e.g. CapabilityRouter)
+    app.state.capability_cache = _cap_cache  # type: ignore[attr-defined]
+
+    hardcoded_capabilities = list(agent_card.capabilities)
 
     @app.get("/.well-known/agent.json")
     async def get_agent_card():
+        # Auto-populate from registry if cache is stale
+        if _cap_cache.stale:
+            refresh_capabilities(_cap_cache)
+        if _cap_cache.populated:
+            agent_card.capabilities = _cap_cache.capabilities
+        elif not agent_card.capabilities:
+            # Fallback to hardcoded if registry is empty
+            agent_card.capabilities = hardcoded_capabilities
         return JSONResponse(agent_card.to_dict())
 
     @app.post("/a2a/tasks")
@@ -270,6 +381,12 @@ def create_a2a_app(
     @app.get("/a2a/capabilities")
     async def get_capabilities():
         """Rich capability descriptions (optional discovery endpoint)."""
+        # Prefer registry-derived details (grouped by category)
+        if _cap_cache.stale:
+            refresh_capabilities(_cap_cache)
+        if _cap_cache.details:
+            return JSONResponse({"capabilities": _cap_cache.details})
+        # Fall back to caller-provided details
         if capability_details:
             return JSONResponse({"capabilities": capability_details})
         return JSONResponse({
@@ -287,4 +404,4 @@ def create_a2a_app(
     return app
 
 
-__all__ = ["AgentCard", "create_a2a_app"]
+__all__ = ["AgentCard", "create_a2a_app", "refresh_capabilities", "_CapabilityCache"]

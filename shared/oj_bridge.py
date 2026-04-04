@@ -247,3 +247,27 @@ def forward_event_to_hermes(event_type: str, payload: dict) -> None:
         })
     except Exception as exc:
         logger.debug("Event forward to Hermes failed (DB fallback active): %s", exc)
+
+
+# ── MCP Server ──────────────────────────────────────────────────────
+
+
+async def start_mcp() -> bool:
+    """Start the Perseus MCP server (call after OJ tools are loaded).
+
+    Returns True on success, False if MCP module unavailable.
+    """
+    from shared.mcp_server import start_mcp_server
+    ok = await start_mcp_server()
+    if ok:
+        logger.info("Perseus MCP server started via oj_bridge")
+    else:
+        logger.warning("Perseus MCP server did not start (graceful degradation)")
+    return ok
+
+
+async def stop_mcp() -> None:
+    """Stop the Perseus MCP server (call during shutdown)."""
+    from shared.mcp_server import stop_mcp_server
+    await stop_mcp_server()
+    logger.info("Perseus MCP server stopped via oj_bridge")

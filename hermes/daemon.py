@@ -35,6 +35,12 @@ class HermesDaemon(AgentBase):
         """Start Hermes — web dashboard + Telegram bot + alert dispatcher."""
         logger.info("Hermes starting up...")
         await db.init_pool()
+
+        # Boot integration modules (telemetry, tool registry, channels, etc.)
+        from shared.integration_boot import boot_integration
+        integration_status = await boot_integration("hermes")
+        logger.info("Integration boot status: %s", integration_status)
+
         await self.register()
         self._stopped.clear()
         self._running = True

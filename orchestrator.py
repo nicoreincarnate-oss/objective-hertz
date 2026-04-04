@@ -241,6 +241,11 @@ class Orchestrator:
         await init_pool()
         logger.info("OJ runtime initialized")
 
+        # Boot integration modules (telemetry, tool registry, MCP, etc.)
+        from shared.integration_boot import boot_integration
+        integration_status = await boot_integration("orchestrator")
+        logger.info("Integration boot status: %s", integration_status)
+
         # Boot the full OpenJarvis framework so production actually uses
         # managed agents, tools, operators, routing, and learning hooks.
         await self._bootstrap_openjarvis_framework(bus)

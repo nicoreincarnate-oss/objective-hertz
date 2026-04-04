@@ -231,6 +231,12 @@ class TitanDaemon(AgentBase):
         """Start Titan's main loop — polls task_queue from Perseus."""
         logger.info("Titan starting up...")
         await db.init_pool()
+
+        # Boot integration modules (telemetry, tool registry, etc.)
+        from shared.integration_boot import boot_integration
+        integration_status = await boot_integration("titan")
+        logger.info("Integration boot status: %s", integration_status)
+
         # Compliance check is FATAL — if misconfigured, Titan must NOT start.
         # Sending email without unsubscribe links is a CAN-SPAM violation ($50K/email).
         from titan.compliance import assert_compliance_ready

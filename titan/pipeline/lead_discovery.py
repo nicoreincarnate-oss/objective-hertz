@@ -8,6 +8,12 @@ import json
 import logging
 import random
 
+try:
+    from tools.apify_client import apify_available, discover_leads as apify_discover, enrich_lead_emails
+    HAS_APIFY = True
+except ImportError:
+    HAS_APIFY = False
+
 from shared.comms import request_task_result
 from shared.db import emit_event, fetch_one, get_config
 from shared.llm_client import llm
@@ -43,6 +49,16 @@ async def discover_leads(batch_size: int = 20) -> list[int]:
     Returns list of new client IDs.
     """
     strategy = await _get_discovery_strategy()
+
+    # Prefer Apify as a direct source when available — returns structured,
+    # high-quality Google Maps data without needing skill orchestration.
+    if HAS_APIFY and await apify_available():
+        apify_leads = await _discover_with_apify(strategy, batch_size)
+        if apify_leads:
+            logger.info(f"Apify produced {len(apify_leads)} leads, skipping skill-based discovery")
+            return apify_leads
+        logger.info("Apify returned no leads, falling through to skill-based discovery")
+
     source_plan = await _choose_discovery_sources(strategy, batch_size)
     source_plan = await _apply_discovery_overrides(source_plan)
     new_lead_ids: list[int] = []
@@ -77,6 +93,62 @@ async def discover_leads(batch_size: int = 20) -> list[int]:
             break
 
     return new_lead_ids
+
+
+async def _discover_with_apify(strategy: dict, batch_size: int) -> list[int]:
+    """Direct Apify discovery — bypasses skill orchestration for structured Google Maps data."""
+    queries = strategy.get("search_queries", [])
+    regions = strategy.get("target_regions", [""])
+    location = regions[0] if regions else ""
+
+    new_lead_ids: list[int] = []
+
+    for query in queries:
+        remaining = batch_size - len(new_lead_ids)
+        if remaining <= 0:
+            break
+
+        try:
+            raw_leads = await apify_discover(
+                query=query,
+                location=location,
+                max_results=remaining,
+            )
+
+            # Optionally enrich with emails (best-effort)
+            try:
+                raw_leads = await enrich_lead_emails(raw_leads)
+            except Exception as e:
+                logger.debug(f"Apify email enrichment skipped: {e}")
+
+            for lead in raw_leads:
+                lead_id = await _store_lead(_convert_apify_lead(lead))
+                if lead_id and lead_id not in new_lead_ids:
+                    new_lead_ids.append(lead_id)
+        except Exception as e:
+            logger.error(f"Apify discovery failed for query '{query}': {e}")
+            await emit_pipeline_error(
+                "lead_discovery.apify", e, context={"query": query}
+            )
+
+    if new_lead_ids:
+        await emit_event("leads_discovered", {"count": len(new_lead_ids), "source": "apify"})
+    return new_lead_ids
+
+
+def _convert_apify_lead(apify_lead: dict) -> dict:
+    """Convert Apify lead format to the pipeline's expected format."""
+    return {
+        "business_name": apify_lead.get("name", ""),
+        "contact_name": "",
+        "email": apify_lead.get("email", ""),
+        "phone": apify_lead.get("phone", ""),
+        "industry": apify_lead.get("category", ""),
+        "website_url": apify_lead.get("website", ""),
+        "country": "",
+        "city": apify_lead.get("city", "") or apify_lead.get("state", ""),
+        "source": "apify",
+    }
 
 
 async def _discover_with_skill(

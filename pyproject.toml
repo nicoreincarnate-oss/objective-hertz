@@ -41,13 +41,13 @@ dev = [
     "ruff>=0.4",
     "pre-commit>=3.0",
 ]
-inference-mlx = ["mlx-lm>=0.19; sys_platform == 'darwin'"]
+inference-mlx = ["mlx-lm>=0.20.0; sys_platform == 'darwin'"]
 inference-vllm = ["vllm>=0.16.0"]
 inference-cloud = ["openai>=1.30", "anthropic>=0.30"]
 memory-graph = ["neo4j>=5.0"]
 inference-google = ["google-genai>=1.0"]
 inference-litellm = ["litellm>=1.40"]
-tools-search = ["tavily-python>=0.3", "ddgs>=9.11.4"]
+tools-search = ["tavily-python>=0.7.0", "ddgs>=9.11.4"]
 memory-faiss = ["faiss-cpu>=1.7", "sentence-transformers>=2.2", "numpy>=1.24"]
 memory-colbert = ["colbert-ai>=0.2", "torch>=2.0"]
 memory-pdf = ["pdfplumber>=0.10"]
@@ -73,6 +73,13 @@ openhands = [
 speech = ["faster-whisper>=1.0"]
 eval-wandb = ["wandb>=0.17"]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
+integration = [
+    "apify-client>=2.5.0",
+    "tavily-python>=0.7.0",
+    "claude-agent-sdk>=0.1.50",
+    "mcp>=1.0.0",
+]
+apple-silicon = ["mlx-lm>=0.20.0; sys_platform == 'darwin'"]
 
 [project.scripts]
 jarvis = "openjarvis.cli:main"

@@ -32,3 +32,10 @@ mypy>=1.11.0
 
 types-requests>=2.32.0
 respx>=0.22
+
+# Full Integration (Phase 1+)
+apify-client>=2.5.0
+tavily-python>=0.7.0
+claude-agent-sdk>=0.1.50
+mcp>=1.0.0
+# mlx-lm>=0.20.0  # macOS only — Apple Silicon LoRA fine-tuning

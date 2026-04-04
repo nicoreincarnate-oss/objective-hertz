@@ -260,6 +260,12 @@ class ClawdBotDaemon(AgentBase):
         """Start ClawdBot's main loop."""
         logger.info("ClawdBot starting up...")
         await db.init_pool()
+
+        # Boot integration modules (telemetry, tool registry, etc.)
+        from shared.integration_boot import boot_integration
+        integration_status = await boot_integration("clawdbot")
+        logger.info("Integration boot status: %s", integration_status)
+
         await self.requeue_stale_tasks()
         await self.register()
         await self._bootstrap_runtime_capabilities(force=True)

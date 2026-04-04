@@ -4,9 +4,13 @@ Dynamic capability-based task routing via A2A agent discovery.
 Replaces the hardcoded TASK_ROUTING dict in task_routing.py with
 runtime discovery of agent capabilities via /.well-known/agent.json.
 Falls back to static routing when A2A discovery is unavailable.
+
+Now also queries the UnifiedToolRegistry for local tool matches
+before falling back to remote A2A agents.
 """
 
 import logging
+import os
 import time
 from typing import Any
 
@@ -16,9 +20,18 @@ from shared.task_routing import TASK_ROUTING
 
 logger = logging.getLogger("perseus.capability_router")
 
+# Feature flag — set to "false" to disable ToolRegistry lookup
+USE_TOOL_REGISTRY = os.environ.get("USE_TOOL_REGISTRY", "true").lower() != "false"
+
 
 class CapabilityRouter:
-    """Dynamic capability-based task routing via A2A discovery."""
+    """Dynamic capability-based task routing via A2A discovery.
+
+    Routing priority (when USE_TOOL_REGISTRY is True):
+    1. Local ToolRegistry — returns tool name for direct execution
+    2. Dynamic A2A agent discovery via /.well-known/agent.json
+    3. Static TASK_ROUTING dict fallback
+    """
 
     def __init__(
         self,
@@ -73,9 +86,84 @@ class CapabilityRouter:
         )
         return self._agent_cards
 
+    async def route_to_tool(
+        self,
+        tool_name: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Query the ToolRegistry for a tool and optionally execute it.
+
+        Parameters
+        ----------
+        tool_name : str
+            Exact tool name or search query to match.
+        params : dict | None
+            If provided, execute the tool with these params and return the result.
+            If None, return the ToolSpec metadata without executing.
+
+        Returns
+        -------
+        dict | None
+            Tool metadata dict (if params is None), execution result dict
+            (if params provided), or None if tool not found / registry disabled.
+        """
+        if not USE_TOOL_REGISTRY:
+            return None
+
+        try:
+            from shared.tool_registry import get_registry
+
+            registry = get_registry()
+
+            # Try exact name match first
+            spec = registry.find(tool_name)
+            if spec is None:
+                # Try fuzzy search
+                results = registry.search(query=tool_name)
+                if results:
+                    spec = results[0]
+
+            if spec is None:
+                return None
+
+            if params is None:
+                return {
+                    "source": "tool_registry",
+                    "tool_name": spec.name,
+                    "description": spec.description,
+                    "tool_type": spec.tool_type.value,
+                    "available": spec.env_satisfied(),
+                }
+
+            # Execute the tool
+            result = await registry.execute(spec.name, params)
+            return {
+                "source": "tool_registry",
+                "tool_name": spec.name,
+                "success": result.success,
+                "content": result.content,
+                "latency_seconds": getattr(result, "latency_seconds", 0.0),
+            }
+
+        except Exception as exc:
+            logger.debug("ToolRegistry lookup failed for '%s': %s", tool_name, exc)
+            return None
+
     async def route(self, task_type: str) -> str | None:
-        """Find the best agent for a task type. Returns agent name or None."""
-        # Try dynamic routing first
+        """Find the best agent for a task type. Returns agent name or None.
+
+        Routing priority:
+        1. ToolRegistry (local tools) — returns "tool:<name>" prefix
+        2. Dynamic A2A agent discovery
+        3. Static TASK_ROUTING fallback
+        """
+        # Check ToolRegistry first (if enabled)
+        if USE_TOOL_REGISTRY:
+            tool_match = await self._check_tool_registry(task_type)
+            if tool_match:
+                return tool_match
+
+        # Try dynamic routing
         if not self._discovery_attempted or (time.time() - self._last_discovery) > self._cache_ttl:
             await self.discover_all()
 
@@ -85,6 +173,32 @@ class CapabilityRouter:
 
         # Fall back to static routing
         return TASK_ROUTING.get(task_type)
+
+    async def _check_tool_registry(self, task_type: str) -> str | None:
+        """Check if a local tool matches the task type.
+
+        Returns "tool:<tool_name>" if found, None otherwise.
+        """
+        try:
+            from shared.tool_registry import get_registry
+
+            registry = get_registry()
+
+            # Exact name match
+            spec = registry.find(task_type)
+            if spec and spec.env_satisfied():
+                return f"tool:{spec.name}"
+
+            # Search by tag or name substring
+            results = registry.search(query=task_type)
+            for spec in results:
+                if spec.env_satisfied():
+                    return f"tool:{spec.name}"
+
+        except Exception as exc:
+            logger.debug("ToolRegistry check failed for '%s': %s", task_type, exc)
+
+        return None
 
     async def route_by_requirements(
         self, requirements: list[str]
