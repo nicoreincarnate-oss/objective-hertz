@@ -111,6 +111,13 @@ class TestNativeOpenHandsRegistration:
     def test_accepts_tools(self):
         assert NativeOpenHandsAgent.accepts_tools is True
 
+    def test_set_workspace(self):
+        engine = MagicMock()
+        engine.engine_id = "mock"
+        agent = NativeOpenHandsAgent(engine, "test-model")
+        agent.set_workspace("/tmp/native-openhands")
+        assert agent._workspace.endswith("/tmp/native-openhands")
+
 
 # ---------------------------------------------------------------------------
 # Agent execution tests

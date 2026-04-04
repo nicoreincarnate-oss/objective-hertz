@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -49,9 +50,25 @@ class TestOpenHandsAgentConstructor:
     def test_custom_workspace(self):
         engine = MagicMock()
         agent = OpenHandsAgent(engine, "test-model", workspace="/tmp/test")
-        assert agent._workspace == "/tmp/test"
+        assert agent._workspace == str(Path("/tmp/test").resolve())
 
     def test_custom_api_key(self):
         engine = MagicMock()
         agent = OpenHandsAgent(engine, "test-model", api_key="sk-test")
         assert agent._api_key == "sk-test"
+
+    def test_environment_fallbacks(self, monkeypatch):
+        engine = MagicMock()
+        monkeypatch.setenv("OPENHANDS_WORKSPACE", "/tmp/openhands-workspace")
+        monkeypatch.setenv("OPENHANDS_MODEL", "anthropic/claude-sonnet-4-5-20250929")
+        monkeypatch.setenv("LLM_API_KEY", "sk-env")
+        agent = OpenHandsAgent(engine, "")
+        assert agent._workspace == str(Path("/tmp/openhands-workspace").resolve())
+        assert agent._model == "anthropic/claude-sonnet-4-5-20250929"
+        assert agent._api_key == "sk-env"
+
+    def test_set_workspace(self):
+        engine = MagicMock()
+        agent = OpenHandsAgent(engine, "test-model")
+        agent.set_workspace("/tmp/project")
+        assert agent._workspace == str(Path("/tmp/project").resolve())
