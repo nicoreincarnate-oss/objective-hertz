@@ -8,7 +8,9 @@ for the real openhands-sdk integration in ``openhands.py``.
 from __future__ import annotations
 
 import json as _json
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 from openjarvis.agents._stubs import AgentContext, AgentResult, ToolUsingAgent
@@ -67,6 +69,7 @@ class NativeOpenHandsAgent(ToolUsingAgent):
         max_tokens: int = 2048,
         interactive: bool = False,
         confirm_callback=None,
+        workspace: str | None = None,
     ) -> None:
         super().__init__(
             engine, model, tools=tools, bus=bus,
@@ -74,6 +77,15 @@ class NativeOpenHandsAgent(ToolUsingAgent):
             max_tokens=max_tokens,
             interactive=interactive, confirm_callback=confirm_callback,
         )
+        self._workspace = (
+            str(Path(workspace).expanduser().resolve())
+            if workspace
+            else str(Path(os.getcwd()).resolve())
+        )
+
+    def set_workspace(self, workspace: str) -> None:
+        """Update the workspace used by evaluation runners."""
+        self._workspace = str(Path(workspace).expanduser().resolve())
 
     @staticmethod
     def _expand_urls(text: str) -> tuple[str, bool]:

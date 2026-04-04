@@ -66,6 +66,32 @@ class ClaudeConfig:
 
 
 @dataclass(frozen=True)
+class AirLLMConfig:
+    enabled: bool = _env_bool("AIRLLM_ENABLED", False)
+    model: str = _env("AIRLLM_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+    compression: str = _env("AIRLLM_COMPRESSION", "4bit")
+    profiling_mode: bool = _env_bool("AIRLLM_PROFILING_MODE", False)
+    hf_token: str = _env("AIRLLM_HF_TOKEN")
+    layer_shards_path: str = _env("AIRLLM_LAYER_SHARDS_PATH", "")
+    prompt_char_threshold: int = _env_int("AIRLLM_PROMPT_CHAR_THRESHOLD", 12000)
+    preferred_stages: str = _env(
+        "AIRLLM_PREFERRED_STAGES",
+        "research,intel,scout,paper,memory,sleep_cycle,digest,summary",
+    )
+
+
+@dataclass(frozen=True)
+class OLLMConfig:
+    enabled: bool = _env_bool("OLLM_ENABLED", False)
+    model: str = _env("OLLM_MODEL", "Qwen/Qwen3-Next-80B-A3B-Instruct")
+    prompt_char_threshold: int = _env_int("OLLM_PROMPT_CHAR_THRESHOLD", 40000)
+    preferred_stages: str = _env(
+        "OLLM_PREFERRED_STAGES",
+        "deep_research,huge_context,log_analysis,contract_analysis,compliance,screen_digest",
+    )
+
+
+@dataclass(frozen=True)
 class TelegramConfig:
     bot_token: str = _env("TELEGRAM_BOT_TOKEN")
     chat_id: str = _env("TELEGRAM_CHAT_ID")
@@ -195,6 +221,8 @@ class PerseusConfig:
     postgres: PostgresConfig = field(default_factory=PostgresConfig)
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    airllm: AirLLMConfig = field(default_factory=AirLLMConfig)
+    ollm: OLLMConfig = field(default_factory=OLLMConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     instantly: InstantlyConfig = field(default_factory=InstantlyConfig)
     firecrawl: FirecrawlConfig = field(default_factory=FirecrawlConfig)

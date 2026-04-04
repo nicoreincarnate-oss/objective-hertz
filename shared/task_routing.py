@@ -54,4 +54,18 @@ TASK_ROUTING: dict[str, str] = {
     "dependency_audit": "ruflo",
     "implement_tool": "ruflo",
     "test_generate": "ruflo",
+
+    # System executor — desktop/system surface
+    "desktop_control": "system_executor",
+    "desktop_exec": "system_executor",
+    "system_action": "system_executor",
+    "auth_checkpoint": "system_executor",
+    "screen_context": "system_executor",
+    "health_check": "system_executor",
+
+    # DeerFlow research — continuous R&D / evolution scouting
+    "evolution_research_cycle": "deerflow_research",
+    "paper_scan": "deerflow_research",
+    "repo_scan": "deerflow_research",
+    "daily_evolution_brief": "deerflow_research",
 }

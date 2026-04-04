@@ -479,7 +479,9 @@ async def magma_consolidate(node_id: str) -> bool:
             f"Only STRONG causal links. Rate confidence 0.0-1.0. Explain mechanism.\n\n"
             f"JSON: {{\"caused_by\": [{{\"snippet\": \"<text>\", \"confidence\": 0.0-1.0, \"mechanism\": \"how\"}}], "
             f"\"caused\": [{{\"snippet\": \"<text>\", \"confidence\": 0.0-1.0, \"mechanism\": \"how\"}}]}}",
-            model="fast", temperature=0.1,
+            model="local-heavy",
+            temperature=0.1,
+            pipeline_stage="memory:causal_inference",
         )
         start = llm_result.find("{")
         end = llm_result.rfind("}") + 1
@@ -707,7 +709,9 @@ async def _decompose_query(query: str, client_id: int | None = None) -> dict:
                 f"\"entities\": [\"names\"], "
                 f"\"time_start\": \"ISO date or null\", \"time_end\": \"ISO date or null\", "
                 f"\"causal_direction\": \"forward|backward|null\"}}",
-                model="fast", temperature=0.0,
+                model="local-heavy",
+                temperature=0.0,
+                pipeline_stage="memory:query_decompose",
             )
             start = result.find("{")
             end = result.rfind("}") + 1

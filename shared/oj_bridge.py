@@ -31,6 +31,8 @@ AGENT_URLS: dict[str, str] = {
     "clawdbot": os.environ.get("CLAWDBOT_A2A_URL", "http://localhost:9003"),
     "orchestrator": os.environ.get("ORCHESTRATOR_A2A_URL", "http://localhost:9000"),
     "ruflo": os.environ.get("RUFLO_A2A_URL", "http://localhost:9004"),
+    "system_executor": os.environ.get("SYSTEM_EXECUTOR_A2A_URL", "http://localhost:9010"),
+    "deerflow_research": os.environ.get("DEERFLOW_RESEARCH_A2A_URL", "http://localhost:9011"),
 }
 
 # ── Data directory ───────────────────────────────────────────────────
@@ -135,6 +137,9 @@ def get_capability_policy():
         _capability_policy.grant("hermes", "channel:telegram", "*")
         _capability_policy.grant("hermes", "channel:dashboard", "*")
         _capability_policy.grant("hermes", "db:events", "*")
+        _capability_policy.grant("deerflow_research", "network:research", "*")
+        _capability_policy.grant("deerflow_research", "memory:*", "*")
+        _capability_policy.grant("deerflow_research", "file:write", "*")
         logger.info("OJ CapabilityPolicy initialized with agent grants")
     return _capability_policy
 

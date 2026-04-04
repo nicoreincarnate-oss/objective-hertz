@@ -26,6 +26,7 @@ import re
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 from shared.config import config
@@ -39,6 +40,7 @@ VASSAL_CONFIG = {
     "titan": {"url": f"http://localhost:{os.environ.get('TITAN_A2A_PORT', '9001')}"},
     "hermes": {"url": f"http://localhost:{os.environ.get('HERMES_A2A_PORT', '9002')}"},
     "clawdbot": {"url": f"http://localhost:{os.environ.get('CLAWDBOT_A2A_PORT', '9003')}"},
+    "deerflow_research": {"url": f"http://localhost:{os.environ.get('DEERFLOW_RESEARCH_A2A_PORT', '9011')}"},
 }
 
 PRODUCTION_TOOL_NAMES = [
@@ -320,6 +322,7 @@ class Orchestrator:
                 self._followup_loop(),         # Stale task monitoring
                 self._sleep_cycle_loop(),      # Nightly optimization
                 self._scout_loop(),            # External intelligence
+                self._deerflow_loop(),         # Continuous evolution research
                 self._self_audit_loop(),       # Codebase self-audit
             ]
             if config.ruflo.enabled:
@@ -845,6 +848,79 @@ class Orchestrator:
                             result.get("total", 0), result.get("new", 0), result.get("actionable", 0))
             except Exception as exc:
                 logger.warning("Scout cycle failed: %s", exc)
+
+    async def _deerflow_loop(self):
+        """Run DeerFlow-style continuous research and a daily evolution brief."""
+        last_cycle_at = 0.0
+        last_paper_scan_at = 0.0
+        last_repo_scan_at = 0.0
+        last_brief_date: datetime.date | None = None
+
+        while self._running:
+            now = datetime.datetime.now()
+            now_ts = time.time()
+
+            try:
+                from shared.oj_bridge import call_agent_async
+
+                if now_ts - last_cycle_at >= 15 * 60:
+                    result = await call_agent_async(
+                        "deerflow_research",
+                        "evolution_research_cycle",
+                        {
+                            "topic": (
+                                "Continuously research how Perseus should evolve using "
+                                "Stanford papers, arXiv, and GitHub."
+                            ),
+                            "mode": "continuous",
+                            "sources": ["stanford", "arxiv", "github"],
+                        },
+                        timeout=90.0,
+                    )
+                    if "error" not in result:
+                        last_cycle_at = now_ts
+                        logger.info("DeerFlow cycle completed: %s", result.get("cycle_id", "unknown"))
+
+                if now_ts - last_paper_scan_at >= 60 * 60:
+                    result = await call_agent_async(
+                        "deerflow_research",
+                        "paper_scan",
+                        {
+                            "topic": "New Stanford and arXiv papers relevant to Hermes, Titan, ClawdBot, OpenJarvis, and local inference.",
+                            "sources": ["stanford", "arxiv"],
+                        },
+                        timeout=90.0,
+                    )
+                    if "error" not in result:
+                        last_paper_scan_at = now_ts
+
+                if now_ts - last_repo_scan_at >= 60 * 60:
+                    result = await call_agent_async(
+                        "deerflow_research",
+                        "repo_scan",
+                        {
+                            "topic": "Trending and newly released GitHub repos Perseus should steal from.",
+                            "sources": ["github"],
+                        },
+                        timeout=90.0,
+                    )
+                    if "error" not in result:
+                        last_repo_scan_at = now_ts
+
+                if now.hour == 23 and now.minute >= 40 and last_brief_date != now.date():
+                    result = await call_agent_async(
+                        "deerflow_research",
+                        "daily_evolution_brief",
+                        {"lookback_hours": 24},
+                        timeout=90.0,
+                    )
+                    if "error" not in result:
+                        last_brief_date = now.date()
+                        logger.info("DeerFlow daily brief generated: %s", result.get("artifact", {}))
+            except Exception as exc:
+                logger.debug("DeerFlow loop error: %s", exc)
+
+            await asyncio.sleep(60)
 
     # ── Weekly Maintenance (Ruflo) ─────────────────────────────────────
 

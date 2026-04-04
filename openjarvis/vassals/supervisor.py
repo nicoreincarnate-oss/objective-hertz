@@ -68,7 +68,7 @@ class VassalSupervisor:
         logger.info("Registered vassal process: %s (cmd=%s)", vassal.name, vassal.command)
 
     def register_defaults(self, project_dir: str = "") -> None:
-        """Register the default Perseus vassals (Titan, Hermes, ClawdBot)."""
+        """Register the default Perseus vassals (Titan, Hermes, ClawdBot, System Executor, DeerFlow Research)."""
         cwd = project_dir or self._project_dir
         if not cwd:
             logger.warning("No project_dir set — cannot register default vassals")
@@ -95,6 +95,27 @@ class VassalSupervisor:
                 cwd=cwd,
                 a2a_port=9003,
                 env={"CLAWDBOT_A2A": "1", "CLAWDBOT_A2A_PORT": "9003"},
+            ),
+            VassalProcess(
+                name="ruflo",
+                command=[sys.executable, "-m", "ruflo.daemon"],
+                cwd=cwd,
+                a2a_port=9004,
+                env={"RUFLO_A2A": "1", "RUFLO_A2A_PORT": "9004"},
+            ),
+            VassalProcess(
+                name="system_executor",
+                command=[sys.executable, "-m", "system_executor.daemon"],
+                cwd=cwd,
+                a2a_port=9010,
+                env={"SYSTEM_EXECUTOR_A2A": "1", "SYSTEM_EXECUTOR_A2A_PORT": "9010"},
+            ),
+            VassalProcess(
+                name="deerflow_research",
+                command=[sys.executable, "-m", "deerflow_research.daemon"],
+                cwd=cwd,
+                a2a_port=9011,
+                env={"DEERFLOW_RESEARCH_A2A": "1", "DEERFLOW_RESEARCH_A2A_PORT": "9011"},
             ),
         ]
         for v in defaults:

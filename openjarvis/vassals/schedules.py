@@ -42,6 +42,10 @@ SCHEDULES = [
     Schedule("deliverability_check", 1800, "Monitor deliverability and domain health", skippable=False),
     Schedule("sleep_cycle", 86400, "Nightly contrarian review — Opus debates system changes", skippable=False),
     Schedule("morning_briefing", 86400, "Morning briefing to Nico", skippable=False),
+    Schedule("evolution_research_cycle", 900, "Continuous DeerFlow research loop for system evolution", skippable=False, pipeline_stage="learning"),
+    Schedule("paper_scan", 3600, "Scan Stanford and arXiv for relevant new papers", skippable=False, pipeline_stage="learning"),
+    Schedule("repo_scan", 3600, "Scan trending and new GitHub repos relevant to Perseus", skippable=False, pipeline_stage="learning"),
+    Schedule("daily_evolution_brief", 86400, "Produce a 24-hour DeerFlow evolution brief", skippable=False, pipeline_stage="learning"),
     # ClawdBot tasks
     Schedule("site_verify", 3600, "Verify deployed sites are live", skippable=True, pipeline_stage="delivery"),
     Schedule("enrich_leads", 1800, "Enrich leads missing data", skippable=True, pipeline_stage="top_of_funnel"),

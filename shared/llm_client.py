@@ -20,9 +20,15 @@ import logging
 import os
 import time
 from datetime import date
+from typing import Any
 
 import httpx
 
+from shared.airllm_policy import (
+    choose_heavy_local_backend,
+    explain_heavy_local_routing,
+    should_route_to_heavy_local,
+)
 from shared.config import config
 from shared.db import get_config
 
@@ -38,6 +44,8 @@ async def _resolve_model(tier: str) -> str:
         "primary": ("model_primary", config.claude.primary_model),
         "local": ("model_local", config.ollama.model),
         "local-small": ("model_local_small", config.ollama.secondary),
+        "local-heavy": ("model_local_heavy", config.airllm.model or config.ollama.model),
+        "airllm": ("model_local_heavy", config.airllm.model or config.ollama.model),
         "embed": ("model_embed", config.ollama.embed_model),
     }
     db_key, fallback = _MODEL_MAP.get(tier, ("model_primary", config.claude.primary_model))
@@ -59,6 +67,12 @@ class LLMClient:
     def __init__(self):
         self._http: httpx.AsyncClient | None = None
         self._last_usage = None
+        self._airllm_model: Any | None = None
+        self._airllm_model_id: str | None = None
+        self._airllm_lock = asyncio.Lock()
+        self._ollm_model: Any | None = None
+        self._ollm_model_id: str | None = None
+        self._ollm_lock = asyncio.Lock()
 
     def _fire_metrics(
         self,
@@ -171,6 +185,8 @@ class LLMClient:
         - "genius": Claude Opus (orchestration decisions, complex reasoning)
         - "local": Ollama primary model (free, used for simple tasks)
         - "local-small": Ollama secondary model (free, classification only)
+        - "local-heavy"/"airllm": AirLLM heavy local path for research, memory digestion,
+          and long-context offline reasoning when configured
 
         Claude Max ($200/mo) is the primary brain. Ollama is the fallback:
         - Over alert threshold (80%): "fast" downgrades to Ollama
@@ -202,15 +218,28 @@ class LLMClient:
         resolved_model = model
 
         # "fast" and "smart" both use Claude (Haiku and Sonnet respectively)
-        # Only "local" and "local-small" go directly to Ollama
+        # Heavy local tiers go to AirLLM when available, then fall back to Ollama.
+        if model in ("local-heavy", "airllm", "research-local", "ollm", "huge-context-local"):
+            result = await self._heavy_local_or_ollama_generate(
+                prompt,
+                system,
+                model,
+                max_tokens,
+                temperature,
+                pipeline_stage,
+            )
+            self._fire_metrics(pipeline_stage or "unknown", "local-heavy", "generate", prompt, result, t0, True, None)
+            return result
+
+        # Only local tiers skip the cloud path entirely.
         if model in ("local", "local-small"):
-            result = await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            result = await self._best_local_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
             self._fire_metrics(pipeline_stage or "unknown", model, "generate", prompt, result, t0, True, None)
             return result
 
         # If no API key, fall back to Ollama for everything
         if not config.claude.api_key:
-            result = await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+            result = await self._best_local_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
             self._fire_metrics(pipeline_stage or "unknown", "local", "generate", prompt, result, t0, True, None)
             return result
 
@@ -220,7 +249,7 @@ class LLMClient:
 
         if resolved_model in ("local", "local-small"):
             # Budget gate downgraded us
-            result = await self._ollama_generate(prompt, system, resolved_model, max_tokens, temperature, pipeline_stage)
+            result = await self._best_local_generate(prompt, system, resolved_model, max_tokens, temperature, pipeline_stage)
             self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
             return result
 
@@ -239,7 +268,7 @@ class LLMClient:
         except Exception as e:
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
             self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, "", t0, False, type(e).__name__)
-            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+            return await self._best_local_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
 
     async def generate_with_images(
         self,
@@ -438,6 +467,254 @@ class LLMClient:
             except Exception:
                 pass  # Fall through to base model
         return await _resolve_model("local" if model == "local" else "local-small")
+
+    async def _best_local_generate(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Route local-heavy work to AirLLM when configured, otherwise Ollama."""
+        if should_route_to_heavy_local(
+            requested_model=model,
+            pipeline_stage=pipeline_stage,
+            prompt=prompt,
+            system=system,
+        ):
+            return await self._heavy_local_or_ollama_generate(
+                prompt,
+                system,
+                model,
+                max_tokens,
+                temperature,
+                pipeline_stage,
+            )
+        return await self._ollama_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+
+    async def _heavy_local_or_ollama_generate(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Try the best heavy-local backend first, then degrade gracefully."""
+        selected_backend = choose_heavy_local_backend(
+            requested_model=model,
+            pipeline_stage=pipeline_stage,
+            prompt=prompt,
+            system=system,
+        )
+        try:
+            if selected_backend == "ollm":
+                return await self._ollm_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            if selected_backend == "airllm":
+                return await self._airllm_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
+            raise RuntimeError("No heavy-local backend selected")
+        except Exception as exc:
+            logger.warning(
+                "Heavy local backend unavailable, falling back to Ollama (%s via %s): %s",
+                pipeline_stage or "no-stage",
+                explain_heavy_local_routing(
+                    requested_model=model,
+                    pipeline_stage=pipeline_stage,
+                    prompt=prompt,
+                    system=system,
+                ),
+                exc,
+            )
+            return await self._ollama_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+
+    async def _airllm_generate(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Best-effort AirLLM path for heavy offline local reasoning.
+
+        AirLLM is intentionally treated as a sidecar-grade heavy local backend:
+        great for batch research and long-context analysis, not for low-latency
+        Kirito voice turns.
+        """
+        if not config.airllm.enabled:
+            raise RuntimeError("AIRLLM_ENABLED is false")
+
+        model_name = await _resolve_model(model)
+        model_obj = await self._get_airllm_model(model_name)
+        full_prompt = prompt if not system else f"{system}\n\n{prompt}"
+
+        return await asyncio.to_thread(
+            self._airllm_generate_sync,
+            model_obj,
+            full_prompt,
+            max_tokens,
+            temperature,
+            pipeline_stage,
+        )
+
+    async def _get_airllm_model(self, model_name: str) -> Any:
+        async with self._airllm_lock:
+            if self._airllm_model is not None and self._airllm_model_id == model_name:
+                return self._airllm_model
+
+            try:
+                from airllm import AutoModel
+            except Exception as exc:  # pragma: no cover - import path depends on optional dependency
+                raise RuntimeError("airllm package is not installed") from exc
+
+            kwargs: dict[str, Any] = {
+                "compression": config.airllm.compression,
+                "profiling_mode": config.airllm.profiling_mode,
+            }
+            if config.airllm.layer_shards_path:
+                kwargs["layer_shards_path"] = config.airllm.layer_shards_path
+            if config.airllm.hf_token:
+                kwargs["hf_token"] = config.airllm.hf_token
+
+            model_obj = await asyncio.to_thread(AutoModel.from_pretrained, model_name, **kwargs)
+            self._airllm_model = model_obj
+            self._airllm_model_id = model_name
+            return model_obj
+
+    async def _ollm_generate(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str = "",
+    ) -> str:
+        """Best-effort oLLM path for ultra-large local contexts."""
+        if not config.ollm.enabled:
+            raise RuntimeError("OLLM_ENABLED is false")
+
+        model_name = config.ollm.model or await _resolve_model(model)
+        model_obj = await self._get_ollm_model(model_name)
+        full_prompt = prompt if not system else f"{system}\n\n{prompt}"
+        return await asyncio.to_thread(
+            self._ollm_generate_sync,
+            model_obj,
+            full_prompt,
+            max_tokens,
+            temperature,
+            pipeline_stage,
+        )
+
+    async def _get_ollm_model(self, model_name: str) -> Any:
+        async with self._ollm_lock:
+            if self._ollm_model is not None and self._ollm_model_id == model_name:
+                return self._ollm_model
+
+            try:
+                from ollm import AutoInference
+            except Exception as exc:
+                raise RuntimeError("ollm package is not installed") from exc
+
+            # oLLM is best for very large offline contexts; default to CPU/MPS friendly mode.
+            kwargs: dict[str, Any] = {"logging": True}
+            if os.environ.get("CUDA_VISIBLE_DEVICES", ""):
+                kwargs["device"] = "cuda:0"
+            elif os.uname().sysname == "Darwin":
+                kwargs["device"] = "mps"
+            else:
+                kwargs["device"] = "cpu"
+
+            model_obj = await asyncio.to_thread(AutoInference, model_name, **kwargs)
+            init_method = getattr(model_obj, "ini_model", None)
+            if callable(init_method):
+                await asyncio.to_thread(init_method)
+            self._ollm_model = model_obj
+            self._ollm_model_id = model_name
+            return model_obj
+
+    def _ollm_generate_sync(
+        self,
+        model_obj: Any,
+        full_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str,
+    ) -> str:
+        tokenizer = getattr(model_obj, "tokenizer", None)
+        model = getattr(model_obj, "model", None)
+        device = getattr(model_obj, "device", None)
+        if tokenizer is None or model is None or device is None:
+            raise RuntimeError(f"oLLM model is missing tokenizer/model/device for stage {pipeline_stage or 'unknown'}")
+
+        try:
+            import torch
+        except Exception as exc:
+            raise RuntimeError("torch is required for ollm generation") from exc
+
+        messages = [
+            {"role": "user", "content": full_prompt},
+        ]
+        input_ids = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        ).to(device)
+        outputs = model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return tokenizer.decode(outputs[0][input_ids.shape[-1]:], skip_special_tokens=False)
+
+    def _airllm_generate_sync(
+        self,
+        model_obj: Any,
+        full_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        pipeline_stage: str,
+    ) -> str:
+        try:
+            import torch
+        except Exception:  # pragma: no cover - torch import is optional
+            torch = None
+
+        tokenizer = getattr(model_obj, "tokenizer", None)
+        if tokenizer is None:
+            raise RuntimeError("AirLLM model has no tokenizer")
+
+        input_tokens = tokenizer(
+            [full_prompt],
+            return_tensors="pt",
+            return_attention_mask=False,
+            truncation=True,
+            max_length=4096,
+            padding=False,
+        )
+
+        input_ids = input_tokens["input_ids"]
+        if torch is not None and hasattr(torch, "cuda") and torch.cuda.is_available():
+            input_ids = input_ids.cuda()
+        elif torch is not None and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            input_ids = input_ids.to("mps")
+
+        generation_output = model_obj.generate(
+            input_ids,
+            max_new_tokens=max_tokens,
+            use_cache=True,
+            return_dict_in_generate=True,
+            temperature=temperature,
+        )
+        sequences = getattr(generation_output, "sequences", None)
+        if sequences is None:
+            raise RuntimeError(f"AirLLM generation returned no sequences for stage {pipeline_stage or 'unknown'}")
+        return tokenizer.decode(sequences[0], skip_special_tokens=True)
 
     async def _ollama_generate(
         self, prompt: str, system: str, model: str, max_tokens: int, temperature: float,
