@@ -6,12 +6,12 @@
     <string>com.perseus.titan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/majovega/Desktop/Projects/objective-hertz/.venv312/bin/python</string>
+        <string>/usr/bin/python3</string>
         <string>-m</string>
         <string>titan.daemon</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz</string>
+    <string>/Users/majovega/Desktop/objective-hertz</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -19,9 +19,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/titan-launchd.log</string>
+    <string>/Users/majovega/Desktop/objective-hertz/logs/titan-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/titan-launchd-err.log</string>
+    <string>/Users/majovega/Desktop/objective-hertz/logs/titan-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
