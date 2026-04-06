@@ -714,13 +714,15 @@ async def generate_build_plan(
     direction_name = _select_best_direction(weights)
 
     # Build a minimal direction dict for token extraction
-    from clawdbot.site_builder import DESIGN_DIRECTIONS
-
-    direction_dict = {"name": direction_name}
-    for d in DESIGN_DIRECTIONS:
-        if d.get("name") == direction_name:
-            direction_dict = d
-            break
+    direction_dict: dict[str, Any] = {"name": direction_name}
+    try:
+        from clawdbot.site_builder import DESIGN_DIRECTIONS
+        for d in DESIGN_DIRECTIONS:
+            if d.get("name") == direction_name:
+                direction_dict = d
+                break
+    except ImportError:
+        logger.debug("site_builder not available; using direction name only")
 
     # 2. Extract tokens with taste overlay
     tokens = extract_tokens_from_taste(taste_profile, direction_dict)
