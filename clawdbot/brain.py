@@ -170,16 +170,54 @@ def _inventory() -> dict:
     # Check if Playwright is installed
     try:
         import playwright  # noqa: F401
-        integrations["playwright"] = {"available": True, "summary": "Headless Chromium browser"}
+        integrations["playwright"] = {
+            "available": True,
+            "summary": "Headless Chromium browser",
+        }
     except ImportError:
-        integrations["playwright"] = {"available": False, "summary": "Not installed (will self-install on first use)"}
+        integrations["playwright"] = {
+            "available": False,
+            "summary": "Not installed (will self-install on first use)",
+        }
+
+    # V2 visual production pipeline (phases 33-38)
+    import os
+    v2_enabled = os.environ.get(
+        "CLAWDBOT_V2_ENABLED", "",
+    ).lower() in ("true", "1", "yes")
+    if v2_enabled:
+        _v2_modules = {
+            "section_planner": "clawdbot.section_planner",
+            "section_orchestrator": "clawdbot.section_orchestrator",
+            "page_assembler": "clawdbot.page_assembler",
+            "fullpage_qa": "clawdbot.fullpage_qa",
+            "renderer": "clawdbot.renderer",
+            "visual_scorer": "clawdbot.visual_scorer",
+        }
+        for mod_name, mod_path in _v2_modules.items():
+            try:
+                __import__(mod_path)
+                integrations[mod_name] = {
+                    "available": True,
+                    "summary": f"V2 pipeline: {mod_name}",
+                }
+            except ImportError:
+                integrations[mod_name] = {
+                    "available": False,
+                    "summary": f"V2 module not installed: {mod_path}",
+                }
+        integrations["v2_pipeline"] = {
+            "available": True,
+            "summary": "Multi-agent visual production pipeline",
+        }
 
     return {
         "installed_skills": skill_names[:30],
         "capability_categories": capabilities,
         "integrations": integrations,
         "task_handlers": [
-            "skill_execute", "web_scrape", "browser_task", "enrich_lead",
-            "n8n_workflow", "service_signup", "verify_single_site", "verify_demo_site",
+            "skill_execute", "web_scrape", "browser_task",
+            "enrich_lead", "n8n_workflow", "service_signup",
+            "verify_single_site", "verify_demo_site",
         ],
     }
