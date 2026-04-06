@@ -12,6 +12,7 @@ browser history, Referer headers, and analytics).
 """
 
 import asyncio
+import base64
 import hashlib
 from decimal import Decimal
 import hmac
@@ -19,6 +20,7 @@ import httpx
 import json
 import logging
 import os
+import psycopg
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +33,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, StreamingResponse
 
+from hermes.web.jarvis_ws import jarvis_screen_feed, is_enabled as jarvis_feed_enabled
 from hermes.web.kirito_router import route_kirito_command
 from hermes.web.kirito_runtime import build_status_graph, normalize_dispatch_plan, serialize_route_plan
 from hermes.web.operator_chat import create_operator_dispatch
@@ -54,6 +57,17 @@ from shared.observability import (
 )
 
 logger = logging.getLogger("hermes.web")
+
+
+# IGUS-FIX: Sanitized error response helper (CWE-209)
+def _safe_error(e: Exception, status_code: int = 500, **extra) -> JSONResponse:
+    """Return sanitized error response. Log full error internally."""
+    logger.error("API error: %s", e, exc_info=True)
+    body: dict = {"error": "Internal server error", "error_id": id(e) % 100000}
+    body.update(extra)
+    return JSONResponse(body, status_code=status_code)
+
+
 _PUBLIC_PATHS = {"/api/liveness", "/metrics", "/login", "/unsub"}
 _SESSION_COOKIE = "perseus_session"
 # HMAC key for signing session cookies — random per process, so a restart
@@ -154,7 +168,7 @@ def _get_templates():
 
 try:
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
-except Exception:
+except (OSError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
     pass  # Static dir may not exist in test environments
 
 
@@ -195,9 +209,19 @@ async def login_submit(secret: str = Form(...)):
         value=_sign_session(dashboard_secret),
         httponly=True,
         samesite="lax",
-        secure=os.getenv("ENVIRONMENT", "development") != "development",
-        max_age=86400,  # 24 hours
+        # IGUS-FIX: Default to Secure=True (CWE-614, AEGIS rule: dev is the exception)
+        secure=os.getenv("ENVIRONMENT", "production") != "development",
+        max_age=int(os.getenv("SESSION_TTL", "3600")),  # IGUS-FIX: Reduced from 24h to 1h (CWE-613)
     )
+    return response
+
+
+# IGUS-FIX: Added logout endpoint for session invalidation (CWE-613)
+@app.post("/api/logout")
+async def logout(request: Request):
+    """Invalidate session by clearing cookie."""
+    response = JSONResponse({"status": "logged_out"})
+    response.delete_cookie(_SESSION_COOKIE)
     return response
 
 
@@ -286,8 +310,10 @@ async def operator_chat(
     try:
         dispatch = create_operator_dispatch(target_agent, message, priority)
     except ValueError as exc:
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        logger.warning("Operator chat validation error: %s", exc)
         return RedirectResponse(
-            url=f"/?operator_error={quote(str(exc))}#agent-link",
+            url=f"/?operator_error={quote('Invalid dispatch parameters')}#agent-link",
             status_code=303,
         )
 
@@ -321,11 +347,15 @@ async def api_insights(request: Request):
     question = str(payload.get("question", "")).strip()
     if not question:
         return JSONResponse({"error": "Question cannot be empty."}, status_code=400)
+    if len(question) > 2000:  # IGUS-FIX: Limit input length (CWE-20)
+        return JSONResponse({"error": "Question too long (max 2000 chars)"}, status_code=400)
 
     try:
         answer = await answer_strategic_question(question)
     except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        logger.warning("Insights validation error: %s", exc)
+        return JSONResponse({"error": "Invalid question parameters"}, status_code=400)
 
     return JSONResponse(answer)
 
@@ -390,7 +420,7 @@ async def api_ruflo():
             "stats": stats,
             "recent_tasks": [dict(t) for t in recent_tasks],
         })
-    except Exception as exc:
+    except (psycopg.Error, OSError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Ruflo endpoint error (tables may not exist): %s", exc)
         return JSONResponse(content={"enabled": False, "error": "ruflo unavailable"})
 
@@ -427,7 +457,7 @@ async def api_liveness():
     db_ok = True
     try:
         await fetch_val("SELECT 1")
-    except Exception:
+    except (psycopg.Error, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         db_ok = False
     return JSONResponse({"status": "ok" if db_ok else "degraded", "db_ok": db_ok})
 
@@ -498,7 +528,7 @@ async def unsub_endpoint(request: Request):
             ic = InstantlyClient()
             await ic._post("/leads/delete", {"email": client_row["email"]})
             await ic.close()
-    except Exception as e:
+    except (httpx.HTTPError, OSError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Failed to sync unsub to Instantly blocklist: %s", e)
 
     return HTMLResponse(
@@ -518,14 +548,16 @@ async def api_health():
     db_error = ""
     try:
         await fetch_val("SELECT 1")
-    except Exception as exc:
+    except (psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         db_ok = False
-        db_error = str(exc)
+        # IGUS-FIX: Sanitized error response (CWE-209) — log full error, expose generic message
+        logger.error("DB health check failed: %s", exc, exc_info=True)
+        db_error = "database connectivity error"
 
     try:
         from openjarvis.vassals.registry import check_agent_health
         agents = await check_agent_health()
-    except Exception as exc:
+    except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Agent health check failed: {exc}")
         agents = {}
     agent_values = list((agents or {}).values()) if isinstance(agents, dict) else []
@@ -706,7 +738,7 @@ async def _build_sync_payload() -> dict:
                 "total_spent": budget_data.get("total_spent", 0),
                 "exceeded": budget_data.get("exceeded", False),
             }
-        except Exception:
+        except (ImportError, psycopg.Error, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
             budget = {"percent_used": 0, "remaining": 800, "total_spent": 0, "exceeded": False}
 
         return {
@@ -719,9 +751,10 @@ async def _build_sync_payload() -> dict:
             "daemons": daemons,
             "budget": budget,
         }
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("WebSocket sync build failed: %s", e)
-        return {"type": "sync", "error": str(e)}
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return {"type": "sync", "error": "Internal sync error"}
 
 
 @app.websocket("/ws")
@@ -776,7 +809,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
-    except Exception as e:
+    except (OSError, ConnectionError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("WebSocket error: %s", e)
     finally:
         _ws_connections.discard(ws)
@@ -790,7 +823,7 @@ async def api_lead_action(lead_id: int, request: Request):
     """Inline lead actions: approve, reject, escalate."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     action = body.get("action", "")
@@ -843,8 +876,7 @@ _API_KEY_REGISTRY = {
     "vast_ai": {"env": "VAST_AI_API_KEY", "label": "Vast.ai (Cloud GPU)", "required": False, "category": "ai"},
     "v0": {"env": "V0_API_KEY", "label": "v0.dev (Vercel AI)", "required": False, "category": "ai"},
     # Scraping & Research
-    "firecrawl": {"env": "FIRECRAWL_API_KEY", "label": "Firecrawl (Web Scraping)", "required": True, "category": "scraping"},
-    "firecrawl_self_host": {"env": "FIRECRAWL_SELF_HOST_URL", "label": "Firecrawl Self-Host URL", "required": False, "category": "scraping"},
+    "crawl4ai": {"env": "CRAWL4AI_API_URL", "label": "Crawl4AI (Web Scraping)", "required": False, "category": "scraping"},
     # Outreach
     "instantly": {"env": "INSTANTLY_API_KEY", "label": "Instantly (Email Campaigns)", "required": True, "category": "outreach"},
     # Payments
@@ -852,7 +884,7 @@ _API_KEY_REGISTRY = {
     "wise": {"env": "WISE_API_TOKEN", "label": "Wise (Payouts)", "required": False, "category": "payments"},
     "wise_profile": {"env": "WISE_PROFILE_ID", "label": "Wise Profile ID", "required": False, "category": "payments"},
     # Hosting & DNS
-    "netlify": {"env": "NETLIFY_AUTH_TOKEN", "label": "Netlify (Site Hosting)", "required": True, "category": "hosting"},
+    "coolify": {"env": "COOLIFY_API_TOKEN", "label": "Coolify (Site Hosting)", "required": True, "category": "hosting"},
     "cloudflare": {"env": "CLOUDFLARE_API_TOKEN", "label": "Cloudflare (DNS)", "required": False, "category": "hosting"},
     "vercel": {"env": "VERCEL_TOKEN", "label": "Vercel Token", "required": False, "category": "hosting"},
     # Communications
@@ -869,7 +901,6 @@ _API_KEY_REGISTRY = {
     "n8n_password": {"env": "N8N_PASSWORD", "label": "N8N Password", "required": False, "category": "tools"},
     "composio": {"env": "COMPOSIO_API_KEY", "label": "Composio (Gmail/Google)", "required": False, "category": "tools"},
     # Observability
-    "sentry": {"env": "SENTRY_DSN", "label": "Sentry DSN", "required": False, "category": "observability"},
     "dashboard_secret": {"env": "DASHBOARD_SECRET", "label": "War Room Dashboard Secret", "required": True, "category": "system"},
     # Crypto / Conway
     "conway_api": {"env": "CONWAY_API_KEY", "label": "Conway API Key", "required": False, "category": "crypto"},
@@ -922,7 +953,7 @@ async def _build_kirito_contextual_update() -> tuple[str, dict]:
         from shared.governance import _enabled, get_pending_approvals
 
         pending_approvals = await get_pending_approvals() if _enabled() else []
-    except Exception:
+    except (ImportError, psycopg.Error, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         pending_approvals = []
 
     daemon_snapshot = []
@@ -1015,14 +1046,20 @@ async def api_config_set(request: Request):
     """Update a runtime config key."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     key = body.get("key", "")
+    # IGUS-FIX: Basic input validation (CWE-20)
+    if not isinstance(key, str) or not key:
+        return JSONResponse({"error": "Config key must be a non-empty string"}, status_code=400)
     if key not in _CONFIG_ALLOWLIST:
         return JSONResponse({"error": f"Unknown config key: {key}"}, status_code=400)
 
     value = body.get("value")
+    # IGUS-FIX: Basic input validation (CWE-20)
+    if isinstance(value, str) and len(value) > 10000:
+        return JSONResponse({"error": "Config value too long (max 10000 chars)"}, status_code=400)
 
     # Governance check: protected keys require approval (Phase 15)
     try:
@@ -1071,11 +1108,12 @@ async def api_budget():
         cap = getattr(config, "monthly_cap", 800)
         budget = await get_month_spending(Decimal(str(cap)))
         return JSONResponse(budget)
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         # Fallback if budget_guard not available
         return JSONResponse({
             "total_spent": 0, "remaining": 800, "percent_used": 0,
-            "exceeded": False, "categories": [], "error": str(e),
+            # IGUS-FIX: Sanitized error response (CWE-209)
+            "exceeded": False, "categories": [], "error": "Budget data unavailable",
         })
 
 
@@ -1129,8 +1167,59 @@ async def api_costs_breakdown(request: Request):
             "days": days,
             "breakdown": [dict(r) for r in rows] if rows else [],
         })
-    except Exception as e:
-        return JSONResponse({"error": str(e), "breakdown": []}, status_code=500)
+    except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return _safe_error(e, breakdown=[])
+
+
+@app.get("/api/cost-dashboard")
+async def cost_dashboard(request: Request):
+    """Weekly agent cost tracking dashboard data (Phase 19)."""
+    try:
+        days = min(int(request.query_params.get("days", "7")), 365)
+    except (ValueError, TypeError):
+        days = 7
+    from shared.cost_events import get_agent_cost_summary
+    return JSONResponse(await get_agent_cost_summary(days))
+
+
+@app.get("/api/retrieval-telemetry")
+async def retrieval_telemetry(request: Request):
+    """Retrieval telemetry dashboard data from magma_retrieval_stats (Phase 19)."""
+    try:
+        days = min(int(request.query_params.get("days", "7")), 365)
+    except (ValueError, TypeError):
+        days = 7
+    query_type = request.query_params.get("query_type", "")
+
+    params: list[str] = [f"{days} days"]
+    where_clause = "WHERE created_at >= NOW() - INTERVAL %s"
+    if query_type:
+        where_clause += " AND query_type = %s"
+        params.append(query_type)
+
+    try:
+        rows = await fetch_all(
+            f"""SELECT
+                query_type,
+                intent,
+                COUNT(*) AS total_queries,
+                ROUND(AVG(anchors_found)::numeric, 1) AS avg_anchors_found,
+                ROUND(AVG(anchors_used)::numeric, 1) AS avg_anchors_used,
+                ROUND(AVG(confidence_avg)::numeric, 3) AS avg_confidence,
+                ROUND(AVG(latency_ms)::numeric, 0) AS avg_latency_ms,
+                SUM(CASE WHEN abstained THEN 1 ELSE 0 END) AS abstention_count,
+                ROUND(AVG(beam_ms)::numeric, 0) AS avg_beam_ms,
+                ROUND(AVG(decompose_ms)::numeric, 0) AS avg_decompose_ms
+            FROM magma_retrieval_stats
+            {where_clause}
+            GROUP BY query_type, intent
+            ORDER BY total_queries DESC""",
+            tuple(params),
+        )
+        return JSONResponse([dict(r) for r in rows] if rows else [])
+    except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        return _safe_error(e)
 
 
 @app.get("/api/tasks")
@@ -1208,7 +1297,7 @@ async def api_daemon_action(name: str, request: Request):
 
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     action = body.get("action", "")
@@ -1229,7 +1318,7 @@ async def api_review_bulk(request: Request):
     """Bulk approve/reject review queue items."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     action = body.get("action", "")
@@ -1250,7 +1339,7 @@ async def api_review_bulk(request: Request):
                     succeeded += 1
                 else:
                     failed += 1
-            except Exception as e:
+            except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.error("Bulk approve failed for review %s: %s", row["id"], e)
                 failed += 1
         await emit_event("bulk_approve", {
@@ -1287,7 +1376,7 @@ async def api_review_bulk(request: Request):
                         succeeded += 1
                     else:
                         failed += 1
-                except Exception as e:
+                except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                     logger.error("Approve failed for review %s: %s", rid, e)
                     failed += 1
             await emit_event("bulk_approve", {"ids": ids, "source": "war_room"})
@@ -1298,7 +1387,7 @@ async def api_review_bulk(request: Request):
             for rid in ids:
                 try:
                     await reject_review(rid, notes="Rejected from War Room")
-                except Exception as e:
+                except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                     logger.error("Reject failed for review %s: %s", rid, e)
             await emit_event("bulk_reject", {"ids": ids, "source": "war_room"})
             return JSONResponse({"success": True, "action": action, "affected": len(ids)})
@@ -1327,8 +1416,9 @@ async def api_campaigns():
         client = InstantlyClient()
         campaigns = await client.list_campaigns()
         return JSONResponse(campaigns if isinstance(campaigns, list) else [])
-    except Exception as e:
-        return JSONResponse({"error": str(e), "campaigns": []})
+    except (httpx.HTTPError, OSError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return _safe_error(e, campaigns=[])
 
 
 @app.post("/api/campaigns/{campaign_id}/action")
@@ -1336,7 +1426,7 @@ async def api_campaign_action(campaign_id: str, request: Request):
     """Activate or stop an email campaign."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     action = body.get("action", "")
@@ -1354,8 +1444,9 @@ async def api_campaign_action(campaign_id: str, request: Request):
             "campaign_id": campaign_id, "action": action, "source": "war_room",
         })
         return JSONResponse({"success": True, "action": action, "result": result})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except (httpx.HTTPError, OSError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return _safe_error(e)
 
 
 @app.get("/api/campaigns/{campaign_id}/analytics")
@@ -1366,8 +1457,9 @@ async def api_campaign_analytics(campaign_id: str):
         client = InstantlyClient()
         analytics = await client.get_campaign_analytics(campaign_id)
         return JSONResponse(analytics)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except (httpx.HTTPError, OSError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return _safe_error(e)
 
 
 @app.get("/api/learnings")
@@ -1434,9 +1526,10 @@ async def get_goals_tree():
             return JSONResponse({"goals": [], "enabled": False})
         tree = await get_goal_tree()
         return JSONResponse({"goals": tree, "enabled": True})
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Goal tree fetch failed: %s", e)
-        return JSONResponse({"goals": [], "enabled": False, "error": str(e)})
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return JSONResponse({"goals": [], "enabled": False, "error": "Goal data unavailable"})
 
 
 @app.get("/api/approvals")
@@ -1449,9 +1542,10 @@ async def get_approvals():
         pending = await get_pending_approvals()
         history = await get_approval_history(limit=20)
         return JSONResponse({"pending": pending, "history": history, "enabled": True})
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Approvals fetch failed: %s", e)
-        return JSONResponse({"pending": [], "history": [], "enabled": False, "error": str(e)})
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return JSONResponse({"pending": [], "history": [], "enabled": False, "error": "Approval data unavailable"})
 
 
 @app.post("/api/approvals/{approval_id}/resolve")
@@ -1470,9 +1564,10 @@ async def resolve_approval_endpoint(approval_id: str, request: Request):
         if not success:
             return JSONResponse({"error": "Approval not found or already resolved"}, status_code=404)
         return JSONResponse({"status": "ok", "approval_id": approval_id, "decision": decision})
-    except Exception as e:
-        logger.error("Approval resolve failed: %s", e)
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.error("Approval resolve failed: %s", e, exc_info=True)
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return _safe_error(e)
 
 
 @app.get("/api/commit-metrics")
@@ -1483,9 +1578,10 @@ async def get_commit_metrics(request: Request):
         days = int(request.query_params.get("days", "30"))
         summary = await get_metrics_summary(days=days)
         return JSONResponse(summary)
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Commit metrics fetch failed: %s", e)
-        return JSONResponse({"enabled": False, "error": str(e)})
+        # IGUS-FIX: Sanitized error response (CWE-209)
+        return JSONResponse({"enabled": False, "error": "Commit metrics unavailable"})
 
 
 # ── API Key Management ─────────────────────────────────────────────────
@@ -1586,9 +1682,13 @@ async def kirito_voice_session():
 @app.post("/api/kirito/command")
 async def api_kirito_command(request: Request):
     """Route a Kirito/Hermes operator command to the best execution lane."""
+    # IGUS-FIX: Content size limit (AEGIS Tier 3)
+    cl = request.headers.get("content-length", "")
+    if cl and int(cl) > 100_000:  # 100KB max for commands
+        return JSONResponse({"error": "Request body too large (max 100KB)"}, status_code=413)
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     text = " ".join(str(body.get("text", "")).strip().split())
@@ -1975,7 +2075,7 @@ async def api_kirito_command(request: Request):
                 },
             }
         )
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.exception("Kirito command dispatch failed")
         await emit_event(
             "kirito_command_failed",
@@ -1985,14 +2085,16 @@ async def api_kirito_command(request: Request):
                 "spans": ["kirito", "dispatch", "failed"],
                 "executor": plan_payload["executor"] if "plan_payload" in locals() else "hermes",
                 "risk": plan_payload["risk_class"] if "plan_payload" in locals() else "medium",
-                "error": str(exc),
+                # IGUS-FIX: Sanitized error in event payload (CWE-209)
+                "error": "dispatch_failed",
                 "stage": "dispatch",
-                "result_summary": str(exc)[:180],
+                "result_summary": "Kirito command dispatch failed",
                 "sender": "hermes",
             },
         )
         return JSONResponse(
-            {"accepted": False, "request_id": request_id, "error": str(exc)},
+            # IGUS-FIX: Sanitized error response (CWE-209)
+            {"accepted": False, "request_id": request_id, "error": "Command dispatch failed"},
             status_code=500,
         )
 
@@ -2088,11 +2190,19 @@ async def api_keys_update(request: Request):
     """Update an API key. Stored in system_config (DB), also set in os.environ for current process."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     key_id = body.get("key_id", "")
     value = body.get("value", "")
+
+    # IGUS-FIX: Basic input validation (CWE-20)
+    if not isinstance(key_id, str) or not key_id:
+        return JSONResponse({"error": "key_id must be a non-empty string"}, status_code=400)
+    if not isinstance(value, str):
+        return JSONResponse({"error": "value must be a string"}, status_code=400)
+    if len(value) > 500:
+        return JSONResponse({"error": "API key value too long (max 500 chars)"}, status_code=400)
 
     if key_id not in _API_KEY_REGISTRY:
         return JSONResponse({"error": f"Unknown key: {key_id}"}, status_code=400)
@@ -2133,12 +2243,14 @@ async def api_insights_stream(request: Request):
     """Stream strategic insight responses token-by-token via SSE."""
     try:
         body = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
     question = (body.get("question") or "").strip()
     if not question:
         return JSONResponse({"error": "Empty question"}, status_code=400)
+    if len(question) > 2000:  # IGUS-FIX: Limit input length (CWE-20)
+        return JSONResponse({"error": "Question too long (max 2000 chars)"}, status_code=400)
 
     async def generate():
         try:
@@ -2180,11 +2292,254 @@ async def api_insights_stream(request: Request):
 
             yield f"data: {json.dumps({'done': True})}\n\n"
 
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        except (OSError, ValueError, RuntimeError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            # IGUS-FIX: Sanitized error response (CWE-209)
+            logger.error("SSE stream error: %s", e, exc_info=True)
+            yield f"data: {json.dumps({'error': 'Internal server error'})}\n\n"
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Jarvis Screen Feed (WebSocket + REST) ────────────────────────────────
+
+@app.websocket("/ws/jarvis/screen")
+async def ws_jarvis_screen(websocket: WebSocket):
+    """Live screen feed for War Room — gated behind JARVIS_SCREEN_FEED flag."""
+    if not jarvis_feed_enabled():
+        await websocket.close(code=4003, reason="Jarvis screen feed disabled")
+        return
+    await jarvis_screen_feed(websocket)
+
+
+@app.get("/api/jarvis/screen")
+async def get_jarvis_screenshot():
+    """On-demand screenshot for War Room."""
+    if not jarvis_feed_enabled():
+        return JSONResponse({"error": "Jarvis screen feed disabled"}, status_code=403)
+    try:
+        from hermes.jarvis.image_pipeline import capture_screenshot, resize_for_telegram, resize_for_vision
+        from hermes.jarvis.vision_analyzer import describe_screen
+
+        screenshot = await capture_screenshot(method="native")
+        compressed = resize_for_telegram(screenshot)
+        description = await describe_screen(resize_for_vision(screenshot))
+
+        return {
+            "image": base64.b64encode(compressed).decode(),
+            "description": description,
+        }
+    except (OSError, RuntimeError, ImportError) as e:
+        return _safe_error(e, status_code=500)
+
+
+# ---------------------------------------------------------------------------
+# Hermes V2 API Endpoints
+# ---------------------------------------------------------------------------
+
+_V2_VOICE_ENABLED = os.environ.get("HERMES_VOICE_ENABLED", "").lower() in ("true", "1")
+_V2_FRIGATE_ENABLED = os.environ.get("FRIGATE_ENABLED", "").lower() in ("true", "1")
+_V2_MONITORING_ENABLED = os.environ.get("MONITORING_ENABLED", "").lower() in ("true", "1")
+_V2_INTELLIGENCE_ENABLED = os.environ.get("INTELLIGENCE_ENABLED", "").lower() in ("true", "1")
+_V2_STARLINK_ENABLED = os.environ.get("STARLINK_ENABLED", "").lower() in ("true", "1")
+
+
+@app.get("/api/briefing")
+async def api_briefing():
+    """Morning briefing text."""
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "morning_briefing", {})
+        return JSONResponse({"briefing": result if isinstance(result, str) else (result or {}).get("briefing", "")})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/weather")
+async def api_weather():
+    """Current weather data."""
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "weather", {})
+        return JSONResponse(result if isinstance(result, dict) else {"summary": str(result or "")})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/cameras/snapshots")
+async def api_camera_snapshots():
+    """Camera snapshots from Frigate."""
+    if not _V2_FRIGATE_ENABLED:
+        return JSONResponse({"error": "Frigate cameras not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "camera_snapshots", {})
+        return JSONResponse(result if isinstance(result, dict) else {"snapshots": []})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/cameras/events")
+async def api_camera_events():
+    """Recent camera events from Frigate."""
+    if not _V2_FRIGATE_ENABLED:
+        return JSONResponse({"error": "Frigate cameras not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "camera_events", {})
+        return JSONResponse(result if isinstance(result, dict) else {"events": []})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/system/metrics")
+async def api_system_metrics():
+    """CPU, RAM, disk metrics."""
+    if not _V2_MONITORING_ENABLED:
+        return JSONResponse({"error": "Monitoring not enabled"}, status_code=403)
+    try:
+        import shutil
+        cpu_count = os.cpu_count() or 0
+        load_avg = os.getloadavg()
+        disk = shutil.disk_usage("/")
+        return JSONResponse({
+            "cpu_count": cpu_count,
+            "load_avg_1m": round(load_avg[0], 2),
+            "load_avg_5m": round(load_avg[1], 2),
+            "load_avg_15m": round(load_avg[2], 2),
+            "disk_total_gb": round(disk.total / (1024 ** 3), 1),
+            "disk_used_gb": round(disk.used / (1024 ** 3), 1),
+            "disk_free_gb": round(disk.free / (1024 ** 3), 1),
+        })
+    except (OSError, RuntimeError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/system/docker")
+async def api_system_docker():
+    """Docker container status."""
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}\t{{.Ports}}"],
+            capture_output=True, text=True, timeout=10, shell=False,
+        )
+        containers = []
+        for line in (proc.stdout or "").strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                containers.append({"name": parts[0], "status": parts[1], "ports": parts[2] if len(parts) > 2 else ""})
+        return JSONResponse({"containers": containers})
+    except (OSError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/system/starlink")
+async def api_system_starlink():
+    """Starlink health status."""
+    if not _V2_STARLINK_ENABLED:
+        return JSONResponse({"error": "Starlink monitoring not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "starlink_status", {})
+        return JSONResponse(result if isinstance(result, dict) else {"summary": str(result or "")})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/system/postgres")
+async def api_system_postgres():
+    """Postgres health and stats."""
+    try:
+        version = await fetch_val("SELECT version()")
+        db_size = await fetch_val("SELECT pg_size_pretty(pg_database_size(current_database()))")
+        active_conns = await fetch_val("SELECT count(*) FROM pg_stat_activity WHERE state = 'active'")
+        return JSONResponse({
+            "status": "ok",
+            "version": str(version or ""),
+            "database_size": str(db_size or ""),
+            "active_connections": int(active_conns or 0),
+        })
+    except (psycopg.Error, OSError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/network/devices")
+async def api_network_devices():
+    """Known devices on the network."""
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "network_devices", {})
+        return JSONResponse(result if isinstance(result, dict) else {"devices": []})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/intelligence/findings")
+async def api_intelligence_findings():
+    """Business intelligence detector results."""
+    if not _V2_INTELLIGENCE_ENABLED:
+        return JSONResponse({"error": "Intelligence not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "bi_findings", {})
+        return JSONResponse(result if isinstance(result, dict) else {"findings": []})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/intelligence/digest")
+async def api_intelligence_digest():
+    """Daily intelligence digest."""
+    if not _V2_INTELLIGENCE_ENABLED:
+        return JSONResponse({"error": "Intelligence not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "daily_digest", {})
+        return JSONResponse(result if isinstance(result, dict) else {"digest": str(result or "")})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/revenue/dashboard")
+async def api_revenue_dashboard():
+    """Revenue metrics dashboard."""
+    try:
+        revenue_cleared = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'paid'"
+        ) or 0
+        revenue_pending = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'pending'"
+        ) or 0
+        total_deals = await fetch_val("SELECT COUNT(*) FROM deals") or 0
+        closed_deals = await fetch_val(
+            "SELECT COUNT(*) FROM deals WHERE status IN ('paid', 'pending')"
+        ) or 0
+        mrr = await fetch_val(
+            "SELECT COALESCE(SUM(amount), 0) FROM deals WHERE status = 'paid' AND created_at > CURRENT_DATE - 30"
+        ) or 0
+        return JSONResponse({
+            "revenue_cleared": float(revenue_cleared),
+            "revenue_pending": float(revenue_pending),
+            "total_deals": int(total_deals),
+            "closed_deals": int(closed_deals),
+            "mrr_30d": float(mrr),
+        })
+    except (psycopg.Error, OSError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/voice/status")
+async def api_voice_status():
+    """Voice session status."""
+    if not _V2_VOICE_ENABLED:
+        return JSONResponse({"error": "Voice not enabled"}, status_code=403)
+    try:
+        from shared.comms import call_agent_capability
+        result = await call_agent_capability("hermes", "voice_status", {})
+        return JSONResponse(result if isinstance(result, dict) else {"active": False})
+    except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
