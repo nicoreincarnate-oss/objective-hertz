@@ -20,6 +20,7 @@ from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
+from shared.capability_router import score_actions
 from shared.cost_events import UnifiedBudget, create_default_budget
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,10 @@ class OperativeAgent(ToolUsingAgent):
             "total_tokens": 0,
         }
 
+        # UGO: action history and tool-call dedup hashes
+        ugo_action_history: list[str] = []
+        ugo_tool_hashes: set[str] = set()
+
         for _turn in range(self._max_turns):
             turns += 1
 
@@ -190,6 +195,33 @@ class OperativeAgent(ToolUsingAgent):
             if not raw_tool_calls:
                 content = self._check_continuation(result, messages)
                 break
+
+            # UGO: evaluate utility before executing tool calls
+            if self._is_ugo_enabled():
+                confidence = self._budget.remaining_pct / 100.0
+                ugo_scores = score_actions(
+                    current_confidence=confidence,
+                    budget=self._budget,
+                    action_history=ugo_action_history,
+                    tool_call_hashes=ugo_tool_hashes,
+                )
+                top_action = ugo_scores[0].action if ugo_scores else "tool_call"
+                logger.debug(
+                    "UGO: top_action=%s utility=%.3f (confidence=%.2f, turn=%d)",
+                    top_action,
+                    ugo_scores[0].utility if ugo_scores else 0.0,
+                    confidence,
+                    turns,
+                )
+                if top_action in ("respond", "stop"):
+                    ugo_action_history.append(top_action)
+                    # UGO advises to stop — treat current content as final
+                    break
+                if top_action == "verify":
+                    ugo_action_history.append("verify")
+                    # Continue with tool execution but flag verification needed
+                    content = content or ""
+                ugo_action_history.append("tool_call")
 
             tool_calls = [
                 ToolCall(
@@ -230,6 +262,9 @@ class OperativeAgent(ToolUsingAgent):
 
                 # Phase 31: Record tool use in BATS budget tracker
                 self._budget.record_tool_use(tc.name)
+
+                # UGO: track tool call hash for redundancy detection
+                ugo_tool_hashes.add(f"{tc.name}:{tc.arguments}")
 
                 # Track if agent stored state via memory_store
                 if tc.name == "memory_store" and self._operator_id:
@@ -292,6 +327,10 @@ class OperativeAgent(ToolUsingAgent):
     def _is_bats_enabled() -> bool:
         return os.environ.get("BATS_ADAPTIVE_BUDGET", "true").lower() in ("true", "1", "yes")
 
+    @staticmethod
+    def _is_ugo_enabled() -> bool:
+        return os.environ.get("UGO_UTILITY_ROUTING", "true").lower() in ("true", "1", "yes")
+
     async def run_iter(
         self,
         input: str,
@@ -334,6 +373,10 @@ class OperativeAgent(ToolUsingAgent):
         }
         content_accumulator = ""
 
+        # UGO: action history and tool-call dedup hashes (generator path)
+        ugo_action_history_gen: list[str] = []
+        ugo_tool_hashes_gen: set[str] = set()
+
         async def _generate_fn(turn: int):
             nonlocal messages
             if self._loop_guard:
@@ -359,6 +402,24 @@ class OperativeAgent(ToolUsingAgent):
 
         async def _tool_executor_fn(tool_calls_raw: list[dict]):
             nonlocal state_stored_by_tool, content_accumulator
+
+            # UGO: evaluate utility before executing tool calls (generator path)
+            if self._is_ugo_enabled():
+                confidence = self._budget.remaining_pct / 100.0
+                ugo_scores = score_actions(
+                    current_confidence=confidence,
+                    budget=self._budget,
+                    action_history=ugo_action_history_gen,
+                    tool_call_hashes=ugo_tool_hashes_gen,
+                )
+                top_action = ugo_scores[0].action if ugo_scores else "tool_call"
+                logger.debug(
+                    "UGO(gen): top_action=%s utility=%.3f (confidence=%.2f)",
+                    top_action,
+                    ugo_scores[0].utility if ugo_scores else 0.0,
+                    confidence,
+                )
+                ugo_action_history_gen.append(top_action if top_action != "tool_call" else "tool_call")
 
             tool_calls = [
                 ToolCall(
@@ -400,6 +461,9 @@ class OperativeAgent(ToolUsingAgent):
 
                 # Phase 31: Record tool use in BATS budget tracker
                 self._budget.record_tool_use(tc.name)
+
+                # UGO: track tool call hash for redundancy detection (generator path)
+                ugo_tool_hashes_gen.add(f"{tc.name}:{tc.arguments}")
 
                 # Track if agent stored state via memory_store
                 if tc.name == "memory_store" and self._operator_id:

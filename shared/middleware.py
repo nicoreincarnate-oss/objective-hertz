@@ -90,6 +90,7 @@ class MiddlewareChain:
 
 # Default ordered stacks per pipeline
 TITAN_MIDDLEWARE = [
+    "bats_budget",
     "budget_check",
     "dna_guard",
     "anti_slop",
@@ -101,9 +102,9 @@ TITAN_MIDDLEWARE = [
 
 PIPELINE_CONFIGS: dict[str, list[str]] = {
     "titan": list(TITAN_MIDDLEWARE),
-    "clawdbot": ["budget_check", "dna_guard", "anti_slop", "neuro_scorer", "telemetry", "forbidden_tokens"],
-    "hermes": ["budget_check", "dna_guard", "neuro_scorer", "telemetry", "forbidden_tokens"],
-    "perseus": ["budget_check", "telemetry"],
+    "clawdbot": ["bats_budget", "budget_check", "dna_guard", "anti_slop", "neuro_scorer", "telemetry", "forbidden_tokens"],
+    "hermes": ["bats_budget", "budget_check", "dna_guard", "neuro_scorer", "telemetry", "forbidden_tokens"],
+    "perseus": ["bats_budget", "budget_check", "telemetry"],
 }
 
 
