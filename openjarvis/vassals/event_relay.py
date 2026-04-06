@@ -83,7 +83,7 @@ class EventRelay:
                         "source": "openjarvis",
                     },
                 }))
-            except Exception:
+            except (OSError, RuntimeError, ValueError, ConnectionError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass  # non-critical
 
     # ── Inbound: vassals → local ──────────────────────────────────────
@@ -116,11 +116,23 @@ class EventRelay:
                 elif isinstance(events, dict) and "error" not in events:
                     # Some vassals might not have events_recent
                     pass
-            except Exception:
+            except (OSError, RuntimeError, ValueError, ConnectionError, json.JSONDecodeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass  # vassal might not support events_recent yet
 
     def _ingest_remote_event(self, source: str, event: dict[str, Any]) -> None:
-        """Publish a remote event on the local EventBus (deduped)."""
+        """Publish a remote event on the local EventBus (deduped).
+
+        Applies sender exclusion (Phase 24-07) to prevent agents from
+        processing their own broadcast events.
+        """
+        # Sender exclusion: skip events where the sender is the source vassal
+        payload = event.get("payload", {})
+        if isinstance(payload, dict):
+            from shared.protocols import should_process_event
+            if not should_process_event(payload, source):
+                logger.debug("Skipping self-originated event for %s", source)
+                return
+
         event_key = f"{source}:{event.get('event_type', '')}:{event.get('created_at', '')}"
         if event_key in self._seen_events:
             return
@@ -153,7 +165,7 @@ class EventRelay:
                 "capability": "event_relay",
                 "params": {"type": event_type, "payload": payload, "source": "openjarvis"},
             }))
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug("Failed to relay event to %s: %s", vassal_name, exc)
 
     def relay_to_all(self, event_type: str, payload: dict[str, Any]) -> None:
