@@ -20,6 +20,7 @@ from openjarvis.core.registry import AgentRegistry
 from openjarvis.core.types import Message, Role, ToolCall, ToolResult
 from openjarvis.engine._stubs import InferenceEngine
 from openjarvis.tools._stubs import BaseTool
+from shared.cost_events import UnifiedBudget, create_default_budget
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ class OperativeAgent(ToolUsingAgent):
         # is rendered ONCE and reused across ticks so the LLM provider's
         # prompt cache sees an identical prefix on every request.
         self._cached_stable_prefix: str | None = None
+
+        # Phase 31: BATS budget tracker — injected into context after each tool call
+        self._budget: UnifiedBudget = kwargs.get("budget") or create_default_budget()
 
     def run(
         self,
@@ -224,6 +228,9 @@ class OperativeAgent(ToolUsingAgent):
                 tool_result = self._executor.execute(tc)
                 all_tool_results.append(tool_result)
 
+                # Phase 31: Record tool use in BATS budget tracker
+                self._budget.record_tool_use(tc.name)
+
                 # Track if agent stored state via memory_store
                 if tc.name == "memory_store" and self._operator_id:
                     try:
@@ -240,6 +247,13 @@ class OperativeAgent(ToolUsingAgent):
                     tool_call_id=tc.id,
                     name=tc.name,
                 ))
+
+                # Phase 31: Inject compact budget status after tool result
+                if self._is_bats_enabled():
+                    messages.append(Message(
+                        role=Role.SYSTEM,
+                        content=self._budget.format_status(),
+                    ))
         else:
             # Max turns exceeded
             self._save_session(input, content)
@@ -273,6 +287,10 @@ class OperativeAgent(ToolUsingAgent):
 
     def _is_generator_loop_enabled(self) -> bool:
         return os.environ.get("ANATOMY_GENERATOR_LOOP", "").lower() in ("true", "1")
+
+    @staticmethod
+    def _is_bats_enabled() -> bool:
+        return os.environ.get("BATS_ADAPTIVE_BUDGET", "true").lower() in ("true", "1", "yes")
 
     async def run_iter(
         self,
@@ -380,6 +398,9 @@ class OperativeAgent(ToolUsingAgent):
                 tool_result = self._executor.execute(tc)
                 all_tool_results.append(tool_result)
 
+                # Phase 31: Record tool use in BATS budget tracker
+                self._budget.record_tool_use(tc.name)
+
                 # Track if agent stored state via memory_store
                 if tc.name == "memory_store" and self._operator_id:
                     try:
@@ -396,6 +417,13 @@ class OperativeAgent(ToolUsingAgent):
                     tool_call_id=tc.id,
                     name=tc.name,
                 ))
+
+                # Phase 31: Inject compact budget status after tool result
+                if self._is_bats_enabled():
+                    messages.append(Message(
+                        role=Role.SYSTEM,
+                        content=self._budget.format_status(),
+                    ))
 
         gen = agent_loop(
             generate_fn=_generate_fn,
@@ -433,6 +461,22 @@ class OperativeAgent(ToolUsingAgent):
     def _is_prompt_builder_enabled() -> bool:
         return os.environ.get("ANATOMY_PROMPT_BUILDER", "").lower() in ("true", "1")
 
+    def invalidate_prompt_cache(self) -> None:
+        """Clear the cached stable prefix so it is re-rendered on the next tick.
+
+        Call when:
+        - System prompt is updated via configuration change
+        - DNA profile changes (circuit breaker state transition)
+        - Lifecycle document is hot-reloaded
+
+        Phase 18b-03 Task 2.
+        """
+        self._cached_stable_prefix = None
+        logger.debug(
+            "Operative prompt cache invalidated for %s",
+            self._operator_id or "unknown",
+        )
+
     def _build_cached_system_prompt(self) -> str | None:
         """Build the full system prompt, caching the stable prefix across ticks.
 
@@ -467,19 +511,25 @@ class OperativeAgent(ToolUsingAgent):
                     self._operator_id or "unknown",
                 )
 
-            # Build volatile suffix (changes every tick)
-            volatile_parts: list[str] = []
+            # Build volatile suffix (changes every tick).
+            # The CACHE_BOUNDARY_MARKER is placed between the stable prefix
+            # and the volatile suffix so that _build_system_blocks() in
+            # shared/llm_client.py can split the prompt for Anthropic's
+            # cache_control annotation.
+            from shared.prompt_builder import CACHE_BOUNDARY_MARKER
+
             previous_state = self._recall_state()
-            if previous_state:
-                volatile_parts.append(f"\n## Previous State\n{previous_state}")
 
-            # Assemble: cached prefix + volatile suffix
-            parts: list[str] = []
+            # Assemble: cached prefix + boundary + volatile suffix
+            if self._cached_stable_prefix and previous_state:
+                return (
+                    f"{self._cached_stable_prefix}"
+                    f"{CACHE_BOUNDARY_MARKER}"
+                    f"\n## Previous State\n{previous_state}"
+                )
             if self._cached_stable_prefix:
-                parts.append(self._cached_stable_prefix)
-            parts.extend(volatile_parts)
-
-            return "\n\n".join(parts) if parts else None
+                return self._cached_stable_prefix
+            return None
 
         # Flag OFF: original behaviour
         sys_parts: list[str] = []

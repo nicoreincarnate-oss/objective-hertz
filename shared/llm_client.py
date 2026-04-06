@@ -279,8 +279,15 @@ class LLMClient:
         t0: float,
         success: bool,
         error_type: str | None,
+        cached_tokens: int = 0,
     ) -> None:
-        """Fire-and-forget LLM metrics recording via asyncio.create_task."""
+        """Fire-and-forget LLM metrics recording via asyncio.create_task.
+
+        Phase 18b-01 Task 6: ``cached_tokens`` is populated from the API
+        response's ``cache_read_input_tokens`` field when prompt caching is
+        active.  It flows through to ``CostEvent.cached_tokens`` for spend
+        attribution in the cost dashboard.
+        """
         from shared.observability import record_llm_call
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -314,7 +321,7 @@ class LLMClient:
                 model=model,
                 tokens_in=input_tokens,
                 tokens_out=output_tokens,
-                cached_tokens=0,  # Wire when SDK provides cached token counts
+                cached_tokens=cached_tokens,
                 cost_usd=cost_usd,
                 latency_ms=latency_ms,
                 task_id=_obs_task_id.get() or None,
@@ -516,7 +523,11 @@ class LLMClient:
                 pipeline_stage=pipeline_stage,
                 usage=self._last_usage,
             )
-            self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
+            # Phase 18b: Pass cached token count from API response to cost event
+            _cached = 0
+            if self._last_usage:
+                _cached = self._last_usage.get("cache_read_input_tokens", 0)
+            self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None, cached_tokens=_cached)
             # Task 27-06: Background learning extraction from LLM responses
             from shared.learning_extractor import maybe_extract_background
             maybe_extract_background(result, pipeline_stage or "")
@@ -591,9 +602,12 @@ class LLMClient:
                     pipeline_stage=pipeline_stage,
                     usage=self._last_usage,
                 )
+                # Phase 18b: pass cached token count to cost event
+                _fc_cached = self._last_usage.get("cache_read_input_tokens", 0) if self._last_usage else 0
                 self._fire_metrics(
                     pipeline_stage or "unknown", resolved, "generate",
                     prompt, result, t0, True, None,
+                    cached_tokens=_fc_cached,
                 )
 
                 # Strip thinking blocks when we fell back from genius
@@ -1086,17 +1100,28 @@ class LLMClient:
             "temperature": temperature,
             "messages": [{"role": "user", "content": content}],
         }
+        prompt_cache_enabled = os.environ.get(
+            "ANATOMY_PROMPT_CACHE", ""
+        ).lower() in ("true", "1")
+
         if system:
-            body["system"] = system
+            if prompt_cache_enabled:
+                body["system"] = _build_system_blocks(system)
+            else:
+                body["system"] = system
+
+        headers = {
+            "x-api-key": config.claude.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if prompt_cache_enabled:
+            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
 
         resp = await self._get_http().post(
             "https://api.anthropic.com/v1/messages",
             json=body,
-            headers={
-                "x-api-key": config.claude.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
