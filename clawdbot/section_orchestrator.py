@@ -184,7 +184,7 @@ async def build_all_sections(
     total_cost = 0.0
     failed: list[str] = []
 
-    for sp, raw in zip(build_plan.sections, raw_results, strict=False):
+    for sp, raw in zip(build_plan.sections, raw_results):  # noqa: B905
         if isinstance(raw, BaseException):
             logger.error("Section %s raised: %s", sp.section_type, raw)
             sections[sp.section_type] = SectionResult(
