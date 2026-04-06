@@ -82,8 +82,158 @@ async def build_full_site(lead: dict) -> str:
     return await _build_site(lead, site_type="full", page_count=5)
 
 
-async def _build_site(lead: dict, *, site_type: str, page_count: int) -> str:
-    """Core build process: generate variants → review → synthesize → deploy."""
+async def _build_site(
+    lead: dict, *, site_type: str, page_count: int, _v1_fallback: bool = False,
+) -> str:
+    """Core build — routes to v1 or v2 based on feature flag.
+
+    When ``CLAWDBOT_V2_ENABLED`` is set the multi-agent visual production
+    pipeline is used.  Otherwise the original 5-agent competitive process runs.
+    ``_v1_fallback`` is an internal guard that prevents v2 from recursing back
+    into itself when it falls back.
+    """
+    if (
+        not _v1_fallback
+        and os.environ.get("CLAWDBOT_V2_ENABLED", "").lower() in ("true", "1", "yes")
+    ):
+        return await _build_site_v2(lead, site_type=site_type, page_count=page_count)
+    return await _build_site_v1(lead, site_type=site_type, page_count=page_count)
+
+
+async def _build_site_v2(lead: dict, *, site_type: str, page_count: int) -> str:
+    """Multi-agent visual production pipeline (phases 33-38).
+
+    Orchestrates: section planning -> parallel section build -> assembly -> QA -> deploy.
+    Falls back to v1 on any unrecoverable error.
+    """
+    business_name = lead.get("business_name", "Business")
+
+    try:
+        # 1. Generate build plan
+        from clawdbot.section_planner import generate_build_plan
+
+        plan = await generate_build_plan(lead, site_type=site_type, page_count=page_count)
+
+        try:
+            await emit_event("site_build_v2_started", {
+                "client_id": lead.get("id"),
+                "business_name": business_name,
+                "sections_planned": plan.total_sections,
+                "direction": plan.direction_name,
+                "tier": plan.tier.name,
+            })
+        except Exception:
+            pass  # event emission is best-effort
+
+        # 2. Validate design contract (render test hero, VLM check)
+        pool = _get_playwright_pool()
+
+        if pool:
+            try:
+                from clawdbot.visual_scorer import validate_design_contract
+
+                validation = await validate_design_contract(plan.design_tokens, pool)
+                if not validation.passed:
+                    logger.warning("Design contract validation failed: %s", validation.issues)
+            except Exception as exc:
+                logger.warning("Design contract validation skipped: %s", exc)
+
+        # 3. Build all sections in parallel
+        from clawdbot.section_orchestrator import build_all_sections
+
+        build_result = await build_all_sections(plan, pool=pool)
+
+        # 4. Assemble page(s)
+        from clawdbot.page_assembler import assemble_page, assemble_multipage_site
+
+        final_html = await assemble_page(build_result.sections, plan)
+
+        if not final_html:
+            raise RuntimeError("Assembly produced empty HTML")
+
+        # 5. Full-page QA
+        from clawdbot.fullpage_qa import run_full_page_qa, deploy_gate
+
+        qa_result = await run_full_page_qa(final_html, plan, pool=pool)
+
+        # 6. Iterate if needed
+        if not qa_result.passed and pool:
+            try:
+                from clawdbot.fullpage_qa import iterate_full_page
+
+                final_html, qa_result = await iterate_full_page(
+                    final_html, qa_result, plan, build_result.sections, pool=pool,
+                )
+            except Exception as exc:
+                logger.warning("QA iteration failed, proceeding with current HTML: %s", exc)
+
+        # 7. Deploy gate
+        should_deploy, reason = await deploy_gate(qa_result)
+        if not should_deploy:
+            logger.error("Deploy blocked: %s", reason)
+            return ""
+
+        # 8. Deploy
+        if page_count > 1:
+            pages = await assemble_multipage_site(build_result.sections, plan)
+            try:
+                from clawdbot.deploy import deploy_static_site
+
+                url = await deploy_static_site(pages, business_name, client_id=lead.get("id"))
+            except ImportError:
+                logger.warning("deploy module unavailable, using v0 fallback for multipage")
+                url = await _deploy_to_v0(final_html, business_name, site_type)
+        else:
+            url = await _deploy_to_v0(final_html, business_name, site_type)
+
+        # 9. Emit completion
+        try:
+            await emit_event("site_build_v2_completed", {
+                "client_id": lead.get("id"),
+                "url": url,
+                "sections_built": len(build_result.sections),
+                "qa_score": qa_result.overall_score,
+                "build_time_s": build_result.total_time_s,
+                "build_cost_usd": build_result.total_cost_usd,
+                "tier": plan.tier.name,
+                "direction": plan.direction_name,
+            })
+        except Exception:
+            pass  # event emission is best-effort
+
+        return url
+
+    except Exception as e:
+        logger.error("V2 pipeline failed for %s: %s — falling back to v1", business_name, e)
+        try:
+            await emit_event("site_build_v2_fallback", {
+                "client_id": lead.get("id"),
+                "error": str(e)[:500],
+            })
+        except Exception:
+            pass
+        return await _build_site(
+            lead, site_type=site_type, page_count=page_count, _v1_fallback=True,
+        )
+
+
+# ── Playwright pool accessor (set by daemon.py) ──────────────────────
+_playwright_pool = None
+
+
+def _set_playwright_pool(pool: object) -> None:
+    """Called by daemon.py to inject the shared Playwright pool."""
+    global _playwright_pool
+    _playwright_pool = pool
+
+
+def _get_playwright_pool():
+    """Return the daemon-managed Playwright pool, or None."""
+    return _playwright_pool
+
+
+async def _build_site_v1(lead: dict, *, site_type: str, page_count: int) -> str:
+    """Original v1 build process: generate variants -> review -> synthesize -> deploy."""
     business_name = lead.get("business_name", "Business")
     industry = lead.get("industry", "general services")
 
