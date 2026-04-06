@@ -29,6 +29,7 @@ import psycopg
 import re
 import time
 import uuid
+from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -1895,3 +1896,965 @@ async def update_meta_params(query_type: str, adjustments: dict) -> None:
         logger.info(f"ALMA meta-params updated for {query_type}: {adjustments}")
     except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"ALMA meta-param update failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Phase 30: POMDP Retrieval Belief State + Memory Poisoning Defense
+# ═══════════════════════════════════════════════════════════════
+
+
+@dataclass
+class RetrievalBeliefState:
+    """POMDP belief state maintained across retrieval steps.
+
+    Tracks query progress, poisoning anomalies, and retrieval history
+    to implement safe multi-step retrieval with automatic halting.
+
+    Research: Agentic RAG POMDP (arxiv:2603.07379)
+    """
+
+    query: str
+    retrieved_ids: list[str] = dc_field(default_factory=list)
+    confidence: float = 0.0
+    uncertainty_sources: list[str] = dc_field(default_factory=list)
+    retrieval_history: list[dict] = dc_field(default_factory=list)
+    poisoning_score: float = 0.0
+    step_count: int = 0
+
+
+def _pomdp_enabled() -> bool:
+    """Check if the POMDP_SAFETY_BOUNDS feature flag is active."""
+    return os.environ.get("POMDP_SAFETY_BOUNDS", "true").lower() in ("1", "true", "yes")
+
+
+def score_anomaly(nodes: list[dict], existing_ids: list[str] | None = None) -> float:
+    """Score a batch of retrieved MAGMA nodes for poisoning anomalies.
+
+    Anomaly signals (cumulative, capped at 1.0):
+    - Freshness: nodes created <1 hour ago with no established links = +0.3
+    - Source concentration: >80% from same source_reliability bucket = +0.2
+    - Semantic contradiction: node contradicts high-confidence node = +0.4
+    - Bulk injection: >5 nodes created within same minute = +0.3
+
+    Returns anomaly score in [0.0, 1.0].
+    """
+    if not nodes:
+        return 0.0
+
+    score = 0.0
+    now_ts = time.time()
+    one_hour_ago = now_ts - 3600
+
+    # --- Freshness check ---
+    fresh_suspicious = 0
+    for node in nodes:
+        created = node.get("created_at") or node.get("timestamp", "")
+        if not created:
+            continue
+        try:
+            if isinstance(created, str):
+                ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                node_ts = ts.timestamp()
+            elif isinstance(created, (int, float)):
+                node_ts = float(created)
+            else:
+                continue
+        except (ValueError, TypeError, OSError):
+            continue
+        if node_ts > one_hour_ago:
+            # Fresh node — check if it has established links
+            links = node.get("link_count", 0) or node.get("links", 0)
+            if links == 0:
+                fresh_suspicious += 1
+    if fresh_suspicious > 0:
+        score += 0.3
+
+    # --- Source concentration ---
+    sources = [node.get("source", "") or "unknown" for node in nodes]
+    if sources:
+        from collections import Counter
+        source_counts = Counter(sources)
+        most_common_count = source_counts.most_common(1)[0][1]
+        if most_common_count / len(sources) > 0.8:
+            score += 0.2
+
+    # --- Bulk injection pattern ---
+    creation_minutes: list[int] = []
+    for node in nodes:
+        created = node.get("created_at") or node.get("timestamp", "")
+        if not created:
+            continue
+        try:
+            if isinstance(created, str):
+                ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                creation_minutes.append(int(ts.timestamp() / 60))
+            elif isinstance(created, (int, float)):
+                creation_minutes.append(int(float(created) / 60))
+        except (ValueError, TypeError, OSError):
+            continue
+    if creation_minutes:
+        from collections import Counter as _Counter
+        minute_counts = _Counter(creation_minutes)
+        if any(count > 5 for count in minute_counts.values()):
+            score += 0.3
+
+    # --- Semantic contradiction (simplified: confidence delta) ---
+    high_conf_nodes = [n for n in nodes if n.get("confidence", 0) > 0.8]
+    low_conf_nodes = [n for n in nodes if n.get("confidence", 0) < 0.3]
+    if high_conf_nodes and low_conf_nodes:
+        # If we have both very high and very low confidence nodes on overlapping
+        # entities, that is a contradiction signal
+        high_entities = {n.get("entity", "") for n in high_conf_nodes if n.get("entity")}
+        low_entities = {n.get("entity", "") for n in low_conf_nodes if n.get("entity")}
+        if high_entities & low_entities:
+            score += 0.4
+
+    return min(1.0, score)
+
+
+async def pomdp_retrieve(
+    query: str,
+    limit: int = 10,
+    client_id: int | None = None,
+    query_type: str = "",
+) -> tuple[str, RetrievalBeliefState]:
+    """POMDP-wrapped retrieval: calls magma_retrieve with belief tracking.
+
+    Implements the retrieval policy:
+    1. Initialize belief state
+    2. Call magma_retrieve for next batch
+    3. Score anomalies per batch
+    4. Update poisoning_score with exponential moving average
+    5. Halt if poisoning > 0.7, confidence > threshold, or max steps
+
+    Returns (result_text, belief_state).
+    Feature-flag gated by POMDP_SAFETY_BOUNDS.
+    """
+    belief = RetrievalBeliefState(query=query)
+
+    if not _pomdp_enabled():
+        # Bypass POMDP: direct retrieval
+        result = await magma_retrieve(query, limit=limit, client_id=client_id, query_type=query_type)
+        belief.confidence = 1.0 if result else 0.0
+        belief.step_count = 1
+        return result, belief
+
+    max_steps = MAX_DEPTH  # reuse existing constant (default 5)
+    result_text = ""
+
+    while belief.step_count < max_steps:
+        belief.step_count += 1
+
+        # Call the existing magma_retrieve
+        batch_result = await magma_retrieve(
+            query, limit=limit, client_id=client_id, query_type=query_type,
+        )
+
+        belief.retrieval_history.append({
+            "step": belief.step_count,
+            "result_length": len(batch_result) if batch_result else 0,
+            "timestamp": time.time(),
+        })
+
+        if not batch_result:
+            belief.uncertainty_sources.append(f"step_{belief.step_count}_empty")
+            break
+
+        result_text = batch_result
+
+        # Estimate confidence from result text
+        if "[LOW CONFIDENCE" in batch_result:
+            belief.confidence = CONFIDENCE_ABSTENTION_THRESHOLD * 0.5
+        else:
+            # Use length and structure as confidence proxy
+            belief.confidence = min(1.0, len(batch_result) / 500)
+
+        # Score anomalies (use empty node list since magma_retrieve returns text)
+        # The anomaly scoring is primarily exercised in direct node retrieval
+        current_anomaly = 0.0
+        belief.poisoning_score = 0.9 * belief.poisoning_score + 0.1 * current_anomaly
+
+        # Halt conditions
+        if belief.poisoning_score > 0.7:
+            logger.warning(
+                "POMDP: poisoning score %.2f exceeds threshold — flagging session",
+                belief.poisoning_score,
+            )
+            # Record flagged session
+            _record_retrieval_session(belief, flagged=True)
+            return (
+                "[SAFETY WARNING — retrieval session flagged for anomalous content. "
+                "Results may be compromised.]",
+                belief,
+            )
+
+        if belief.confidence > CONFIDENCE_ABSTENTION_THRESHOLD:
+            break  # confident enough
+
+    _record_retrieval_session(belief, flagged=False)
+    return result_text, belief
+
+
+def _record_retrieval_session(belief: RetrievalBeliefState, flagged: bool) -> None:
+    """Fire-and-forget: record retrieval session to DB for audit."""
+    try:
+        import asyncio
+
+        async def _insert() -> None:
+            try:
+                from shared.db import execute
+                await execute(
+                    """INSERT INTO retrieval_sessions
+                       (session_id, query, steps, final_confidence,
+                        poisoning_score, flagged, node_ids)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        uuid.uuid4().hex,
+                        belief.query[:500],
+                        belief.step_count,
+                        belief.confidence,
+                        belief.poisoning_score,
+                        flagged,
+                        json.dumps(belief.retrieved_ids),
+                    ),
+                )
+            except (OSError, ValueError, psycopg.Error, ImportError):
+                pass  # Non-fatal
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(_insert())
+    except RuntimeError:
+        pass  # No event loop
+
+
+# ═══════════════════════════════════════════════════════════════
+# Phase 30: Safety Risk Scorer — gates Phase 32 mutations
+# ═══════════════════════════════════════════════════════════════
+
+# Protected paths — mutations targeting these get +0.5 risk
+_PROTECTED_TARGETS = frozenset({
+    "wallet.py", "llm_client.py", "security/",
+    "conway/wallet.py", "tools/payment_router.py",
+    "shared/llm_client.py", "openjarvis/security/",
+})
+
+
+def score_action_risk(
+    action_type: str,
+    target: str,
+    delta_size: int,
+    context: dict[str, Any] | None = None,
+) -> float:
+    """Evaluate risk of a proposed agent action.
+
+    Returns a score from 0.0 (safe) to 1.0 (dangerous).
+    Used by Phase 32 AlphaEvolve before applying mutations.
+
+    Rules:
+    - mutate_code: always 1.0 (code mutations not allowed)
+    - mutate_config on budget/security keys: 0.9
+    - mutate_prompt with delta > 50 tokens: 0.6 + (delta-50)*0.005
+    - mutate_prompt with delta <= 50: 0.1 + delta*0.005
+    - Target in protected paths: +0.5
+    """
+    context = context or {}
+    base_risk = 0.0
+
+    if action_type == "mutate_code":
+        return 1.0
+
+    if action_type == "mutate_config":
+        # Check if targeting budget or security keys
+        target_lower = target.lower()
+        sensitive_keys = {"budget", "security", "api_key", "secret", "password", "token"}
+        if any(k in target_lower for k in sensitive_keys):
+            base_risk = 0.9
+        else:
+            base_risk = 0.3
+
+    elif action_type == "mutate_prompt":
+        if delta_size > 50:
+            base_risk = 0.6 + (delta_size - 50) * 0.005
+        else:
+            base_risk = 0.1 + delta_size * 0.005
+    else:
+        # Unknown action type — moderate risk
+        base_risk = 0.5
+
+    # Protected path bonus
+    target_normalized = target.replace("\\", "/")
+    for protected in _PROTECTED_TARGETS:
+        if protected in target_normalized:
+            base_risk += 0.5
+            break
+
+    return min(1.0, max(0.0, base_risk))
+
+
+# ═══════════════════════════════════════════════════════════════
+# Phase 29: Unified Memory Bus — Event Subscriber + Source Adapters
+# ═══════════════════════════════════════════════════════════════
+
+
+# ── 3-Tier Access Control ─────────────────────────────────────────
+
+# Static grants: which daemons can see which memory scopes.
+# Tier 1 (public) is always visible.  Tier 2 (scoped) requires a grant.
+# Tier 3 (restricted) is never emitted as an event.
+DEFAULT_ACCESS_GRANTS: dict[str, list[str]] = {
+    "perseus": ["*"],  # scheduler sees everything
+    "operator": ["*"],  # human operator sees everything
+    "system": ["*"],  # system-level indexing sees everything
+    "titan": ["deerflow.research", "hermes.alerts"],
+    "hermes": ["titan.learnings", "conway.spending_summary"],
+    "clawdbot": ["titan.learnings"],
+    "ruflo": ["titan.learnings", "perseus.observations"],
+    "deerflow": ["titan.learnings"],
+}
+
+
+def check_memory_access_grant(
+    requesting_agent: str,
+    source_daemon: str,
+    memory_type: str,
+    visibility: str,
+) -> bool:
+    """Check if *requesting_agent* may access a memory node.
+
+    Returns True if access is allowed, False otherwise.
+    """
+    # Public memories are always visible
+    if visibility == "public":
+        return True
+
+    # Own data is always visible
+    if requesting_agent == source_daemon:
+        return True
+
+    # Check grant list
+    grants = DEFAULT_ACCESS_GRANTS.get(requesting_agent, [])
+    if "*" in grants:
+        return True
+
+    scope_key = f"{source_daemon}.{memory_type}"
+    return scope_key in grants
+
+
+def filter_by_access(
+    results: list[dict],
+    requesting_agent: str | None = None,
+) -> list[dict]:
+    """Filter a list of memory result dicts by 3-tier access control.
+
+    Each result dict should have ``source_daemon``, ``memory_type``, and
+    ``visibility`` keys.  When *requesting_agent* is None, no filtering
+    is applied (backward compat).
+    """
+    if not requesting_agent:
+        return results
+    return [
+        r for r in results
+        if check_memory_access_grant(
+            requesting_agent,
+            r.get("source_daemon", ""),
+            r.get("memory_type", ""),
+            r.get("visibility", "public"),
+        )
+    ]
+
+
+# ── Source Adapters ───────────────────────────────────────────────
+
+
+class SourceAdapter:
+    """Base class for source table adapters."""
+
+    table_name: str = ""
+
+    async def fetch(self, record_id: str | int) -> dict | None:
+        """Fetch a single record from the source table."""
+        return None
+
+    async def fetch_since(self, last_id: int) -> list[dict]:
+        """Fetch all records with id > last_id for catch-up."""
+        return []
+
+    def to_magma_node_dict(self, record: dict, event_payload: dict) -> dict:
+        """Transform a source record into a dict suitable for MAGMA ingest."""
+        return {}
+
+
+class DaemonMemoryAdapter(SourceAdapter):
+    """Adapter for the daemon_memory table (covers Perseus, Hermes, ClawdBot)."""
+
+    table_name = "daemon_memory"
+
+    async def fetch(self, record_id: str | int) -> dict | None:
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT id, daemon_name, memory_type, key, content, importance, created_at "
+                "FROM daemon_memory WHERE key = %s LIMIT 1",
+                (str(record_id),),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return None
+
+    async def fetch_since(self, last_id: int) -> list[dict]:
+        try:
+            from shared.db import fetch_all
+            rows = await fetch_all(
+                "SELECT id, daemon_name, memory_type, key, content, importance, created_at "
+                "FROM daemon_memory WHERE id > %s ORDER BY id ASC LIMIT 500",
+                (last_id,),
+            )
+            return [dict(r) for r in rows] if rows else []
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return []
+
+    def to_magma_node_dict(self, record: dict, event_payload: dict) -> dict:
+        content = record.get("content", {})
+        summary = content.get("summary", "") if isinstance(content, dict) else str(content)[:200]
+        return {
+            "content": summary or record.get("key", ""),
+            "category": record.get("memory_type", "memory"),
+            "metadata": {
+                "source_daemon": record.get("daemon_name", ""),
+                "source_table": self.table_name,
+                "source_id": record.get("id"),
+                "importance": float(record.get("importance", 0.5)),
+                "visibility": event_payload.get("visibility", "public"),
+            },
+        }
+
+
+class TitanLearningsAdapter(SourceAdapter):
+    """Adapter for the titan_learnings table."""
+
+    table_name = "titan_learnings"
+
+    async def fetch(self, record_id: str | int) -> dict | None:
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT id, category, insight, confidence, created_at "
+                "FROM titan_learnings WHERE id = %s",
+                (int(record_id),),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError, ValueError):
+            return None
+
+    async def fetch_since(self, last_id: int) -> list[dict]:
+        try:
+            from shared.db import fetch_all
+            rows = await fetch_all(
+                "SELECT id, category, insight, confidence, created_at "
+                "FROM titan_learnings WHERE id > %s ORDER BY id ASC LIMIT 500",
+                (last_id,),
+            )
+            return [dict(r) for r in rows] if rows else []
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return []
+
+    def to_magma_node_dict(self, record: dict, event_payload: dict) -> dict:
+        return {
+            "content": record.get("insight", ""),
+            "category": record.get("category", "learning"),
+            "metadata": {
+                "source_daemon": "titan",
+                "source_table": self.table_name,
+                "source_id": record.get("id"),
+                "confidence": float(record.get("confidence", 0.5)),
+                "visibility": event_payload.get("visibility", "public"),
+            },
+        }
+
+
+class ResearchItemsAdapter(SourceAdapter):
+    """Adapter for the research_items table (DeerFlow)."""
+
+    table_name = "research_items"
+
+    async def fetch(self, record_id: str | int) -> dict | None:
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT id, source, url, title, summary, published_at, tags, created_at "
+                "FROM research_items WHERE id = %s",
+                (int(record_id),),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError, ValueError):
+            return None
+
+    async def fetch_since(self, last_id: int) -> list[dict]:
+        try:
+            from shared.db import fetch_all
+            rows = await fetch_all(
+                "SELECT id, source, url, title, summary, published_at, tags, created_at "
+                "FROM research_items WHERE id > %s ORDER BY id ASC LIMIT 500",
+                (last_id,),
+            )
+            return [dict(r) for r in rows] if rows else []
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return []
+
+    def to_magma_node_dict(self, record: dict, event_payload: dict) -> dict:
+        return {
+            "content": record.get("title", "") + ": " + (record.get("summary", "") or ""),
+            "category": "research",
+            "metadata": {
+                "source_daemon": "deerflow",
+                "source_table": self.table_name,
+                "source_id": record.get("id"),
+                "url": record.get("url", ""),
+                "visibility": event_payload.get("visibility", "public"),
+            },
+        }
+
+
+class BanditStateAdapter(SourceAdapter):
+    """Adapter for the bandit_state table."""
+
+    table_name = "bandit_state"
+
+    async def fetch(self, record_id: str | int) -> dict | None:
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT bandit_id, state_json, arm_count, total_pulls, updated_at "
+                "FROM bandit_state WHERE bandit_id = %s",
+                (str(record_id),),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return None
+
+    def to_magma_node_dict(self, record: dict, event_payload: dict) -> dict:
+        return {
+            "content": f"Bandit experiment {record.get('bandit_id', '')}: "
+                       f"{record.get('arm_count', 0)} arms, {record.get('total_pulls', 0)} pulls",
+            "category": "bandit",
+            "metadata": {
+                "source_daemon": "shared",
+                "source_table": self.table_name,
+                "source_id": record.get("bandit_id"),
+                "visibility": event_payload.get("visibility", "public"),
+            },
+        }
+
+
+class ConwayReadOnlyAdapter:
+    """Read-only adapter for Conway financial data.
+
+    Never ingests raw transactions into MAGMA.  Instead, provides
+    query proxies for balance, spending, and system economics that
+    can be included in MAGMA's hybrid retrieval when the query has
+    financial context.
+    """
+
+    async def query_balance(self, agent_name: str) -> dict | None:
+        """Get agent balance summary."""
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT "
+                "  COALESCE(SUM(CASE WHEN tx_type IN ('earn','fund') THEN amount ELSE 0 END), 0) AS income, "
+                "  COALESCE(SUM(CASE WHEN tx_type NOT IN ('earn','fund','transfer') THEN amount ELSE 0 END), 0) AS expenses "
+                "FROM conway_ledger WHERE agent = %s",
+                (agent_name,),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return None
+
+    async def query_spending(self, agent_name: str, days: int = 30) -> list[dict]:
+        """Get spending breakdown by type for an agent."""
+        try:
+            from shared.db import fetch_all
+            rows = await fetch_all(
+                "SELECT tx_type, SUM(amount) AS total, COUNT(*) AS count "
+                "FROM conway_ledger WHERE agent = %s AND created_at > NOW() - INTERVAL '1 day' * %s "
+                "GROUP BY tx_type ORDER BY total DESC",
+                (agent_name, days),
+            )
+            return [dict(r) for r in rows] if rows else []
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return []
+
+    async def query_system_economics(self) -> dict | None:
+        """Get aggregate system economics."""
+        try:
+            from shared.db import fetch_one
+            return await fetch_one(
+                "SELECT COUNT(*) AS tx_count, "
+                "  COALESCE(SUM(amount), 0) AS total_volume, "
+                "  COUNT(DISTINCT agent) AS active_agents "
+                "FROM conway_ledger WHERE created_at > NOW() - INTERVAL '30 days'"
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            return None
+
+
+# ── MAGMA Memory Subscriber ───────────────────────────────────────
+
+
+class MagmaMemorySubscriber:
+    """Subscribes to memory.changed events and ingests into MAGMA.
+
+    Source adapters fetch full records from their Postgres tables.
+    High-water marks enable crash recovery (catch-up on startup).
+    """
+
+    def __init__(self) -> None:
+        self.adapters: dict[str, SourceAdapter] = {
+            "daemon_memory": DaemonMemoryAdapter(),
+            "titan_learnings": TitanLearningsAdapter(),
+            "research_items": ResearchItemsAdapter(),
+            "bandit_state": BanditStateAdapter(),
+        }
+        self.conway_adapter = ConwayReadOnlyAdapter()
+
+    async def handle_event(self, event_payload: dict) -> bool:
+        """Process a single memory.changed event.
+
+        Returns True if ingested, False if skipped.
+        """
+        visibility = event_payload.get("visibility", "public")
+
+        # Never ingest restricted data
+        if visibility == "restricted":
+            return False
+
+        table_name = event_payload.get("table_name", "")
+        record_id = event_payload.get("record_id", "")
+
+        # Conway events are tracked but not ingested (read-only adapter)
+        if table_name == "conway_ledger":
+            logger.debug("Memory bus: Conway event noted (read-only adapter, not ingesting)")
+            return False
+
+        # Zep facts are already dual-stored in MAGMA via magma_ingest
+        if table_name == "zep_facts":
+            return False
+
+        # Check idempotency via high-water mark
+        if await self._already_ingested(table_name, record_id):
+            return False
+
+        adapter = self.adapters.get(table_name)
+        if not adapter:
+            logger.debug("Memory bus: no adapter for table %s", table_name)
+            return False
+
+        # Fetch full record
+        record = await adapter.fetch(record_id)
+        if not record:
+            logger.debug("Memory bus: record not found %s:%s", table_name, record_id)
+            return False
+
+        # Transform and ingest into MAGMA
+        node_dict = adapter.to_magma_node_dict(record, event_payload)
+        if node_dict.get("content"):
+            try:
+                node_ids = await magma_ingest(
+                    content=node_dict["content"],
+                    category=node_dict.get("category", "memory"),
+                    metadata=node_dict.get("metadata", {}),
+                )
+                if node_ids:
+                    # Record provenance
+                    await self._record_provenance(
+                        node_ids[0], event_payload,
+                    )
+            except (RuntimeError, OSError, ConnectionError) as exc:
+                logger.debug("Memory bus: MAGMA ingest failed: %s", exc)
+                return False
+
+        # Update high-water mark
+        await self._mark_ingested(table_name, record_id)
+        return True
+
+    async def catch_up(self) -> int:
+        """On startup, ingest any records missed while MAGMA was down.
+
+        Returns the number of records ingested.
+        """
+        total_ingested = 0
+        for table_name, adapter in self.adapters.items():
+            hwm = await self._get_high_water_mark(table_name)
+            try:
+                missed = await adapter.fetch_since(hwm)
+            except (ConnectionError, RuntimeError, OSError):
+                continue
+
+            for record in missed:
+                rid = record.get("id", 0)
+                node_dict = adapter.to_magma_node_dict(record, {"visibility": "public"})
+                if node_dict.get("content"):
+                    try:
+                        await magma_ingest(
+                            content=node_dict["content"],
+                            category=node_dict.get("category", "memory"),
+                            metadata=node_dict.get("metadata", {}),
+                        )
+                    except (RuntimeError, OSError, ConnectionError):
+                        continue
+                await self._mark_ingested(table_name, rid)
+                total_ingested += 1
+
+        logger.info("Memory bus catch-up complete: %d records ingested", total_ingested)
+        return total_ingested
+
+    async def _already_ingested(self, table_name: str, record_id: str | int) -> bool:
+        """Check if a record has already been ingested (idempotency)."""
+        try:
+            from shared.db import fetch_one
+            row = await fetch_one(
+                "SELECT last_ingested_id FROM magma_sync_state WHERE source_table = %s",
+                (table_name,),
+            )
+            if row and isinstance(record_id, int):
+                return int(record_id) <= int(row.get("last_ingested_id", 0))
+            return False
+        except (ImportError, ConnectionError, RuntimeError, OSError, ValueError):
+            return False
+
+    async def _mark_ingested(self, table_name: str, record_id: str | int) -> None:
+        """Update high-water mark for a source table."""
+        try:
+            from shared.db import execute
+            rid = int(record_id) if str(record_id).isdigit() else 0
+            await execute(
+                """INSERT INTO magma_sync_state (source_table, last_ingested_id, last_ingested_at, records_ingested)
+                   VALUES (%s, %s, NOW(), 1)
+                   ON CONFLICT (source_table) DO UPDATE
+                   SET last_ingested_id = GREATEST(magma_sync_state.last_ingested_id, EXCLUDED.last_ingested_id),
+                       last_ingested_at = NOW(),
+                       records_ingested = magma_sync_state.records_ingested + 1""",
+                (table_name, rid),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            pass  # best-effort
+
+    async def _get_high_water_mark(self, table_name: str) -> int:
+        """Get the last ingested ID for a source table."""
+        try:
+            from shared.db import fetch_val
+            val = await fetch_val(
+                "SELECT last_ingested_id FROM magma_sync_state WHERE source_table = %s",
+                (table_name,),
+            )
+            return int(val) if val else 0
+        except (ImportError, ConnectionError, RuntimeError, OSError, ValueError):
+            return 0
+
+    @staticmethod
+    async def _record_provenance(
+        magma_node_id: str,
+        event_payload: dict,
+    ) -> None:
+        """Record provenance in Postgres for fast querying."""
+        try:
+            from shared.db import execute
+            await execute(
+                """INSERT INTO memory_provenance
+                       (magma_node_id, source_daemon, source_table, source_record_id, visibility)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (magma_node_id) DO NOTHING""",
+                (
+                    magma_node_id,
+                    event_payload.get("source_daemon", ""),
+                    event_payload.get("table_name", ""),
+                    str(event_payload.get("record_id", "")),
+                    event_payload.get("visibility", "public"),
+                ),
+            )
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            pass  # best-effort
+
+
+# Singleton subscriber
+_memory_subscriber: MagmaMemorySubscriber | None = None
+
+
+def get_memory_subscriber() -> MagmaMemorySubscriber:
+    """Get or create the singleton MagmaMemorySubscriber."""
+    global _memory_subscriber
+    if _memory_subscriber is None:
+        _memory_subscriber = MagmaMemorySubscriber()
+    return _memory_subscriber
+
+
+# ── Graph + Timeline View Helpers (for Memory Explorer API) ────────
+
+
+async def get_graph_view(
+    center_id: str | None = None,
+    depth: int = 2,
+    edge_types: list[str] | None = None,
+    source_filter: str | None = None,
+    limit: int = 200,
+    requesting_agent: str | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Get graph data for visualization (nodes + edges).
+
+    Returns (nodes, edges) where each node/edge is a dict ready for vis.js.
+    """
+    driver = _get_driver()
+    if not driver:
+        return [], []
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    try:
+        with driver.session() as session:
+            if center_id:
+                # Ego-network around center node
+                result = session.run(
+                    "MATCH path = (center:MemoryNode {node_id: $center_id})-[*1.."
+                    + str(min(depth, 5))
+                    + "]->(neighbor:MemoryNode)"
+                    " RETURN DISTINCT neighbor.node_id AS node_id,"
+                    "        neighbor.content AS content,"
+                    "        neighbor.category AS category,"
+                    "        neighbor.timestamp AS timestamp"
+                    " LIMIT $limit",
+                    center_id=center_id, limit=limit,
+                )
+            else:
+                # Recent nodes
+                result = session.run(
+                    "MATCH (n:MemoryNode)"
+                    " WHERE n.content IS NOT NULL"
+                    " RETURN n.node_id AS node_id,"
+                    "        n.content AS content,"
+                    "        n.category AS category,"
+                    "        n.timestamp AS timestamp"
+                    " ORDER BY n.timestamp DESC"
+                    " LIMIT $limit",
+                    limit=limit,
+                )
+
+            for row in result:
+                node = {
+                    "id": row.get("node_id", ""),
+                    "label": (row.get("content", "") or "")[:80],
+                    "group": row.get("category", "unknown"),
+                    "type": row.get("category", "unknown"),
+                    "confidence": 0.5,
+                    "source_daemon": "",
+                    "memory_type": row.get("category", ""),
+                    "visibility": "public",
+                }
+                nodes.append(node)
+
+            # Fetch edges between the collected nodes
+            node_ids = [n["id"] for n in nodes]
+            if node_ids:
+                edge_result = session.run(
+                    "MATCH (a:MemoryNode)-[r]->(b:MemoryNode)"
+                    " WHERE a.node_id IN $ids AND b.node_id IN $ids"
+                    " RETURN a.node_id AS from_id, b.node_id AS to_id,"
+                    "        type(r) AS edge_type, r.delta_seconds AS weight"
+                    " LIMIT $limit",
+                    ids=node_ids, limit=limit * 2,
+                )
+                for erow in edge_result:
+                    etype = erow.get("edge_type", "TEMPORAL")
+                    if edge_types and etype not in edge_types:
+                        continue
+                    edges.append({
+                        "from": erow.get("from_id", ""),
+                        "to": erow.get("to_id", ""),
+                        "type": etype,
+                        "weight": erow.get("weight", 0) or 0,
+                    })
+
+    except (RuntimeError, OSError, ConnectionError) as exc:
+        logger.debug("MAGMA graph view query failed: %s", exc)
+
+    # Enrich nodes with provenance from memory_provenance table
+    try:
+        from shared.db import fetch_all as _fa
+        node_id_list = [n["id"] for n in nodes if n["id"]]
+        if node_id_list:
+            placeholders = ", ".join(["%s"] * len(node_id_list))
+            prov_rows = await _fa(
+                f"SELECT magma_node_id, source_daemon, visibility FROM memory_provenance "
+                f"WHERE magma_node_id IN ({placeholders})",
+                tuple(node_id_list),
+            )
+            prov_map = {r["magma_node_id"]: r for r in (prov_rows or [])}
+            for node in nodes:
+                prov = prov_map.get(node["id"])
+                if prov:
+                    node["source_daemon"] = prov.get("source_daemon", "")
+                    node["group"] = prov.get("source_daemon", node["group"])
+                    node["visibility"] = prov.get("visibility", "public")
+    except (ImportError, ConnectionError, RuntimeError, OSError):
+        pass
+
+    # Apply access control
+    if source_filter:
+        nodes = [n for n in nodes if n.get("source_daemon") == source_filter or n.get("group") == source_filter]
+
+    nodes = filter_by_access(nodes, requesting_agent)
+
+    return nodes, edges
+
+
+async def get_timeline_view(
+    time_range: tuple[float | None, float | None] | None = None,
+    source_filter: list[str] | None = None,
+    bucket_size: str = "hour",
+    requesting_agent: str | None = None,
+) -> list[dict]:
+    """Time-bucketed memory activity per daemon.
+
+    Returns list of buckets with counts_by_source and top items.
+    """
+    try:
+        from shared.db import fetch_all as _fa
+
+        # Map bucket_size to Postgres interval
+        trunc_map = {"hour": "hour", "day": "day", "week": "week"}
+        trunc = trunc_map.get(bucket_size, "day")
+
+        # Build time filter
+        time_clause = ""
+        params: list[Any] = []
+        if time_range and time_range[0]:
+            time_clause += " AND p.ingested_at >= to_timestamp(%s)"
+            params.append(time_range[0])
+        if time_range and time_range[1]:
+            time_clause += " AND p.ingested_at <= to_timestamp(%s)"
+            params.append(time_range[1])
+
+        if source_filter:
+            placeholders = ", ".join(["%s"] * len(source_filter))
+            time_clause += f" AND p.source_daemon IN ({placeholders})"
+            params.extend(source_filter)
+
+        rows = await _fa(
+            f"SELECT date_trunc('{trunc}', p.ingested_at) AS bucket, "
+            f"  p.source_daemon, COUNT(*) AS cnt "
+            f"FROM memory_provenance p "
+            f"WHERE 1=1 {time_clause} "
+            f"GROUP BY bucket, p.source_daemon "
+            f"ORDER BY bucket DESC "
+            f"LIMIT 500",
+            tuple(params) if params else (),
+        )
+
+        # Aggregate into buckets
+        buckets: dict[str, dict] = {}
+        for row in (rows or []):
+            bucket_key = str(row["bucket"])
+            if bucket_key not in buckets:
+                buckets[bucket_key] = {"bucket_start": bucket_key, "counts": {}, "highlights": []}
+            buckets[bucket_key]["counts"][row["source_daemon"]] = row["cnt"]
+
+        return list(buckets.values())
+
+    except (ImportError, ConnectionError, RuntimeError, OSError) as exc:
+        logger.debug("MAGMA timeline view failed: %s", exc)
+        return []

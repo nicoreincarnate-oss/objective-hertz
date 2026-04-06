@@ -47,6 +47,8 @@ class BanditArm:
 
     def sample(self) -> float:
         """Draw from Beta(alpha, beta) posterior — Thompson Sampling."""
+        # NOTE: Using random module intentionally for statistical sampling (not security).
+        # CSPRNG (secrets module) is not needed for Thompson Sampling arm selection.
         return random.betavariate(max(0.01, self.alpha), max(0.01, self.beta))
 
 
@@ -204,8 +206,104 @@ class BanditPolicy:
                  exp.converged, exp.winner,
                  arm.alpha, arm.beta, arm.total_pulls, exp.converged, exp.winner),
             )
-        except Exception:
+        except (ConnectionError, RuntimeError, OSError, ImportError):  # IGUS-FIX: Narrowed exception type (CWE-755)
             pass  # DB persistence is best-effort
+
+        # Phase 29: persist full experiment snapshot to bandit_state table
+        await self._persist_snapshot(exp)
+
+        # Phase 29: emit memory.changed event
+        try:
+            from shared.comms import MemoryChangedEvent, publish_memory_event
+            await publish_memory_event(MemoryChangedEvent(
+                source_daemon="shared",
+                memory_type="bandit",
+                record_id=exp.experiment_id,
+                table_name="bandit_state",
+                action="update",
+                visibility="public",
+                summary=f"bandit:{exp.experiment_id} arm={arm_name}",
+            ))
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            pass  # Event emission is best-effort
+
+    async def _persist_snapshot(self, exp: Experiment) -> None:
+        """Persist full experiment state as a JSON snapshot (Phase 29).
+
+        Debounced: only writes at most once per 5 seconds per experiment.
+        Uses the bandit_state table with ON CONFLICT upsert.
+        """
+        import json
+        import time as _time
+
+        now = _time.time()
+        last = getattr(self, "_last_snapshot_at", {}).get(exp.experiment_id, 0.0)
+        if now - last < 5.0:
+            return  # debounced
+
+        state = {
+            "arms": {
+                name: {"alpha": arm.alpha, "beta": arm.beta,
+                       "total_pulls": arm.total_pulls, "total_reward": arm.total_reward}
+                for name, arm in exp.arms.items()
+            },
+            "total_pulls": exp.total_pulls,
+            "converged": exp.converged,
+            "winner": exp.winner,
+        }
+        state_json = json.dumps(state)
+
+        try:
+            from shared.db import execute
+            await execute(
+                """INSERT INTO bandit_state (bandit_id, state_json, arm_count, total_pulls, updated_at)
+                   VALUES (%s, %s, %s, %s, NOW())
+                   ON CONFLICT (bandit_id) DO UPDATE
+                   SET state_json = EXCLUDED.state_json,
+                       arm_count = EXCLUDED.arm_count,
+                       total_pulls = EXCLUDED.total_pulls,
+                       updated_at = NOW()""",
+                (exp.experiment_id, state_json, len(exp.arms), exp.total_pulls),
+            )
+            if not hasattr(self, "_last_snapshot_at"):
+                self._last_snapshot_at: dict[str, float] = {}
+            self._last_snapshot_at[exp.experiment_id] = now
+        except (ConnectionError, RuntimeError, OSError, ImportError):
+            pass  # best-effort
+
+    async def load_snapshot(self, experiment_id: str) -> bool:
+        """Load full experiment state from bandit_state table (Phase 29).
+
+        Returns True if state was restored, False if nothing found.
+        """
+        import json as _json
+
+        try:
+            from shared.db import fetch_one
+            row = await fetch_one(
+                "SELECT state_json FROM bandit_state WHERE bandit_id = %s",
+                (experiment_id,),
+            )
+            if not row:
+                return False
+            state = _json.loads(row["state_json"])
+            exp = self._get_or_create(experiment_id)
+            for name, arm_data in state.get("arms", {}).items():
+                arm = BanditArm(
+                    name=name,
+                    alpha=arm_data.get("alpha", 1.0),
+                    beta=arm_data.get("beta", 1.0),
+                    total_pulls=arm_data.get("total_pulls", 0),
+                    total_reward=arm_data.get("total_reward", 0.0),
+                )
+                exp.arms[name] = arm
+            exp.total_pulls = state.get("total_pulls", 0)
+            exp.converged = state.get("converged", False)
+            exp.winner = state.get("winner", "")
+            return True
+        except (ConnectionError, RuntimeError, OSError, ImportError, KeyError, ValueError) as exc:
+            logger.debug("Bandit snapshot load failed: %s", exc)
+            return False
 
     async def load_from_db(self, experiment_id: str) -> None:
         """Load experiment state from DB."""
@@ -229,8 +327,8 @@ class BanditPolicy:
                     if row.get("converged"):
                         exp.converged = True
                         exp.winner = row.get("winner", "")
-        except Exception:
-            pass
+        except (ConnectionError, RuntimeError, OSError, ImportError, KeyError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("Bandit DB state load failed: %s", exc)
 
     def get_stats(self, experiment_id: str) -> dict:
         """Get experiment statistics."""
@@ -259,3 +357,48 @@ def get_bandit() -> BanditPolicy:
     if _bandit is None:
         _bandit = BanditPolicy()
     return _bandit
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: UGO Lambda Tuning via Bandit
+# ---------------------------------------------------------------------------
+
+# Pre-defined lambda configurations as bandit arms
+UGO_LAMBDA_ARMS: dict[str, dict[str, float]] = {
+    "default": {"cost": 0.3, "uncertainty": 0.5, "redundancy": 0.8},
+    "cost_aggressive": {"cost": 0.6, "uncertainty": 0.3, "redundancy": 0.8},
+    "exploration_friendly": {"cost": 0.2, "uncertainty": 0.7, "redundancy": 0.5},
+}
+
+UGO_LAMBDA_EXPERIMENT = "ugo_lambda_tuning"
+
+
+async def select_ugo_lambdas() -> dict:
+    """Select UGO lambda weights via Thompson Sampling bandit.
+
+    Returns dict with keys: cost, uncertainty, redundancy.
+    Reward signal: task completion rate * (1 / normalized_cost).
+    """
+    bandit = get_bandit()
+    arm_name = await bandit.select(
+        UGO_LAMBDA_EXPERIMENT,
+        arms=list(UGO_LAMBDA_ARMS.keys()),
+    )
+    return UGO_LAMBDA_ARMS.get(arm_name, UGO_LAMBDA_ARMS["default"])
+
+
+async def update_ugo_lambdas(
+    arm_name: str,
+    task_completed: bool,
+    normalized_cost: float,
+) -> None:
+    """Update the UGO lambda bandit with observed reward.
+
+    Reward = task_completion * (1 / max(normalized_cost, 0.01))
+    Capped at 1.0 for the Beta distribution.
+    """
+    bandit = get_bandit()
+    completion_signal = 1.0 if task_completed else 0.0
+    cost_efficiency = 1.0 / max(normalized_cost, 0.01)
+    reward = min(completion_signal * cost_efficiency, 1.0)
+    await bandit.update(UGO_LAMBDA_EXPERIMENT, arm_name, reward)

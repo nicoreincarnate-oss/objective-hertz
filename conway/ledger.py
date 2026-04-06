@@ -4,6 +4,7 @@ Economic Ledger — tracks all agent financial activity.
 Every USDC transaction (send, receive, compute rental, service payment)
 is recorded here. Integrates with BudgetGuard for spend tracking.
 """
+from __future__ import annotations
 
 import logging
 from datetime import date
@@ -48,8 +49,23 @@ class EconomicLedger:
                 f"Ledger: {agent} {tx_type} {amount} {currency} "
                 f"→ {counterparty or 'N/A'} ({description[:50]})"
             )
+            # Phase 29: emit memory.changed event
+            if entry_id:
+                try:
+                    from shared.comms import MemoryChangedEvent, publish_memory_event
+                    await publish_memory_event(MemoryChangedEvent(
+                        source_daemon="conway",
+                        memory_type="transaction",
+                        record_id=entry_id,
+                        table_name="conway_ledger",
+                        action="insert",
+                        visibility="scoped",
+                        summary=f"{agent} {tx_type} {amount} {currency}",
+                    ))
+                except (ImportError, ConnectionError, RuntimeError, OSError):
+                    pass  # Event emission is best-effort
             return entry_id
-        except Exception as e:
+        except (ConnectionError, RuntimeError, OSError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.error(f"Failed to record ledger entry: {e}")
             return None
 

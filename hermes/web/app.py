@@ -166,6 +166,13 @@ def _get_templates():
     return _templates
 
 
+# Phase 29: Memory Explorer API router
+try:
+    from hermes.web.memory_router import router as memory_router
+    app.include_router(memory_router)
+except (ImportError, AttributeError) as _mem_exc:
+    logger.debug("Memory Explorer router not loaded: %s", _mem_exc)
+
 try:
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
 except (OSError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
@@ -2542,4 +2549,273 @@ async def api_voice_status():
         result = await call_agent_capability("hermes", "voice_status", {})
         return JSONResponse(result if isinstance(result, dict) else {"active": False})
     except (RuntimeError, ConnectionError, TimeoutError, ValueError, OSError, ImportError) as e:
+        return _safe_error(e)
+
+
+# ── Memory Explorer API ─────────────────────────────────────────────────
+
+_DAEMON_COLORS = {
+    "perseus": "#1097ff",
+    "titan": "#ffb347",
+    "hermes": "#62f1b5",
+    "clawdbot": "#a78bfa",
+    "conway": "#fbbf24",
+    "deerflow": "#ff5a7a",
+    "deerflow_research": "#ff5a7a",
+    "system": "#6e96a5",
+}
+
+_MEMORY_TYPE_ICONS = {
+    "episodic": "clock",
+    "semantic": "book",
+    "procedural": "cog",
+    "feedback": "message-circle",
+}
+
+
+def _parse_memory_files() -> list[dict]:
+    """Parse memory markdown files from the project memory directory."""
+    import re
+    from datetime import datetime
+
+    memory_dir = Path(__file__).resolve().parent.parent.parent / ".claude" / "projects"
+    # Find the project memory directory
+    candidates = list(memory_dir.glob("*/memory"))
+    if not candidates:
+        # Fallback: try the direct memory path
+        proj_slug = "-Users-majovega-Desktop-Projects-objective-hertz"
+        alt = (
+            Path(__file__).resolve().parent.parent.parent
+            / ".claude" / "projects" / proj_slug / "memory"
+        )
+        if alt.exists():
+            candidates = [alt]
+    memories: list[dict] = []
+
+    for mem_dir in candidates:
+        for md_file in sorted(mem_dir.glob("*.md")):
+            if md_file.name == "MEMORY.md":
+                continue
+            try:
+                content = md_file.read_text(encoding="utf-8")
+            except OSError:
+                continue
+
+            # Parse YAML frontmatter
+            meta: dict = {}
+            body = content
+            fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", content, re.DOTALL)
+            if fm_match:
+                for line in fm_match.group(1).splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        k = k.strip()
+                        v = v.strip().strip("\"'")
+                        if k in ("confidence", "source_reliability"):
+                            try:
+                                v = float(v)
+                            except ValueError:
+                                pass
+                        elif k in ("pinned",):
+                            v = v.lower() in ("true", "yes", "1")
+                        elif k in ("version", "decay_half_life_days"):
+                            try:
+                                v = int(v)
+                            except ValueError:
+                                pass
+                        meta[k] = v
+                body = fm_match.group(2)
+
+            # Determine daemon from name or domain
+            name = meta.get("name", md_file.stem)
+            domain = str(meta.get("domain", ""))
+            daemon = "system"
+            for d in ("perseus", "titan", "hermes", "clawdbot", "conway", "deerflow"):
+                if d in name.lower() or d in domain.lower() or d in md_file.stem.lower():
+                    daemon = d
+                    break
+
+            # Extract first paragraph as summary
+            lines = [
+                ln.strip() for ln in body.strip().splitlines()
+                if ln.strip() and not ln.strip().startswith("#")
+            ]
+            summary = lines[0][:200] if lines else ""
+
+            # Determine date
+            date_str = meta.get("last_validated", "")
+            if not date_str:
+                # Try to get from file mtime
+                try:
+                    mtime = md_file.stat().st_mtime
+                    date_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                except OSError:
+                    date_str = "2026-01-01"
+
+            memories.append({
+                "id": md_file.stem,
+                "name": str(meta.get("description", meta.get("name", md_file.stem))),
+                "type": str(meta.get("type", "semantic")),
+                "confidence": float(meta.get("confidence", 0.5)),
+                "daemon": daemon,
+                "domain": domain or daemon,
+                "date": date_str,
+                "pinned": bool(meta.get("pinned", False)),
+                "version": int(meta.get("version", 1)),
+                "summary": summary,
+                "body": body[:2000],
+                "file": md_file.name,
+                "color": _DAEMON_COLORS.get(daemon, "#6e96a5"),
+            })
+
+    return memories
+
+
+@app.get("/api/memory/search")
+async def api_memory_search(request: Request):
+    """Search memories by text query, daemon, type, confidence range."""
+    try:
+        params = request.query_params
+        q = str(params.get("q", "")).strip().lower()
+        daemon = str(params.get("daemon", "")).strip().lower()
+        mem_type = str(params.get("type", "")).strip().lower()
+        min_conf = float(params.get("min_confidence", "0"))
+        max_conf = float(params.get("max_confidence", "1"))
+
+        memories = _parse_memory_files()
+        results = []
+        for m in memories:
+            if daemon and m["daemon"] != daemon:
+                continue
+            if mem_type and m["type"] != mem_type:
+                continue
+            if m["confidence"] < min_conf or m["confidence"] > max_conf:
+                continue
+            if q:
+                name_l = m["name"].lower()
+                summ_l = m["summary"].lower()
+                body_l = m["body"].lower()
+                if q not in name_l and q not in summ_l and q not in body_l:
+                    continue
+            results.append(m)
+
+        results.sort(key=lambda x: (-x["confidence"], x["name"]))
+        return JSONResponse(results)
+    except (OSError, ValueError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/memory/graph")
+async def api_memory_graph(request: Request):
+    """Return nodes and edges for the memory graph visualization."""
+    try:
+        memories = _parse_memory_files()
+
+        nodes = []
+        edges = []
+        daemon_groups: dict[str, list[str]] = {}
+
+        for m in memories:
+            nodes.append({
+                "id": m["id"],
+                "label": m["name"][:40],
+                "title": (
+                    f"{m['name']}\n\nType: {m['type']}\n"
+                    f"Confidence: {m['confidence']:.0%}\n"
+                    f"Daemon: {m['daemon']}"
+                ),
+                "color": m["color"],
+                "size": max(12, int(m["confidence"] * 30)),
+                "daemon": m["daemon"],
+                "type": m["type"],
+                "confidence": m["confidence"],
+                "pinned": m["pinned"],
+            })
+            daemon_groups.setdefault(m["daemon"], []).append(m["id"])
+
+        # Create edges between memories in the same daemon group
+        for daemon, ids in daemon_groups.items():
+            for i, a in enumerate(ids):
+                for b in ids[i + 1:]:
+                    edges.append({
+                        "from": a,
+                        "to": b,
+                        "color": {"color": _DAEMON_COLORS.get(daemon, "#6e96a5"), "opacity": 0.2},
+                        "width": 1,
+                    })
+
+        # Create cross-daemon edges for memories that reference each other
+        name_index = {m["id"]: m for m in memories}
+        for m in memories:
+            body_lower = m["body"].lower()
+            for other_id, other in name_index.items():
+                if other_id == m["id"]:
+                    continue
+                # Check if this memory references another by stem name
+                ref_space = other_id.replace("_", " ")
+                ref_dash = other_id.replace("_", "-")
+                if ref_space in body_lower or ref_dash in body_lower:
+                    edges.append({
+                        "from": m["id"],
+                        "to": other_id,
+                        "color": {"color": "#58e0ff", "opacity": 0.4},
+                        "width": 2,
+                        "dashes": True,
+                    })
+
+        return JSONResponse({
+            "nodes": nodes,
+            "edges": edges,
+            "daemon_colors": _DAEMON_COLORS,
+        })
+    except (OSError, ValueError) as e:
+        return _safe_error(e)
+
+
+@app.get("/api/memory/timeline")
+async def api_memory_timeline(request: Request):
+    """Return timeline data grouped by daemon with date-sorted events."""
+    try:
+        memories = _parse_memory_files()
+
+        # Group by daemon, sort by date
+        lanes: dict[str, list[dict]] = {}
+        for m in memories:
+            lane = m["daemon"]
+            lanes.setdefault(lane, [])
+            lanes[lane].append({
+                "id": m["id"],
+                "name": m["name"][:50],
+                "date": m["date"],
+                "type": m["type"],
+                "confidence": m["confidence"],
+                "color": m["color"],
+                "pinned": m["pinned"],
+            })
+
+        for lane in lanes.values():
+            lane.sort(key=lambda x: x["date"])
+
+        # Build ordered lane list
+        lane_order = ["perseus", "titan", "hermes", "clawdbot", "conway", "deerflow", "system"]
+        result = []
+        for daemon in lane_order:
+            if daemon in lanes:
+                result.append({
+                    "daemon": daemon,
+                    "color": _DAEMON_COLORS.get(daemon, "#6e96a5"),
+                    "events": lanes[daemon],
+                })
+
+        # Add any lanes not in the predefined order
+        for daemon, events in lanes.items():
+            if daemon not in lane_order:
+                result.append({
+                    "daemon": daemon,
+                    "color": _DAEMON_COLORS.get(daemon, "#6e96a5"),
+                    "events": events,
+                })
+
+        return JSONResponse(result)
+    except (OSError, ValueError) as e:
         return _safe_error(e)

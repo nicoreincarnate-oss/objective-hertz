@@ -9,10 +9,13 @@ Three layers:
 Daily reflection analyzes what worked. Weekly review shifts strategy.
 Every interaction feeds the training data collector for future fine-tuning.
 """
+from __future__ import annotations
 
 import hashlib
+import httpx
 import json
 import logging
+import psycopg
 import time
 from datetime import datetime
 
@@ -68,7 +71,7 @@ async def store_memory(
                     "metadata": mem_metadata,
                 },
             )
-    except Exception as e:
+    except (OSError, ConnectionError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Mem0 store failed: {e}")
         await _emit_mem0_alert(
             "store",
@@ -98,7 +101,7 @@ async def search_memory(query: str, limit: int = 5, client_id: int | None = None
                 resp.raise_for_status()
                 results = resp.json().get("results", [])
                 return [r.get("memory", "") for r in results if r.get("memory")]
-        except Exception as e:
+        except (OSError, ConnectionError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"Mem0 search failed for {user_id} (non-critical): {e}")
             return []
 
@@ -164,8 +167,22 @@ async def store_temporal_fact(
                 },
             )
             resp.raise_for_status()
+            # Phase 29: emit memory.changed event for temporal fact
+            try:
+                from shared.comms import MemoryChangedEvent, publish_memory_event
+                await publish_memory_event(MemoryChangedEvent(
+                    source_daemon="titan",
+                    memory_type="fact",
+                    record_id=zep_session,
+                    table_name="zep_facts",
+                    action="insert",
+                    visibility="public",
+                    summary=content[:120],
+                ))
+            except (ImportError, ConnectionError, RuntimeError, OSError):
+                pass  # Event emission is best-effort
             return True
-    except Exception as e:
+    except (OSError, ConnectionError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Zep store failed (non-critical): {e}")
         return False
 
@@ -195,7 +212,7 @@ async def search_temporal_facts(
                 )
                 resp.raise_for_status()
                 return resp.json().get("results", [])
-        except Exception as e:
+        except (OSError, ConnectionError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"Zep search failed for session {session_id} (non-critical): {e}")
             return []
 
@@ -340,7 +357,7 @@ async def get_relevant_learnings(
             if result and result.startswith("[LOW CONFIDENCE"):
                 # Carry the warning, but still use flat-stack data below
                 magma_prefix = result + "\n"
-        except Exception as e:
+        except (OSError, ValueError, KeyError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"MAGMA retrieval failed, falling back to flat stack: {e}")
 
     # Fallback: 3-source stack (Zep + Postgres + Qdrant)
@@ -442,7 +459,7 @@ Return JSON list:
         # Check for contradiction before storing
         try:
             contradiction = await _check_contradiction(insight)
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"Contradiction check failed (non-critical): {e}")
             contradiction = None
 
@@ -507,13 +524,13 @@ Return JSON list:
                     category=insight.get("category", "daily_reflection"),
                     metadata={"source": "daily_reflection", "confidence": insight.get("confidence", 0.5)},
                 )
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"MAGMA ingest during reflection failed (non-critical): {e}")
 
     # Extract rules from metric changes (closed-loop learning)
     try:
         await extract_rules_from_reflection(metrics)
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Rule extraction failed (non-critical): {e}")
 
     await emit_event("daily_reflection_complete", {"insights": len(insights)})
@@ -592,13 +609,13 @@ Return JSON:
 
         await emit_event("weekly_review_complete", {"strategy": strategy})
         logger.info("Weekly strategy review stored")
-    except Exception as e:
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Failed to parse weekly strategy: {e}")
 
     # Evaluate existing rules — deactivate ones that aren't working
     try:
         await evaluate_rules()
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Rule evaluation failed (non-critical): {e}")
 
     # 4.6: Analyze A/B test results — promote winners as rules
@@ -606,7 +623,7 @@ Return JSON:
         ab_stats = await analyze_ab_results()
         if ab_stats.get("winners_promoted"):
             logger.info(f"A/B analysis promoted {ab_stats['winners_promoted']} winners")
-    except Exception as e:
+    except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"A/B analysis failed (non-critical): {e}")
 
 
@@ -957,7 +974,7 @@ async def memory_gc() -> dict:
         stats["pruned"] = len(result) if result else 0
         if stats["pruned"]:
             logger.info(f"memory_gc: pruned {stats['pruned']} low-confidence old learnings")
-    except Exception as e:
+    except (OSError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"memory_gc: prune failed: {e}")
 
     # 2. Deduplicate: find near-identical insights (same category, high text similarity)
@@ -980,7 +997,7 @@ async def memory_gc() -> dict:
                 await execute("DELETE FROM titan_learnings WHERE id = %s", (rid,))
             stats["deduped"] = len(remove_ids)
             logger.info(f"memory_gc: deduped {stats['deduped']} near-identical learnings")
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         # pg_trgm might not be installed — degrade gracefully
         logger.debug(f"memory_gc: dedup skipped (pg_trgm may not be installed): {e}")
 
@@ -1011,7 +1028,7 @@ async def memory_gc() -> dict:
                 })
             stats["rules_flagged"] = len(contradictions)
             logger.info(f"memory_gc: flagged {stats['rules_flagged']} contradictory rule pairs")
-    except Exception as e:
+    except (OSError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"memory_gc: contradiction check failed: {e}")
 
     logger.info(f"memory_gc complete: {stats}")
@@ -1139,7 +1156,7 @@ async def graphrag_consolidation() -> dict:
         )
         for row in (client_rows or []):
             user_ids.append(f"client:{row['id']}")
-    except Exception as e:
+    except (OSError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"graphrag_consolidation: could not list client namespaces: {e}")
 
     for user_id in user_ids:
@@ -1168,7 +1185,7 @@ async def _consolidate_namespace(user_id: str) -> dict:
             )
             resp.raise_for_status()
             all_memories = resp.json().get("results", [])
-    except Exception as e:
+    except (OSError, ConnectionError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"graphrag_consolidation[{user_id}]: could not fetch memories: {e}")
         return stats
 
@@ -1209,7 +1226,7 @@ async def _consolidate_namespace(user_id: str) -> dict:
             start = result.find("[")
             end = result.rfind("]") + 1
             summaries = json.loads(result[start:end])
-        except Exception as e:
+        except (ValueError, KeyError, json.JSONDecodeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"graphrag_consolidation: LLM consolidation failed for {category}: {e}")
             continue
 
@@ -1256,7 +1273,7 @@ async def _consolidate_namespace(user_id: str) -> dict:
                             f"{config.memory.mem0_host}/v1/memories/{mem_id}/",
                             params={"user_id": user_id},
                         )
-                except Exception:
+                except (OSError, ConnectionError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                     pass  # Best-effort cleanup
 
     return stats
@@ -1338,7 +1355,7 @@ async def check_pending_outcomes() -> dict:
             try:
                 await _attribute_silence(p["client_id"], p["email_seq_id"])
                 stats["silence_attributed"] += 1
-            except Exception as e:
+            except (OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.debug(f"Silence attribution failed for client {p['client_id']}: {e}")
 
         await execute("UPDATE pending_outcomes SET checked = TRUE WHERE id = %s", (p["id"],))
@@ -1396,7 +1413,7 @@ async def attribute_reply_cause(original_email: str, reply_body: str, outcome: s
         start = result.find("{")
         end = result.rfind("}") + 1
         attribution = json.loads(result[start:end])
-    except Exception as e:
+    except (ValueError, KeyError, json.JSONDecodeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Causal attribution failed: {e}")
         return
 
@@ -1473,7 +1490,7 @@ async def _attribute_silence(client_id: int, email_seq_id: int | None = None):
         start = result.find("{")
         end = result.rfind("}") + 1
         attribution = json.loads(result[start:end])
-    except Exception as e:
+    except (ValueError, KeyError, json.JSONDecodeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Silence attribution failed: {e}")
         return
 
@@ -1523,13 +1540,13 @@ async def re_enrich_active_leads() -> dict:
         lead_id = lead["id"]
         business = lead.get("business_name", "")
 
-        # Try to scrape fresh info via firecrawl
+        # Try to scrape fresh info via crawl4ai
         try:
-            from tools.firecrawl_client import enrich_business_profile
+            from tools.crawl4ai_client import enrich_business_profile
             fresh = enrich_business_profile(business, website_url=str(lead.get("website", "")))
             if not fresh or not fresh.get("available"):
                 continue
-        except Exception as e:
+        except (ImportError, OSError, ConnectionError, ValueError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"Re-enrichment scrape failed for {business}: {e}")
             continue
 
@@ -1557,7 +1574,7 @@ async def re_enrich_active_leads() -> dict:
             start = diff_result.find("{")
             end = diff_result.rfind("}") + 1
             diff = json.loads(diff_result[start:end])
-        except Exception:
+        except (ValueError, KeyError, json.JSONDecodeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
             continue
 
         if diff.get("has_new_info") and diff.get("new_facts"):
@@ -1635,8 +1652,8 @@ async def update_prospect_state(client_id: int, event_type: str, data: dict) -> 
                 current.setdefault("tone_history", []).append(tone_label)
                 # Keep last 10 tones
                 current["tone_history"] = current["tone_history"][-10:]
-            except Exception:
-                pass
+            except (ValueError, KeyError, TypeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.debug("Tone history update failed: %s", exc)
 
         if data.get("hours_since_last_contact"):
             current["reply_speed_hours"] = data["hours_since_last_contact"]

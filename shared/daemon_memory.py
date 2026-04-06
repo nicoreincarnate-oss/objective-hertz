@@ -185,8 +185,8 @@ class DaemonMemoryStore:
                        WHERE daemon_name = %s AND memory_type = %s""",
                     (daemon_name, memory_type),
                 )
-            except Exception:
-                pass  # non-critical
+            except (ConnectionError, RuntimeError, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.debug("Memory access_count update failed (non-critical): %s", exc)
         return rows
 
     async def save(self, daemon_name: str, memory_type: str, entry: dict) -> None:
@@ -234,6 +234,8 @@ class DaemonMemoryStore:
                    updated_at = NOW()""",
             (daemon_name, key, Jsonb(content), importance, expires_at),
         )
+        # Phase 29: emit memory.changed event
+        await self._emit_memory_event(daemon_name, "episodic", key, "insert")
 
     async def cleanup_expired(self, daemon_name: str | None = None) -> int:
         """Delete expired episodic memories. Run daily via Perseus scheduler.
@@ -289,6 +291,27 @@ class DaemonMemoryStore:
                    updated_at = NOW()""",
             (daemon_name, key, Jsonb(content), importance),
         )
+        # Phase 29: emit memory.changed event
+        await self._emit_memory_event(daemon_name, "semantic", key, "insert")
+
+    @staticmethod
+    async def _emit_memory_event(
+        daemon_name: str, memory_type: str, key: str, action: str,
+    ) -> None:
+        """Emit a memory.changed event for the unified memory bus (Phase 29)."""
+        try:
+            from shared.comms import MemoryChangedEvent, publish_memory_event
+            await publish_memory_event(MemoryChangedEvent(
+                source_daemon=daemon_name,
+                memory_type=memory_type,
+                record_id=key,
+                table_name="daemon_memory",
+                action=action,
+                visibility="public",
+                summary=key,
+            ))
+        except (ImportError, ConnectionError, RuntimeError, OSError):
+            pass  # Event emission is best-effort
 
     async def _get_row_count(self, daemon_name: str) -> int:
         """Return the total memory row count for a daemon."""

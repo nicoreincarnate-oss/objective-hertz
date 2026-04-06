@@ -20,7 +20,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from shared import db
@@ -32,16 +34,68 @@ logger = logging.getLogger("perseus.comms")
 _USE_A2A = os.environ.get("USE_A2A_DISPATCH", "1") != "0"
 
 
+# ── Memory Bus Event Schema (Phase 29) ──────────────────────────────
+
+MEMORY_CHANGED_TOPIC = "memory.changed"
+
+
+@dataclass
+class MemoryChangedEvent:
+    """Lightweight event fired after every memory write across all daemons.
+
+    The payload is intentionally small (~200 bytes). MAGMA fetches the full
+    record using ``table_name + record_id`` when it is ready to ingest.
+    """
+
+    source_daemon: str  # "titan" | "perseus" | "hermes" | "clawdbot" | "conway" | "deerflow"
+    memory_type: str  # "learning" | "rule" | "observation" | "research" | "transaction" | "decision" | "memory" | "bandit"
+    record_id: str | int  # primary key in source table
+    table_name: str  # source Postgres table name
+    action: str  # "insert" | "update" | "delete"
+    visibility: str  # "public" | "scoped" | "restricted"
+    summary: str | None = None  # optional 1-line summary for quick indexing
+    timestamp: float = field(default_factory=time.time)
+
+
+async def publish_memory_event(event: MemoryChangedEvent) -> None:
+    """Publish a MemoryChangedEvent to the event bus.
+
+    Gated behind the MEMORY_BUS_ENABLED feature flag.  When disabled,
+    this is a no-op so callers can emit unconditionally.
+    """
+    try:
+        enabled = await db.get_config("MEMORY_BUS_ENABLED", "true")
+        if str(enabled).lower() not in ("true", "1", "yes"):
+            return
+    except (ConnectionError, RuntimeError, OSError):
+        # DB unavailable — skip event emission, not critical
+        return
+
+    payload = {
+        "source_daemon": event.source_daemon,
+        "memory_type": event.memory_type,
+        "record_id": str(event.record_id),
+        "table_name": event.table_name,
+        "action": event.action,
+        "visibility": event.visibility,
+        "summary": event.summary or "",
+        "timestamp": event.timestamp,
+    }
+    await db.emit_event(MEMORY_CHANGED_TOPIC, payload)
+
+
 # ── Request Work From Another Daemon ──────────────────────────────
 
 
 async def _dispatch_a2a_task(
     task_type: str,
     payload: dict[str, Any],
+    source_agent: str = "",
 ) -> int | str | None:
     """Attempt A2A dispatch for a task. IGUS-FIX: Extracted to reduce nesting (CWE-1124).
 
     Returns task_id on success, None if A2A unavailable or failed.
+    Phase 30: governance check + audit trail on every dispatch.
     """
     agent_name = None
     try:
@@ -56,24 +110,103 @@ async def _dispatch_a2a_task(
     if not agent_name:
         return None
 
+    # Phase 30: Extract correlation context and effective source
+    meta = payload.get("_meta", {}) if isinstance(payload.get("_meta"), dict) else {}
+    correlation_id = str(meta.get("correlation_id", ""))
+    effective_source = source_agent or payload.get("delegated_by", "") or "unknown"
+
+    # Phase 30: Governance policy check
+    try:
+        from shared.middleware import governance_check
+
+        cost_estimate = float(payload.get("estimated_cost", 0.0))
+        allowed, reason = governance_check(
+            effective_source, agent_name, capability=task_type,
+            estimated_cost=cost_estimate,
+        )
+        if not allowed:
+            logger.warning(
+                "GOVERNANCE DENIED: %s -> %s (%s): %s",
+                effective_source, agent_name, task_type, reason,
+            )
+            _fire_audit(
+                effective_source, agent_name, task_type, "a2a",
+                "denied", cost_estimate, correlation_id,
+                {"reason": reason},
+            )
+            return None
+    except (ImportError, AttributeError):
+        pass  # Governance module unavailable — allow dispatch
+
+    t0 = time.perf_counter()
     try:
         from shared.oj_bridge import call_agent_async
         result = await call_agent_async(agent_name, task_type, payload)
     # IGUS-FIX: Narrowed exception type (CWE-755)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError, TimeoutError) as exc:
         logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
+        _fire_audit(
+            effective_source, agent_name, task_type, "a2a",
+            "allowed", 0.0, correlation_id,
+            {"error": str(exc)},
+        )
         return None
 
     if "error" in result:
         logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
+        _fire_audit(
+            effective_source, agent_name, task_type, "a2a",
+            "allowed", 0.0, correlation_id,
+            {"error": result.get("error")},
+        )
         return None
 
+    duration_ms = int((time.perf_counter() - t0) * 1000)
     task_id = result.get("task_id")
     if not task_id:
         status = result.get("status", "unknown")
         task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
     logger.debug("A2A dispatch: %s → %s (status=%s)", task_type, agent_name, result.get("status", "ok"))
+
+    # Phase 30: Audit trail — log successful dispatch
+    _fire_audit(
+        effective_source, agent_name, task_type, "a2a",
+        "allowed", 0.0, correlation_id,
+        {"duration_ms": duration_ms, "task_id": str(task_id)},
+    )
+
     return task_id
+
+
+def _fire_audit(
+    source: str,
+    target: str,
+    action: str,
+    protocol: str,
+    policy_result: str,
+    cost_estimate: float,
+    correlation_id: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Fire-and-forget audit log insert (Phase 30)."""
+    try:
+        import asyncio
+
+        from shared.middleware import _log_governance_audit
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(_log_governance_audit(
+            source_agent=source,
+            target_agent=target,
+            action=action,
+            protocol=protocol,
+            policy_result=policy_result,
+            cost_estimate=cost_estimate,
+            correlation_id=correlation_id,
+            metadata=metadata,
+        ))
+    except (RuntimeError, ImportError):
+        pass  # No event loop or module unavailable
 
 
 async def request_task(
@@ -262,11 +395,25 @@ async def store_learning(
 
     Categories: discovery, email, sales, pricing, industry, delivery, system
     """
-    await db.execute(
+    row = await db.fetch_one(
         """INSERT INTO titan_learnings (category, insight, confidence, source_lead_id, source_event, writer_agent)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
+           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
         (category, insight, confidence, source_lead_id, source_event, source_agent or "unknown"),
     )
+    # Phase 29: emit memory.changed event
+    if row:
+        try:
+            await publish_memory_event(MemoryChangedEvent(
+                source_daemon=source_agent or "titan",
+                memory_type="learning",
+                record_id=row["id"],
+                table_name="titan_learnings",
+                action="insert",
+                visibility="public",
+                summary=insight[:120] if insight else category,
+            ))
+        except (ConnectionError, RuntimeError, OSError):
+            pass  # Event emission is best-effort
 
 
 async def get_learnings(category: str = "", limit: int = 10) -> list[dict]:
