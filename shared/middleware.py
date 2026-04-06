@@ -7,16 +7,27 @@ Middleware signature: async def mw(ctx: dict, next_fn: NextFn) -> StageResult
 Chain uses recursive index-based compose pattern (outermost = first added).
 
 Implements the Middleware Protocol from shared.contracts.
+
+Phase 31 additions:
+- BATS four-layer budget constraints (per-call, hourly, daily, circuit breaker)
+- bats_budget_middleware replaces binary budget_check with continuous awareness
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
+
+UTC = timezone.utc  # noqa: UP017 — Python 3.9 compat
+
+# Sticky session month — computed once at import time to avoid midnight drift.
+_SESSION_MONTH = date.today().replace(day=1)
 
 logger = logging.getLogger("perseus.middleware")
 
@@ -168,7 +179,7 @@ async def memory_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult
         store = DaemonMemoryStore()
         memories = await store.load(daemon, "episodic")
         ctx["memories"] = memories
-    except Exception as exc:
+    except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Memory pre-load failed (non-fatal): %s", exc)
         ctx["memories"] = []
 
@@ -190,7 +201,7 @@ async def memory_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
-        except Exception as exc:
+        except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Memory post-save failed (non-fatal): %s", exc)
 
     return result
@@ -235,7 +246,7 @@ async def dna_guard_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
                     "success": False,
                     "output": f"DNA boundary violation: {tool} not permitted for {daemon}",
                 }
-    except Exception as exc:
+    except (ImportError, OSError, AttributeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("DNA guard check failed (allowing): %s", exc)
 
     return await next_fn(ctx)
@@ -284,7 +295,7 @@ async def anti_slop_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
                     "success": False,
                     "output": "BLOCKED: secret detected in output",
                 }
-        except Exception as exc:
+        except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Secret detection failed (allowing): %s", exc)
 
         # Quality scoring
@@ -294,7 +305,7 @@ async def anti_slop_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
             scorer = AntiSlopScorer()
             scores = await scorer.score(str(output), stage)
             result["quality_scores"] = scores
-        except Exception as exc:
+        except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Anti-slop scoring failed (non-fatal): %s", exc)
 
     return result
@@ -335,7 +346,7 @@ async def neuro_scorer_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
             result["neuro_scores"] = neuro.to_dict()
         except ImportError:
             logger.debug("NeuroScorer not available for middleware scoring")
-        except Exception as exc:
+        except (ValueError, TypeError, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Neuro-scorer middleware failed (non-fatal): %s", exc)
 
     return result
@@ -372,7 +383,7 @@ async def telemetry_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageRes
                 result.get("success", False),
             ),
         )
-    except Exception as exc:
+    except (OSError, ValueError, TypeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Telemetry insert failed (non-fatal): %s", exc)
 
     return result
@@ -395,7 +406,8 @@ async def _get_budget_cap() -> float:
             return float(db_cap)
         from shared.config import config
         return float(config.budget.monthly_cap)
-    except Exception:
+    except (ImportError, OSError, ValueError, AttributeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("Budget cap lookup failed, using default 800.0: %s", exc)
         return 800.0
 
 
@@ -474,7 +486,7 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
             ctx["budget_remaining"] = decision.most_restrictive.remaining_usd if decision.most_restrictive else None
             ctx["budget_warnings"] = decision.warnings
 
-        except Exception as exc:
+        except (OSError, RuntimeError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755) — budget fail-closed
             # AEGIS: Fail CLOSED — DB errors reject and fallback to Ollama
             logger.error(
                 "BUDGET GATE DB ERROR — failing CLOSED (rejecting stage '%s'): %s",
@@ -495,7 +507,7 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
         try:
             from shared.db import fetch_val
 
-            month = date.today().replace(day=1)
+            month = _SESSION_MONTH
             total = await fetch_val(
                 "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
                 (month,),
@@ -533,12 +545,12 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
                     "output": f"Budget cap exceeded: ${float(total):.2f} / ${cap:.2f}",
                 }
 
-        except Exception as exc:
-            logger.error("Budget check DB failed — REJECTING call (fail-closed): %s", exc)
+        except (OSError, RuntimeError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755) — budget fail-closed
+            logger.critical("Budget check DB failed — failing CLOSED (rejecting Claude, forcing Ollama): %s", exc)
             if "requested_model" in ctx:
                 ctx["resolved_model"] = "local"  # Force Ollama
                 return await next_fn(ctx)
-            return {"success": False, "output": f"Budget check unavailable: {exc}"}
+            return {"success": False, "output": f"Budget check unavailable: {exc}", "budget_blocked": True, "fallback": "ollama"}
 
         return await next_fn(ctx)
 
@@ -562,10 +574,9 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
                 "success": False,
                 "output": f"Budget cap exceeded: ${total_cost:.2f} / ${cap:.2f}",
             }
-    except Exception as exc:
-        # AEGIS FIX: Fail CLOSED — reject and fallback to Ollama
-        logger.error(
-            "BUDGET CHECK DB ERROR — failing CLOSED (was: failing open): %s", exc,
+    except (OSError, RuntimeError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755) — budget fail-closed
+        logger.critical(
+            "BUDGET CHECK DB ERROR — failing CLOSED (rejecting Claude, forcing Ollama): %s", exc,
         )
         return {
             "success": False,
@@ -594,7 +605,7 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
     try:
         from shared.db import fetch_val
 
-        month = date.today().replace(day=1)
+        month = _SESSION_MONTH
         total = await fetch_val(
             "SELECT COALESCE(SUM(amount), 0) FROM v_effective_budget_tracking WHERE month = %s",
             (month,),
@@ -613,8 +624,8 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
 
         return requested_model
 
-    except Exception as exc:
-        logger.error("Budget DB failed — fail-closed, forcing Ollama: %s", exc)
+    except (OSError, RuntimeError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755) — budget fail-closed
+        logger.critical("Budget DB failed — fail-closed, forcing Ollama: %s", exc)
         return "local"
 
 
@@ -657,8 +668,268 @@ async def forbidden_token_middleware(ctx: dict[str, Any], next_fn: NextFn) -> St
             from openjarvis.security.credential_stripper import CredentialStripper
 
             result["output"] = CredentialStripper().strip(output_text)
-    except Exception as exc:
+    except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Forbidden token scan failed (non-fatal): %s", exc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: Governance Policy Engine (MAS)
+# ---------------------------------------------------------------------------
+
+AGENT_POLICIES: dict[str, dict[str, Any]] = {
+    "titan": {
+        "allowed_targets": ["clawdbot", "hermes", "deerflow", "ruflo"],
+        "max_cost_per_dispatch": 1.0,
+        "allowed_capabilities": ["build_site", "send_alert", "research", "code_fix"],
+    },
+    "clawdbot": {
+        "allowed_targets": ["titan", "hermes"],
+        "max_cost_per_dispatch": 0.5,
+        "allowed_capabilities": ["notify_completion", "request_content"],
+    },
+    "hermes": {
+        "allowed_targets": ["titan", "clawdbot", "perseus"],
+        "max_cost_per_dispatch": 0.2,
+        "allowed_capabilities": ["alert", "status_query", "operator_relay"],
+    },
+    "perseus": {
+        "allowed_targets": ["titan", "hermes", "clawdbot", "ruflo", "deerflow"],
+        "max_cost_per_dispatch": 2.0,
+        "allowed_capabilities": ["*"],  # scheduler has full access
+    },
+    "ruflo": {
+        "allowed_targets": ["titan", "perseus"],
+        "max_cost_per_dispatch": 1.0,
+        "allowed_capabilities": ["code_fix", "test_run", "report"],
+    },
+}
+
+
+class GovernanceViolation(Exception):
+    """Raised when an A2A dispatch violates governance policy."""
+
+    def __init__(self, source: str, target: str, reason: str) -> None:
+        self.source = source
+        self.target = target
+        self.reason = reason
+        super().__init__(f"Governance violation: {source} -> {target}: {reason}")
+
+
+def governance_check(
+    source_agent: str,
+    target_agent: str,
+    capability: str = "",
+    estimated_cost: float = 0.0,
+) -> tuple[bool, str]:
+    """Validate an A2A dispatch against governance policies.
+
+    Returns (allowed, reason). When MAS_GOVERNANCE feature flag is off,
+    always returns (True, "governance disabled").
+    """
+    if not _flag("MAS_GOVERNANCE"):
+        return True, "governance disabled"
+
+    policy = AGENT_POLICIES.get(source_agent)
+    if policy is None:
+        return False, f"unknown source agent: {source_agent}"
+
+    if target_agent not in policy["allowed_targets"]:
+        return False, f"{source_agent} not allowed to dispatch to {target_agent}"
+
+    allowed_caps = policy["allowed_capabilities"]
+    if "*" not in allowed_caps and capability and capability not in allowed_caps:
+        return False, f"{source_agent} not allowed capability: {capability}"
+
+    max_cost = policy["max_cost_per_dispatch"]
+    if estimated_cost > max_cost:
+        return False, (
+            f"estimated cost ${estimated_cost:.2f} exceeds "
+            f"max ${max_cost:.2f} for {source_agent}"
+        )
+
+    return True, "allowed"
+
+
+async def _log_governance_audit(
+    source_agent: str,
+    target_agent: str,
+    action: str,
+    protocol: str,
+    policy_result: str,
+    cost_estimate: float = 0.0,
+    correlation_id: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Log a governance decision to the agent_audit_log table (fire-and-forget)."""
+    try:
+        from shared.db import execute
+
+        await execute(
+            """INSERT INTO agent_audit_log
+               (correlation_id, source_agent, target_agent, action, protocol,
+                policy_result, cost_estimate, metadata)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                correlation_id or "",
+                source_agent,
+                target_agent or "",
+                action,
+                protocol,
+                policy_result,
+                cost_estimate,
+                json.dumps(metadata or {}),
+            ),
+        )
+    except (OSError, ValueError, TypeError, ImportError) as exc:
+        logger.warning("Audit log insert failed (non-fatal): %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: BATS Four-Layer Budget Constraints
+# ---------------------------------------------------------------------------
+
+# Hard limits — NOT configurable by BATS, requires operator Telegram confirmation
+BATS_HARD_LIMITS = {
+    "per_call_usd": 2.00,          # Max per single LLM call
+    "hourly_usd": 4.00,            # Max spend in any 1-hour window
+    "daily_usd": 35.00,            # Max spend in any 24-hour window
+    "circuit_breaker_usd": 2.00,   # Max in any 15-minute window
+    "circuit_breaker_minutes": 15,  # Circuit breaker window
+}
+
+# In-memory spend tracking for BATS circuit breaker
+_bats_spend_log: deque = deque(maxlen=10000)  # (timestamp, cost_usd) pairs
+
+
+def _bats_flag() -> bool:
+    """Check if BATS adaptive budget is enabled."""
+    return os.environ.get("BATS_ADAPTIVE_BUDGET", "true").lower() in ("true", "1", "yes")
+
+
+def _get_bats_window_spend(window_seconds: int) -> float:
+    """Sum spend within a sliding time window from in-memory log."""
+    cutoff = time.time() - window_seconds
+    return sum(cost for ts, cost in _bats_spend_log if ts >= cutoff)
+
+
+def record_bats_spend(cost_usd: float) -> None:
+    """Record a spend event in the BATS in-memory tracking log."""
+    _bats_spend_log.append((time.time(), cost_usd))
+
+
+def check_bats_constraints(
+    estimated_cost: float,
+) -> tuple[bool, str | None, str | None]:
+    """Check BATS four-layer constraints before an LLM call.
+
+    Returns:
+        (allowed, constraint_triggered, action_taken)
+        - allowed: whether the call should proceed
+        - constraint_triggered: which constraint fired (None if allowed)
+        - action_taken: what to do (None, "downgrade_haiku", "downgrade_ollama", "reject")
+    """
+    if not _bats_flag():
+        return True, None, None
+
+    limits = BATS_HARD_LIMITS
+
+    # Layer 1: Per-call limit
+    if estimated_cost > limits["per_call_usd"]:
+        return False, "per_call", "reject"
+
+    # Layer 2: 15-minute circuit breaker
+    window_15m = _get_bats_window_spend(limits["circuit_breaker_minutes"] * 60)
+    if window_15m + estimated_cost > limits["circuit_breaker_usd"]:
+        return False, "circuit_breaker", "downgrade_haiku"
+
+    # Layer 3: Hourly limit
+    window_1h = _get_bats_window_spend(3600)
+    if window_1h + estimated_cost > limits["hourly_usd"]:
+        return False, "hourly", "downgrade_haiku"
+
+    # Layer 4: Daily limit
+    window_24h = _get_bats_window_spend(86400)
+    if window_24h + estimated_cost > limits["daily_usd"]:
+        return False, "daily", "downgrade_ollama"
+
+    return True, None, None
+
+
+async def bats_budget_middleware(ctx: dict[str, Any], next_fn: NextFn) -> StageResult:
+    """Phase 31 BATS — four-layer budget constraints with regime tracking.
+
+    Feature-flag gated by BATS_ADAPTIVE_BUDGET (default true).
+    Operates WITHIN hard limits — can be more conservative but never more aggressive.
+
+    Layers:
+    1. Per-call: $2.00 max — reject
+    2. 15-min circuit breaker: $2.00 — downgrade to Haiku
+    3. Hourly: $4.00 — downgrade to Haiku
+    4. Daily: $35.00 — downgrade to Ollama
+
+    Falls back to legacy budget_check when BATS is disabled.
+    """
+    if not _bats_flag():
+        return await budget_check_middleware(ctx, next_fn)
+
+    stage_name = ctx.get("stage_name", "")
+    task_id = ctx.get("task_id", "")
+
+    # Estimate cost for this call (conservative default $0.05)
+    estimated_cost = ctx.get("estimated_cost", 0.05)
+
+    # Check four-layer constraints
+    allowed, constraint, action = check_bats_constraints(estimated_cost)
+
+    if not allowed:
+        logger.warning(
+            "BATS CONSTRAINT: %s triggered for stage '%s' — action=%s (est=$%.4f)",
+            constraint, stage_name, action, estimated_cost,
+        )
+
+        # Log to DB (fire-and-forget)
+        try:
+            from shared.cost_events import log_budget_decision
+            await log_budget_decision(
+                task_id=task_id or None,
+                regime=ctx.get("budget_regime", "UNKNOWN"),
+                token_spent=ctx.get("token_spent_usd", 0),
+                token_budget=ctx.get("token_budget_usd", 0),
+                tool_calls_made=ctx.get("tool_calls_made", 0),
+                tool_budget=ctx.get("tool_budget", 0),
+                constraint_triggered=constraint,
+                action_taken=action or "reject",
+            )
+        except (OSError, RuntimeError, ValueError, ImportError) as exc:
+            logger.warning("BATS audit log failed (non-fatal): %s", exc)
+
+        if action == "reject":
+            return {
+                "success": False,
+                "output": f"BATS budget constraint: {constraint} — call rejected",
+                "budget_blocked": True,
+                "bats_constraint": constraint,
+            }
+
+        if action == "downgrade_haiku":
+            ctx["resolved_model"] = "fast"  # Haiku
+            ctx["bats_downgraded"] = True
+            ctx["bats_constraint"] = constraint
+            return await next_fn(ctx)
+
+        if action == "downgrade_ollama":
+            ctx["resolved_model"] = "local"  # Ollama
+            ctx["bats_downgraded"] = True
+            ctx["bats_constraint"] = constraint
+            return await next_fn(ctx)
+
+    # Record spend after execution
+    result = await next_fn(ctx)
+
+    actual_cost = result.get("cost_usd", estimated_cost)
+    record_bats_spend(actual_cost)
 
     return result
 
@@ -670,6 +941,7 @@ async def forbidden_token_middleware(ctx: dict[str, Any], next_fn: NextFn) -> St
 MIDDLEWARE_REGISTRY.update(
     {
         "budget_check": budget_check_middleware,
+        "bats_budget": bats_budget_middleware,
         "dna_guard": dna_guard_middleware,
         "anti_slop": anti_slop_middleware,
         "neuro_scorer": neuro_scorer_middleware,
@@ -685,18 +957,25 @@ MIDDLEWARE_REGISTRY.update(
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "AGENT_POLICIES",
+    "BATS_HARD_LIMITS",
+    "GovernanceViolation",
     "MIDDLEWARE_REGISTRY",
     "PIPELINE_CONFIGS",
     "MiddlewareChain",
     "NextFn",
     "StageResult",
     "anti_slop_middleware",
+    "bats_budget_middleware",
     "budget_check_middleware",
     "build_chain",
+    "check_bats_constraints",
     "check_budget_for_llm_call",
     "dna_guard_middleware",
     "forbidden_token_middleware",
+    "governance_check",
     "memory_middleware",
     "neuro_scorer_middleware",
+    "record_bats_spend",
     "telemetry_middleware",
 ]

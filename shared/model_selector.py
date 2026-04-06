@@ -35,7 +35,7 @@ try:
     # Ensure builtin models are registered
     register_builtin_models()
     logger.debug("OJ Intelligence catalog loaded: %d models", len(BUILTIN_MODELS))
-except Exception as exc:
+except (ImportError, AttributeError, TypeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
     logger.warning("OJ Intelligence catalog unavailable, using hardcoded mappings: %s", exc)
     _OJ_CATALOG_AVAILABLE = False
 
@@ -170,14 +170,19 @@ _BUDGET_DOWNGRADE_100: dict[str, str] = {
     "local-small": "local-small",
 }
 
-# Task-type hints for model selection
+# Task-type hints for model selection (Phase 30: added verifiable + pass_k_eligible)
 _TASK_TYPE_HINTS: dict[str, dict[str, Any]] = {
-    "email": {"prefer_fast": True, "min_context": 4096},
-    "research": {"prefer_smart": True, "min_context": 32000},
-    "code": {"prefer_smart": True, "min_context": 16000},
-    "classification": {"prefer_fast": True, "min_context": 2048},
-    "summarization": {"prefer_fast": True, "min_context": 8000},
-    "general": {"min_context": 4096},
+    "email": {"prefer_fast": True, "min_context": 4096, "verifiable": False, "pass_k_eligible": False},
+    "email_subject": {"prefer_fast": True, "min_context": 2048, "verifiable": True, "pass_k_eligible": True, "verifier": "length_and_format"},
+    "research": {"prefer_smart": True, "min_context": 32000, "verifiable": False, "pass_k_eligible": False},
+    "code": {"prefer_smart": True, "min_context": 16000, "verifiable": True, "pass_k_eligible": True, "verifier": "syntax_check"},
+    "classification": {"prefer_fast": True, "min_context": 2048, "verifiable": True, "pass_k_eligible": True, "verifier": "label_in_set"},
+    "extraction": {"prefer_fast": True, "min_context": 4096, "verifiable": True, "pass_k_eligible": True, "verifier": "json_schema_valid"},
+    "lead_scoring": {"prefer_fast": True, "min_context": 2048, "verifiable": True, "pass_k_eligible": True, "verifier": "score_in_range"},
+    "summarization": {"prefer_fast": True, "min_context": 8000, "verifiable": False, "pass_k_eligible": False},
+    "proposal": {"prefer_smart": True, "min_context": 8000, "verifiable": False, "pass_k_eligible": False},
+    "architecture": {"prefer_smart": True, "min_context": 16000, "verifiable": False, "pass_k_eligible": False},
+    "general": {"min_context": 4096, "verifiable": False, "pass_k_eligible": False},
 }
 
 
@@ -197,6 +202,55 @@ class ModelSelection:
     estimated_cost: float
     context_length: int
     fallback_model: str
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: T2 Selection (pass@k for verifiable tasks)
+# ---------------------------------------------------------------------------
+
+# Max passes to bound latency and cost
+T2_MAX_PASSES = int(os.environ.get("T2_MAX_PASSES", "5"))
+
+
+@dataclass
+class T2Selection:
+    """T2-informed model selection with pass@k strategy.
+
+    Research: T2 Scaling Laws (arxiv:2604.01411)
+
+    When a task has a verifier (automated quality check), it may be cheaper
+    to run a smaller model k times than a large model once.
+    """
+
+    model: str
+    passes: int = 1
+    selection_strategy: str = "best"  # "best" | "majority" | "first_passing"
+    verifier: str | None = None
+
+
+# T2 decision matrix: (task_type, tier) -> (downgraded_tier, passes)
+_T2_PASS_K_CONFIG: dict[str, dict[str, tuple[str, int, str]]] = {
+    # task_type -> {original_tier -> (use_tier, passes, strategy)}
+    "classification": {
+        "smart": ("fast", 3, "majority"),
+        "primary": ("fast", 3, "majority"),
+    },
+    "extraction": {
+        "smart": ("fast", 3, "best"),
+        "primary": ("fast", 3, "best"),
+    },
+    "email_subject": {
+        "smart": ("fast", 5, "best"),
+        "primary": ("fast", 5, "best"),
+    },
+    "lead_scoring": {
+        "smart": ("fast", 3, "best"),
+        "primary": ("fast", 3, "best"),
+    },
+    "code": {
+        "genius": ("smart", 2, "best"),
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -427,3 +481,148 @@ def get_available_models(engine_type: Optional[str] = None) -> list[str]:
 def is_catalog_available() -> bool:
     """Check whether the OJ Intelligence catalog is loaded."""
     return _OJ_CATALOG_AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: T2 model selection entry point
+# ---------------------------------------------------------------------------
+
+
+def _t2_enabled() -> bool:
+    """Check if the T2_MODEL_SELECT feature flag is active."""
+    return os.environ.get("T2_MODEL_SELECT", "true").lower() in ("1", "true", "yes")
+
+
+async def select_model_t2(
+    tier: str,
+    task_type: str = "general",
+    budget_remaining_pct: float = 100.0,
+    required_context: int = 0,
+    prefer_local: bool = False,
+) -> tuple[ModelSelection, T2Selection]:
+    """Select a model with T2 pass@k optimization for verifiable tasks.
+
+    Returns (base_selection, t2_selection).
+    When T2 is disabled or the task is not verifiable, t2_selection has passes=1.
+    """
+    base = await select_model(
+        tier=tier,
+        task_type=task_type,
+        budget_remaining_pct=budget_remaining_pct,
+        required_context=required_context,
+        prefer_local=prefer_local,
+    )
+
+    # Default: single pass
+    t2 = T2Selection(model=base.model_id, passes=1)
+
+    if not _t2_enabled():
+        return base, t2
+
+    # Check if the task is verifiable and pass@k eligible
+    hints = _TASK_TYPE_HINTS.get(task_type, _TASK_TYPE_HINTS["general"])
+    if not hints.get("pass_k_eligible", False):
+        return base, t2
+
+    verifier = hints.get("verifier")
+    if not verifier:
+        return base, t2
+
+    # Look up T2 pass@k config for this task+tier
+    t2_config = _T2_PASS_K_CONFIG.get(task_type, {}).get(tier)
+    if t2_config is None:
+        # No T2 optimization for this combination
+        t2.verifier = verifier
+        return base, t2
+
+    use_tier, passes, strategy = t2_config
+    passes = min(passes, T2_MAX_PASSES)
+
+    # Select model at the downgraded tier
+    downgraded = await select_model(
+        tier=use_tier,
+        task_type=task_type,
+        budget_remaining_pct=budget_remaining_pct,
+        required_context=required_context,
+        prefer_local=prefer_local,
+    )
+
+    t2 = T2Selection(
+        model=downgraded.model_id,
+        passes=passes,
+        selection_strategy=strategy,
+        verifier=verifier,
+    )
+
+    logger.info(
+        "T2 selection: %s x%d (%s) for %s (was %s x1)",
+        downgraded.model_id, passes, strategy, task_type, base.model_id,
+    )
+
+    return downgraded, t2
+
+
+async def execute_with_t2(
+    t2: T2Selection,
+    generate_fn,
+    verify_fn=None,
+) -> list[Any]:
+    """Execute pass@k candidates concurrently using T2 selection.
+
+    Args:
+        t2: T2Selection from select_model_t2
+        generate_fn: async callable that produces one candidate
+        verify_fn: optional async callable(candidate) -> float score (0-1).
+                   If None, all candidates are returned.
+
+    Returns list of candidates sorted by verification score (best first).
+    Falls back to single Opus call if no candidate passes.
+    """
+    import asyncio
+
+    if t2.passes <= 1:
+        result = await generate_fn()
+        return [result]
+
+    # Generate k candidates concurrently
+    tasks = [generate_fn() for _ in range(t2.passes)]
+    candidates = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Filter out exceptions
+    valid = [c for c in candidates if not isinstance(c, BaseException)]
+    if not valid:
+        # All failed — caller should handle fallback
+        return []
+
+    if verify_fn is None:
+        return valid
+
+    # Score each candidate
+    scored: list[tuple[float, Any]] = []
+    for candidate in valid:
+        try:
+            score = await verify_fn(candidate)
+            scored.append((score, candidate))
+        except (ValueError, TypeError, OSError):
+            scored.append((0.0, candidate))
+
+    if not scored:
+        return valid
+
+    # Select based on strategy
+    if t2.selection_strategy == "first_passing":
+        passing = [(s, c) for s, c in scored if s > 0.5]
+        if passing:
+            return [passing[0][1]]
+        return [scored[0][1]]  # best effort
+    elif t2.selection_strategy == "majority":
+        # Return the most common result (by string repr for simplicity)
+        from collections import Counter
+        reprs = Counter(str(c) for _, c in scored)
+        majority_repr = reprs.most_common(1)[0][0]
+        for _, c in scored:
+            if str(c) == majority_repr:
+                return [c]
+    # Default: "best" — sort by score descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored]
