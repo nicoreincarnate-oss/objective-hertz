@@ -1,0 +1,24 @@
+---
+section_type: hero
+variant: editorial-oversized-type
+style_direction: [bold-editorial, fukuda-optical-precision, arena-monastic-grid]
+complexity: low
+cdn_deps: [gsap, scrolltrigger]
+---
+<section class="min-h-screen flex items-end pb-24" style="background-color: var(--color-bg); padding-top: var(--section-py);">
+  <div class="w-full max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <p class="text-sm tracking-widest uppercase mb-8" style="color: var(--color-text-muted); font-family: var(--font-body);">{{tagline}}</p>
+    <h1 class="text-6xl md:text-8xl lg:text-[10rem] leading-none mb-8" style="font-family: var(--font-display); font-weight: var(--heading-weight); letter-spacing: var(--ls-heading); color: var(--color-text);">
+      {{headline}}
+    </h1>
+    <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
+      <p class="text-lg md:text-xl max-w-xl" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh);">
+        {{subheadline}}
+      </p>
+      <a href="{{cta_url}}" class="inline-flex items-center gap-2 text-base font-medium group" style="color: var(--color-accent);">
+        {{cta_text}}
+        <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+      </a>
+    </div>
+  </div>
+</section>

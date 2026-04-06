@@ -1,0 +1,77 @@
+---
+section_type: pricing
+variant: toggle-monthly-annual
+style_direction: [playful-animated, dark-cinematic, cosmos-dark-curation]
+complexity: high
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]" x-data="{ annual: false }">
+    <div class="text-center mb-16">
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+      <p class="text-lg mb-8" style="color: var(--color-text-secondary);">{{section_subtitle}}</p>
+      <!-- Toggle -->
+      <div class="inline-flex items-center gap-4 p-1" style="background-color: var(--color-surface); border-radius: 9999px;">
+        <button @click="annual = false" class="px-6 py-2 text-sm font-medium transition-all" :style="!annual ? 'background-color: var(--color-accent); color: white; border-radius: 9999px;' : 'color: var(--color-text-muted);'">Monthly</button>
+        <button @click="annual = true" class="px-6 py-2 text-sm font-medium transition-all" :style="annual ? 'background-color: var(--color-accent); color: white; border-radius: 9999px;' : 'color: var(--color-text-muted);'">
+          Annual <span class="text-xs opacity-80">Save 20%</span>
+        </button>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-[var(--card-gap)] max-w-4xl mx-auto">
+      <!-- Standard -->
+      <div class="p-8 border" style="border-color: var(--color-text-muted); border-radius: var(--radius-lg);">
+        <p class="text-sm font-medium uppercase tracking-widest mb-4" style="color: var(--color-text-muted);">{{tier_1_name}}</p>
+        <div class="flex items-baseline gap-1 mb-2">
+          <span class="text-5xl font-bold" style="font-family: var(--font-display); color: var(--color-text);" x-text="annual ? '{{tier_1_annual}}' : '{{tier_1_monthly}}'">{{tier_1_monthly}}</span>
+          <span class="text-sm" style="color: var(--color-text-muted);" x-text="annual ? '/year' : '/month'">/month</span>
+        </div>
+        <p class="text-sm mb-8" style="color: var(--color-text-muted);">{{tier_1_desc}}</p>
+        <a href="{{tier_1_cta_url}}" class="block text-center px-6 py-3 text-sm font-semibold transition-colors border mb-8" style="color: var(--color-text); border-color: var(--color-text-muted); border-radius: var(--radius-md);">{{tier_1_cta}}</a>
+        <ul class="space-y-3">
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_1_feature_1}}
+          </li>
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_1_feature_2}}
+          </li>
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_1_feature_3}}
+          </li>
+        </ul>
+      </div>
+      <!-- Pro -->
+      <div class="p-8 relative" style="background-color: var(--color-surface); border: 2px solid var(--color-accent); border-radius: var(--radius-lg);">
+        <div class="absolute -top-3 right-6 px-3 py-1 text-xs font-bold uppercase tracking-wider" style="background-color: var(--color-accent); color: white; border-radius: 9999px;">Recommended</div>
+        <p class="text-sm font-medium uppercase tracking-widest mb-4" style="color: var(--color-accent);">{{tier_2_name}}</p>
+        <div class="flex items-baseline gap-1 mb-2">
+          <span class="text-5xl font-bold" style="font-family: var(--font-display); color: var(--color-text);" x-text="annual ? '{{tier_2_annual}}' : '{{tier_2_monthly}}'">{{tier_2_monthly}}</span>
+          <span class="text-sm" style="color: var(--color-text-muted);" x-text="annual ? '/year' : '/month'">/month</span>
+        </div>
+        <p class="text-sm mb-8" style="color: var(--color-text-muted);">{{tier_2_desc}}</p>
+        <a href="{{tier_2_cta_url}}" class="block text-center px-6 py-3 text-sm font-semibold text-white transition-colors mb-8" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{tier_2_cta}}</a>
+        <ul class="space-y-3">
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_2_feature_1}}
+          </li>
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_2_feature_2}}
+          </li>
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_2_feature_3}}
+          </li>
+          <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            {{tier_2_feature_4}}
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>

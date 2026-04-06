@@ -1,0 +1,32 @@
+---
+section_type: hero
+variant: aurora-dark-canvas
+style_direction: [dark-cinematic, cosmos-dark-curation, immersive-3d]
+complexity: high
+cdn_deps: [gsap, scrolltrigger, motion]
+---
+<section class="relative min-h-screen flex items-center justify-center overflow-hidden" style="background-color: #000;">
+  <!-- Aurora Canvas -->
+  <div class="absolute inset-0 pointer-events-none" id="aurora-bg">
+    <div class="absolute inset-0" style="background: linear-gradient(135deg, var(--color-primary) 0%, transparent 50%), linear-gradient(225deg, var(--color-accent) 0%, transparent 50%); opacity: 0.4; filter: blur(80px); animation: aurora-shift 8s ease-in-out infinite alternate;"></div>
+    <div class="absolute inset-0" style="background: linear-gradient(315deg, var(--color-secondary) 0%, transparent 60%); opacity: 0.2; filter: blur(60px); animation: aurora-shift 12s ease-in-out infinite alternate-reverse;"></div>
+  </div>
+  <style>
+    @keyframes aurora-shift {
+      0% { transform: translateY(0) scale(1); }
+      100% { transform: translateY(-30px) scale(1.05); }
+    }
+  </style>
+  <!-- Content -->
+  <div class="relative z-10 text-center max-w-5xl mx-auto px-[var(--container-px)]" style="padding: var(--section-py) 0;">
+    <h1 class="text-6xl md:text-8xl lg:text-9xl mb-6" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: 0.95; letter-spacing: var(--ls-heading); color: var(--color-text);">
+      {{headline}}
+    </h1>
+    <p class="text-lg md:text-xl max-w-2xl mx-auto mb-10" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh);">
+      {{subheadline}}
+    </p>
+    <a href="{{cta_url}}" class="inline-flex items-center justify-center px-10 py-4 text-base font-semibold transition-all hover:scale-105" style="color: var(--color-text); background: rgba(255,255,255,0.08); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.15); border-radius: var(--radius-md);">
+      {{cta_text}}
+    </a>
+  </div>
+</section>

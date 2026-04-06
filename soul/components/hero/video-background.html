@@ -1,0 +1,27 @@
+---
+section_type: hero
+variant: video-background
+style_direction: [dark-cinematic, immersive-3d, cosmos-dark-curation]
+complexity: high
+cdn_deps: [gsap, scrolltrigger]
+---
+<section class="relative min-h-screen flex items-center justify-center overflow-hidden" style="background-color: #000;">
+  <!-- Video Background -->
+  <video class="absolute inset-0 w-full h-full object-cover opacity-50" autoplay muted loop playsinline>
+    <source src="{{video_url}}" type="video/mp4">
+  </video>
+  <div class="absolute inset-0" style="background: linear-gradient(to top, var(--color-bg), transparent 60%);"></div>
+  <!-- Content -->
+  <div class="relative z-10 text-center max-w-4xl mx-auto px-[var(--container-px)]">
+    <h1 class="text-5xl md:text-7xl lg:text-8xl mb-6" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); letter-spacing: var(--ls-heading); color: var(--color-text);">
+      {{headline}}
+    </h1>
+    <p class="text-lg md:text-xl max-w-2xl mx-auto mb-10" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh);">
+      {{subheadline}}
+    </p>
+    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="{{cta_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold text-white transition-all hover:scale-105" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{cta_text}}</a>
+      <a href="{{secondary_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold transition-all" style="color: var(--color-text); border: 1px solid rgba(255,255,255,0.2); border-radius: var(--radius-md);">{{secondary_cta}}</a>
+    </div>
+  </div>
+</section>

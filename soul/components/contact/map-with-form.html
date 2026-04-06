@@ -1,0 +1,41 @@
+---
+section_type: contact
+variant: map-with-form
+style_direction: [dark-cinematic, playful-animated, cosmos-dark-curation]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;" id="contact">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="text-center mb-16">
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+      <p class="text-lg" style="color: var(--color-text-secondary);">{{section_subtitle}}</p>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-[var(--card-gap)]">
+      <!-- Map Embed -->
+      <div class="aspect-[4/3] overflow-hidden" style="border-radius: var(--radius-lg);">
+        <iframe src="{{map_embed_url}}" width="100%" height="100%" style="border:0; filter: grayscale(0.3);" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+      <!-- Form -->
+      <form class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Name</label>
+          <input type="text" placeholder="{{name_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Email</label>
+          <input type="email" placeholder="{{email_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Phone</label>
+          <input type="tel" placeholder="{{phone_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Message</label>
+          <textarea rows="4" placeholder="{{message_placeholder}}" class="w-full px-4 py-3 text-sm outline-none resize-none" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);"></textarea>
+        </div>
+        <button type="submit" class="w-full px-6 py-4 text-base font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{form_cta}}</button>
+      </form>
+    </div>
+  </div>
+</section>

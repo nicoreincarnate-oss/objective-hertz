@@ -1,0 +1,22 @@
+---
+section_type: cta
+variant: dark-gradient-centered
+style_direction: [dark-cinematic, cosmos-dark-curation, bold-editorial, playful-animated]
+complexity: low
+cdn_deps: []
+---
+<section class="relative overflow-hidden" style="padding: var(--section-py) 0;">
+  <div class="absolute inset-0" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));"></div>
+  <div class="relative z-10 max-w-3xl mx-auto px-[var(--container-px)] text-center">
+    <h2 class="text-4xl md:text-5xl lg:text-6xl mb-6 text-white" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh);">{{cta_headline}}</h2>
+    <p class="text-lg md:text-xl mb-10 text-white/80" style="font-family: var(--font-body); line-height: var(--body-lh);">{{cta_subheadline}}</p>
+    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="{{cta_primary_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold transition-all hover:scale-105" style="background-color: white; color: var(--color-primary); border-radius: var(--radius-md);">
+        {{cta_primary_text}}
+      </a>
+      <a href="{{cta_secondary_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold text-white transition-all hover:bg-white/10" style="border: 1px solid rgba(255,255,255,0.3); border-radius: var(--radius-md);">
+        {{cta_secondary_text}}
+      </a>
+    </div>
+  </div>
+</section>

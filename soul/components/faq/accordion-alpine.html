@@ -1,0 +1,62 @@
+---
+section_type: faq
+variant: accordion-alpine
+style_direction: [minimal-geometric, bold-editorial, organic-illustrated, playful-animated, dark-cinematic]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;" id="faq">
+  <div class="max-w-3xl mx-auto px-[var(--container-px)]">
+    <div class="text-center mb-16">
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+      <p class="text-lg" style="color: var(--color-text-secondary);">{{section_subtitle}}</p>
+    </div>
+    <div class="space-y-4" x-data="{ open: null }">
+      <div class="border-b" style="border-color: var(--color-text-muted);">
+        <button @click="open = open === 1 ? null : 1" class="w-full flex items-center justify-between py-5 text-left">
+          <span class="text-lg font-medium" style="font-family: var(--font-display); color: var(--color-text);">{{faq_1_question}}</span>
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="open === 1 ? 'rotate-180' : ''" style="color: var(--color-text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open === 1" x-collapse>
+          <p class="pb-5 text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{faq_1_answer}}</p>
+        </div>
+      </div>
+      <div class="border-b" style="border-color: var(--color-text-muted);">
+        <button @click="open = open === 2 ? null : 2" class="w-full flex items-center justify-between py-5 text-left">
+          <span class="text-lg font-medium" style="font-family: var(--font-display); color: var(--color-text);">{{faq_2_question}}</span>
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="open === 2 ? 'rotate-180' : ''" style="color: var(--color-text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open === 2" x-collapse>
+          <p class="pb-5 text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{faq_2_answer}}</p>
+        </div>
+      </div>
+      <div class="border-b" style="border-color: var(--color-text-muted);">
+        <button @click="open = open === 3 ? null : 3" class="w-full flex items-center justify-between py-5 text-left">
+          <span class="text-lg font-medium" style="font-family: var(--font-display); color: var(--color-text);">{{faq_3_question}}</span>
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="open === 3 ? 'rotate-180' : ''" style="color: var(--color-text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open === 3" x-collapse>
+          <p class="pb-5 text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{faq_3_answer}}</p>
+        </div>
+      </div>
+      <div class="border-b" style="border-color: var(--color-text-muted);">
+        <button @click="open = open === 4 ? null : 4" class="w-full flex items-center justify-between py-5 text-left">
+          <span class="text-lg font-medium" style="font-family: var(--font-display); color: var(--color-text);">{{faq_4_question}}</span>
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="open === 4 ? 'rotate-180' : ''" style="color: var(--color-text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open === 4" x-collapse>
+          <p class="pb-5 text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{faq_4_answer}}</p>
+        </div>
+      </div>
+      <div class="border-b" style="border-color: var(--color-text-muted);">
+        <button @click="open = open === 5 ? null : 5" class="w-full flex items-center justify-between py-5 text-left">
+          <span class="text-lg font-medium" style="font-family: var(--font-display); color: var(--color-text);">{{faq_5_question}}</span>
+          <svg class="w-5 h-5 flex-shrink-0 transition-transform duration-300" :class="open === 5 ? 'rotate-180' : ''" style="color: var(--color-text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="open === 5" x-collapse>
+          <p class="pb-5 text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{faq_5_answer}}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

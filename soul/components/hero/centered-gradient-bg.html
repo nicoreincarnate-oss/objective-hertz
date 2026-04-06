@@ -1,0 +1,33 @@
+---
+section_type: hero
+variant: centered-gradient-bg
+style_direction: [dark-cinematic, cosmos-dark-curation, playful-animated]
+complexity: medium
+cdn_deps: [gsap, scrolltrigger]
+---
+<section class="relative min-h-screen flex items-center justify-center overflow-hidden" style="background-color: var(--color-bg);">
+  <!-- Gradient Orbs -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute top-1/4 left-1/4 w-[600px] h-[600px] rounded-full blur-[120px] opacity-30" style="background-color: var(--color-accent);"></div>
+    <div class="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full blur-[100px] opacity-20" style="background-color: var(--color-primary);"></div>
+  </div>
+  <!-- Content -->
+  <div class="relative z-10 text-center max-w-4xl mx-auto px-[var(--container-px)]" style="padding: var(--section-py) 0;">
+    <div class="inline-flex items-center gap-2 px-4 py-2 mb-8 text-sm font-medium" style="background-color: var(--color-surface); color: var(--color-accent); border-radius: 9999px; border: 1px solid var(--color-accent);">
+      <span class="w-2 h-2 rounded-full animate-pulse" style="background-color: var(--color-accent);"></span>
+      {{badge_text}}
+    </div>
+    <h1 class="text-5xl md:text-7xl lg:text-8xl mb-6" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); letter-spacing: var(--ls-heading); color: var(--color-text);">
+      {{headline}}
+    </h1>
+    <p class="text-lg md:text-xl max-w-2xl mx-auto mb-10" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh);">
+      {{subheadline}}
+    </p>
+    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="{{cta_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold text-white transition-all hover:scale-105" style="background-color: var(--color-accent); border-radius: var(--radius-md);">
+        {{cta_text}}
+        <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+      </a>
+    </div>
+  </div>
+</section>

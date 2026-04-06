@@ -1,0 +1,31 @@
+---
+section_type: navbar
+variant: transparent-scroll-reveal
+style_direction: [dark-cinematic, immersive-3d, cosmos-dark-curation, aurora-dark-canvas]
+complexity: medium
+cdn_deps: []
+---
+<nav class="fixed top-0 left-0 right-0 z-50 transition-all duration-300" x-data="{ scrolled: false, open: false }" @scroll.window="scrolled = (window.scrollY > 50)" :style="scrolled ? 'background-color: var(--color-bg); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background-color: transparent;'">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="flex items-center justify-between h-20">
+      <a href="/" class="text-xl font-bold" style="font-family: var(--font-display); color: var(--color-text);">{{business_name}}</a>
+      <div class="hidden md:flex items-center gap-8">
+        <a href="#services" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">Services</a>
+        <a href="#about" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">About</a>
+        <a href="#work" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">Work</a>
+        <a href="#contact" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">Contact</a>
+        <a href="{{nav_cta_url}}" class="inline-flex items-center px-5 py-2.5 text-sm font-semibold transition-all hover:scale-105" style="color: var(--color-bg); background-color: var(--color-accent); border-radius: var(--radius-sm);">{{nav_cta}}</a>
+      </div>
+      <button @click="open = !open" class="md:hidden p-2" style="color: var(--color-text);">
+        <svg x-show="!open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg x-show="open" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div x-show="open" x-collapse x-cloak class="md:hidden pb-6 space-y-4" style="background-color: var(--color-bg);">
+      <a href="#services" class="block text-base font-medium py-2" style="color: var(--color-text);">Services</a>
+      <a href="#about" class="block text-base font-medium py-2" style="color: var(--color-text);">About</a>
+      <a href="#work" class="block text-base font-medium py-2" style="color: var(--color-text);">Work</a>
+      <a href="#contact" class="block text-center px-5 py-3 text-base font-semibold text-white" style="background-color: var(--color-accent); border-radius: var(--radius-sm);">{{nav_cta}}</a>
+    </div>
+  </div>
+</nav>

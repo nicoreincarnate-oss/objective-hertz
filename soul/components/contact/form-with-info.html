@@ -1,0 +1,83 @@
+---
+section_type: contact
+variant: form-with-info
+style_direction: [minimal-geometric, bold-editorial, organic-illustrated, arena-monastic-grid]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;" id="contact">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-16">
+      <!-- Info -->
+      <div class="lg:col-span-2 space-y-8">
+        <div>
+          <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+          <p class="text-lg" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{section_subtitle}}</p>
+        </div>
+        <div class="space-y-6">
+          <div class="flex items-start gap-4">
+            <svg class="w-6 h-6 flex-shrink-0 mt-1" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <div>
+              <p class="font-medium" style="color: var(--color-text);">Address</p>
+              <p class="text-sm" style="color: var(--color-text-secondary);">{{address}}</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <svg class="w-6 h-6 flex-shrink-0 mt-1" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+            <div>
+              <p class="font-medium" style="color: var(--color-text);">Phone</p>
+              <p class="text-sm" style="color: var(--color-text-secondary);">{{phone}}</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <svg class="w-6 h-6 flex-shrink-0 mt-1" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <div>
+              <p class="font-medium" style="color: var(--color-text);">Email</p>
+              <p class="text-sm" style="color: var(--color-text-secondary);">{{email}}</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <svg class="w-6 h-6 flex-shrink-0 mt-1" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <div>
+              <p class="font-medium" style="color: var(--color-text);">Hours</p>
+              <p class="text-sm" style="color: var(--color-text-secondary);">{{hours}}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Form -->
+      <div class="lg:col-span-3">
+        <form class="p-8" style="background-color: var(--color-surface); border-radius: var(--radius-lg);">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">First Name</label>
+              <input type="text" placeholder="{{first_name_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Last Name</label>
+              <input type="text" placeholder="{{last_name_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Email</label>
+            <input type="email" placeholder="{{email_placeholder}}" class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Service Needed</label>
+            <select class="w-full px-4 py-3 text-sm outline-none" style="background-color: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+              <option>{{service_option_1}}</option>
+              <option>{{service_option_2}}</option>
+              <option>{{service_option_3}}</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="mb-6">
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Message</label>
+            <textarea rows="4" placeholder="{{message_placeholder}}" class="w-full px-4 py-3 text-sm outline-none resize-none" style="background-color: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);"></textarea>
+          </div>
+          <button type="submit" class="w-full px-6 py-4 text-base font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{form_cta}}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>

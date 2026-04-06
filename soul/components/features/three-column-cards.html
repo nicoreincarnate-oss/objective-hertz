@@ -1,0 +1,32 @@
+---
+section_type: features
+variant: three-column-cards
+style_direction: [minimal-geometric, bold-editorial, organic-illustrated, arena-monastic-grid]
+complexity: low
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="text-center mb-16">
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+      <p class="text-lg max-w-2xl mx-auto" style="color: var(--color-text-secondary);">{{section_subtitle}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-[var(--card-gap)]">
+      <div class="p-8 border transition-all hover:translate-y-[-2px]" style="border-color: var(--color-text-muted); border-radius: var(--radius-lg);">
+        <div class="text-4xl mb-4">{{feature_1_icon}}</div>
+        <h3 class="text-xl mb-3" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{feature_1_title}}</h3>
+        <p class="text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{feature_1_desc}}</p>
+      </div>
+      <div class="p-8 border transition-all hover:translate-y-[-2px]" style="border-color: var(--color-text-muted); border-radius: var(--radius-lg);">
+        <div class="text-4xl mb-4">{{feature_2_icon}}</div>
+        <h3 class="text-xl mb-3" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{feature_2_title}}</h3>
+        <p class="text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{feature_2_desc}}</p>
+      </div>
+      <div class="p-8 border transition-all hover:translate-y-[-2px]" style="border-color: var(--color-text-muted); border-radius: var(--radius-lg);">
+        <div class="text-4xl mb-4">{{feature_3_icon}}</div>
+        <h3 class="text-xl mb-3" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{feature_3_title}}</h3>
+        <p class="text-base" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{feature_3_desc}}</p>
+      </div>
+    </div>
+  </div>
+</section>
