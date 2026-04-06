@@ -15,6 +15,8 @@ All 4 daemons (Perseus, Titan, Hermes, ClawdBot) share:
 This module provides a clean API for daemon-to-daemon communication.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -31,6 +33,48 @@ _USE_A2A = os.environ.get("USE_A2A_DISPATCH", "1") != "0"
 
 
 # ── Request Work From Another Daemon ──────────────────────────────
+
+
+async def _dispatch_a2a_task(
+    task_type: str,
+    payload: dict[str, Any],
+) -> int | str | None:
+    """Attempt A2A dispatch for a task. IGUS-FIX: Extracted to reduce nesting (CWE-1124).
+
+    Returns task_id on success, None if A2A unavailable or failed.
+    """
+    agent_name = None
+    try:
+        from shared.capability_router import get_capability_router
+        agent_name = await get_capability_router().route(task_type)
+    # IGUS-FIX: Narrowed exception type (CWE-755)
+    except (ImportError, KeyError, ValueError, AttributeError):
+        pass
+    if not agent_name:
+        from shared.task_routing import TASK_ROUTING
+        agent_name = TASK_ROUTING.get(task_type)
+    if not agent_name:
+        return None
+
+    try:
+        from shared.oj_bridge import call_agent_async
+        result = await call_agent_async(agent_name, task_type, payload)
+    # IGUS-FIX: Narrowed exception type (CWE-755)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError, TimeoutError) as exc:
+        logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
+        return None
+
+    if "error" in result:
+        logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
+        return None
+
+    task_id = result.get("task_id")
+    if not task_id:
+        status = result.get("status", "unknown")
+        task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
+    logger.debug("A2A dispatch: %s → %s (status=%s)", task_type, agent_name, result.get("status", "ok"))
+    return task_id
+
 
 async def request_task(
     task_type: str,
@@ -52,32 +96,9 @@ async def request_task(
 
     # Try A2A dispatch first (dynamic routing → static fallback)
     if _USE_A2A:
-        agent_name = None
-        try:
-            from shared.capability_router import get_capability_router
-            agent_name = await get_capability_router().route(task_type)
-        except Exception:
-            pass
-        if not agent_name:
-            from shared.task_routing import TASK_ROUTING
-            agent_name = TASK_ROUTING.get(task_type)
-        if agent_name:
-            try:
-                from shared.oj_bridge import call_agent_async
-                result = await call_agent_async(agent_name, task_type, full_payload)
-                if "error" not in result:
-                    task_id = result.get("task_id")
-                    if not task_id:
-                        # Store the full result so callers can inspect status.
-                        # Generate an ID for tracking but tag it with the actual
-                        # status so callers don't confuse "dispatched" with "succeeded".
-                        status = result.get("status", "unknown")
-                        task_id = f"a2a_{uuid.uuid4().hex[:8]}:{status}"
-                    logger.debug("A2A dispatch: %s → %s (status=%s)", task_type, agent_name, result.get("status", "ok"))
-                    return task_id
-                logger.warning("A2A dispatch %s → %s returned error: %s", task_type, agent_name, result.get("error"))
-            except Exception as exc:
-                logger.warning("A2A dispatch %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
+        a2a_result = await _dispatch_a2a_task(task_type, full_payload)
+        if a2a_result is not None:
+            return a2a_result
 
     # Fallback: DB task_queue
     return await db.insert_task(task_type, full_payload, priority, dedupe=dedupe)
@@ -109,7 +130,8 @@ async def request_task_result(
                     logger.debug("A2A request_task_result: %s → %s (ok)", task_type, agent_name)
                     return result
                 logger.warning("A2A request_task_result %s → %s error: %s", task_type, agent_name, result.get("error"))
-            except Exception as exc:
+            # IGUS-FIX: Narrowed exception type (CWE-755)
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError, TimeoutError) as exc:
                 logger.warning("A2A request_task_result %s → %s failed, falling back to DB: %s", task_type, agent_name, exc)
 
     # Fallback: DB insert + poll
@@ -163,19 +185,66 @@ async def wait_for_event(
 
 # ── Broadcast to All Daemons ──────────────────────────────────────
 
-async def broadcast(event_type: str, payload: dict[str, Any] | None = None, sender: str = "") -> None:
+async def broadcast(
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+    sender: str = "",
+    exclude_sender: str | None = None,
+) -> None:
     """
     Broadcast an event visible to all daemons.
     Hermes will also pick this up for Telegram alerts.
+
+    Parameters
+    ----------
+    exclude_sender:
+        When provided, stored in the payload as ``_exclude_sender`` so that
+        consumers can skip events they themselves emitted.  This prevents
+        daemons from processing their own broadcasts during polling loops.
     """
     full_payload = {"sender": sender, **(payload or {})}
+    if exclude_sender:
+        full_payload["_exclude_sender"] = exclude_sender
     full_payload = enrich_payload_with_context(full_payload)
     await db.emit_event(event_type, full_payload)
 
 
 async def send_alert(message: str, sender: str = ""):
     """Send a high-priority alert that Hermes will forward to Nico."""
-    await broadcast("urgent_alert", {"message": message, "sender": sender})
+    await broadcast("urgent_alert", {"message": message, "sender": sender}, exclude_sender=sender or None)
+
+
+# ── Typed Protocol Messages ──────────────────────────────────────
+
+
+async def send_protocol_message(msg: Any) -> dict | None:
+    """Send a typed protocol message to the recipient agent.
+
+    Uses A2A direct call when available, falls back to event broadcast.
+    Returns the response dict or None on failure.
+    """
+    if _USE_A2A:
+        try:
+            from shared.oj_bridge import call_agent_async
+            result = await call_agent_async(
+                msg.recipient,
+                f"protocol.{msg.type.value}",
+                msg.to_dict(),
+                timeout=msg.deadline_seconds if hasattr(msg, "deadline_seconds") and msg.deadline_seconds else 30.0,
+            )
+            if isinstance(result, dict) and "error" not in result:
+                return result
+            logger.warning(
+                "Protocol message %s -> %s error: %s",
+                msg.type.value, msg.recipient,
+                result.get("error") if isinstance(result, dict) else result,
+            )
+        except (ImportError, AttributeError, OSError, RuntimeError, ConnectionError, TimeoutError, TypeError) as exc:
+            logger.warning("Protocol message %s -> %s A2A failed: %s", msg.type.value, msg.recipient, exc)
+
+    # Fallback: broadcast as event
+    await broadcast(f"protocol_{msg.type.value}", msg.to_dict(), sender=msg.sender)
+    return None
 
 
 # ── Shared Memory (Structured Learnings) ──────────────────────────
@@ -227,7 +296,7 @@ async def store_vector_memory(content: str, category: str = "", metadata: dict[s
     try:
         from titan.memory import store_memory
         await store_memory(content, category, metadata=metadata)
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Vector memory store failed (non-critical): {e}")
 
 
@@ -236,7 +305,7 @@ async def search_vector_memory(query: str, limit: int = 5) -> list[dict]:
     try:
         from titan.memory import search_memory
         return [{"memory": item} for item in await search_memory(query, limit)]
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Vector memory search failed (non-critical): {e}")
         return []
 
@@ -359,7 +428,7 @@ async def request_help(
         "problem": problem,
         "decision_id": decision_id,
         **(context or {}),
-    })
+    }, exclude_sender=from_agent)
     return decision_id
 
 
@@ -380,7 +449,7 @@ async def ask_agent(
             timeout=timeout,
         )
         return result
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError, TimeoutError, KeyError, TypeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"ask_agent({from_agent}→{to_agent}) failed: {e}")
         return None
 
@@ -401,7 +470,7 @@ async def call_agent_capability(
             timeout=timeout,
         )
         return result
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError, TimeoutError, KeyError, TypeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"call_agent_capability({to_agent}.{capability}) failed: {e}")
         return None
 
@@ -445,7 +514,8 @@ async def delegate_task(
                 "A2A delegation %s → %s returned error: %s",
                 task_type, to_agent, result.get("error"),
             )
-        except Exception as exc:
+        # IGUS-FIX: Narrowed exception type (CWE-755)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError, TimeoutError) as exc:
             logger.warning(
                 "A2A delegation %s → %s failed, falling back to DB: %s",
                 task_type, to_agent, exc,
