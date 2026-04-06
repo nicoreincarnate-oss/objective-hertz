@@ -1,0 +1,36 @@
+---
+section_type: navbar
+variant: sticky-blur-mobile
+style_direction: [minimal-geometric, bold-editorial, organic-illustrated, playful-animated, dark-cinematic, cosmos-dark-curation]
+complexity: medium
+cdn_deps: []
+---
+<nav class="fixed top-0 left-0 right-0 z-50 backdrop-blur-md border-b" style="background-color: rgba(var(--color-bg), 0.85); border-color: var(--color-text-muted);" x-data="{ open: false }">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="flex items-center justify-between h-16 md:h-20">
+      <!-- Logo -->
+      <a href="/" class="text-xl font-bold" style="font-family: var(--font-display); color: var(--color-text);">{{business_name}}</a>
+      <!-- Desktop Nav -->
+      <div class="hidden md:flex items-center gap-8">
+        <a href="#services" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">Services</a>
+        <a href="#about" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">About</a>
+        <a href="#testimonials" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">Reviews</a>
+        <a href="#faq" class="text-sm font-medium transition-colors hover:opacity-80" style="color: var(--color-text-secondary);">FAQ</a>
+        <a href="#contact" class="inline-flex items-center px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-sm);">{{nav_cta}}</a>
+      </div>
+      <!-- Mobile Hamburger -->
+      <button @click="open = !open" class="md:hidden p-2" style="color: var(--color-text);">
+        <svg x-show="!open" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg x-show="open" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <!-- Mobile Menu -->
+    <div x-show="open" x-collapse x-cloak class="md:hidden pb-6 space-y-4">
+      <a href="#services" class="block text-base font-medium py-2" style="color: var(--color-text);">Services</a>
+      <a href="#about" class="block text-base font-medium py-2" style="color: var(--color-text);">About</a>
+      <a href="#testimonials" class="block text-base font-medium py-2" style="color: var(--color-text);">Reviews</a>
+      <a href="#faq" class="block text-base font-medium py-2" style="color: var(--color-text);">FAQ</a>
+      <a href="#contact" class="block text-center px-5 py-3 text-base font-semibold text-white" style="background-color: var(--color-accent); border-radius: var(--radius-sm);">{{nav_cta}}</a>
+    </div>
+  </div>
+</nav>

@@ -1,0 +1,38 @@
+---
+section_type: features
+variant: services-grid
+style_direction: [organic-illustrated, playful-animated, bold-editorial]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-surface); padding: var(--section-py) 0;" id="services">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="text-center mb-16">
+      <p class="text-sm font-medium tracking-widest uppercase mb-4" style="color: var(--color-accent);">{{section_label}}</p>
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[var(--card-gap)]">
+      <a href="#" class="group p-6 transition-all hover:translate-y-[-4px]" style="background-color: var(--color-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow);">
+        <div class="aspect-[3/2] mb-4 overflow-hidden" style="border-radius: var(--radius-md);">
+          <img src="{{service_1_image}}" alt="{{service_1_title}}" class="w-full h-full object-cover transition-transform group-hover:scale-105">
+        </div>
+        <h3 class="text-xl mb-2" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{service_1_title}}</h3>
+        <p class="text-sm" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{service_1_desc}}</p>
+      </a>
+      <a href="#" class="group p-6 transition-all hover:translate-y-[-4px]" style="background-color: var(--color-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow);">
+        <div class="aspect-[3/2] mb-4 overflow-hidden" style="border-radius: var(--radius-md);">
+          <img src="{{service_2_image}}" alt="{{service_2_title}}" class="w-full h-full object-cover transition-transform group-hover:scale-105">
+        </div>
+        <h3 class="text-xl mb-2" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{service_2_title}}</h3>
+        <p class="text-sm" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{service_2_desc}}</p>
+      </a>
+      <a href="#" class="group p-6 transition-all hover:translate-y-[-4px]" style="background-color: var(--color-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow);">
+        <div class="aspect-[3/2] mb-4 overflow-hidden" style="border-radius: var(--radius-md);">
+          <img src="{{service_3_image}}" alt="{{service_3_title}}" class="w-full h-full object-cover transition-transform group-hover:scale-105">
+        </div>
+        <h3 class="text-xl mb-2" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{service_3_title}}</h3>
+        <p class="text-sm" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{service_3_desc}}</p>
+      </a>
+    </div>
+  </div>
+</section>

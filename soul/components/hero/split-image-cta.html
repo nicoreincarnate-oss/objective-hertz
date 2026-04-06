@@ -1,0 +1,41 @@
+---
+section_type: hero
+variant: split-image-cta
+style_direction: [bold-editorial, organic-illustrated, minimal-geometric]
+complexity: medium
+cdn_deps: [gsap, scrolltrigger]
+---
+<section class="min-h-screen flex items-center" style="background-color: var(--color-bg); padding: var(--section-py) 0;">
+  <div class="w-full max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+      <!-- Text Column -->
+      <div class="space-y-6">
+        <p class="text-sm font-medium tracking-widest uppercase" style="color: var(--color-accent);">{{tagline}}</p>
+        <h1 class="text-5xl md:text-6xl lg:text-7xl" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); letter-spacing: var(--ls-heading); color: var(--color-text);">
+          {{headline}}
+        </h1>
+        <p class="text-lg md:text-xl max-w-lg" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh);">
+          {{subheadline}}
+        </p>
+        <div class="flex flex-wrap gap-4 pt-4">
+          <a href="{{cta_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-md);">
+            {{cta_text}}
+          </a>
+          <a href="{{secondary_url}}" class="inline-flex items-center justify-center px-8 py-4 text-base font-semibold transition-all hover:opacity-80" style="color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-md);">
+            {{secondary_cta}}
+          </a>
+        </div>
+      </div>
+      <!-- Image Column -->
+      <div class="relative">
+        <div class="aspect-[4/5] overflow-hidden" style="border-radius: var(--radius-lg);">
+          <img src="{{hero_image}}" alt="{{business_name}}" class="w-full h-full object-cover" loading="eager">
+        </div>
+        <div class="absolute -bottom-6 -left-6 px-6 py-4 backdrop-blur-md" style="background-color: var(--color-surface); border-radius: var(--radius-md); border: 1px solid var(--color-text-muted);">
+          <p class="text-sm font-medium" style="color: var(--color-text-secondary);">{{proof_label}}</p>
+          <p class="text-2xl font-bold" style="color: var(--color-text); font-family: var(--font-display);">{{proof_stat}}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

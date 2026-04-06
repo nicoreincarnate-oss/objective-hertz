@@ -1,0 +1,52 @@
+---
+section_type: cta
+variant: split-form-benefits
+style_direction: [minimal-geometric, organic-illustrated, bold-editorial]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-surface); padding: var(--section-py) 0;">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+      <!-- Benefits -->
+      <div class="space-y-8">
+        <h2 class="text-4xl md:text-5xl" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{cta_headline}}</h2>
+        <p class="text-lg" style="color: var(--color-text-secondary); line-height: var(--body-lh);">{{cta_subheadline}}</p>
+        <ul class="space-y-4">
+          <li class="flex items-start gap-3">
+            <svg class="w-6 h-6 flex-shrink-0 mt-0.5" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span style="color: var(--color-text-secondary);">{{benefit_1}}</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <svg class="w-6 h-6 flex-shrink-0 mt-0.5" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span style="color: var(--color-text-secondary);">{{benefit_2}}</span>
+          </li>
+          <li class="flex items-start gap-3">
+            <svg class="w-6 h-6 flex-shrink-0 mt-0.5" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span style="color: var(--color-text-secondary);">{{benefit_3}}</span>
+          </li>
+        </ul>
+      </div>
+      <!-- Form -->
+      <div class="p-8 md:p-10" style="background-color: var(--color-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow);">
+        <h3 class="text-2xl mb-6" style="font-family: var(--font-display); font-weight: var(--heading-weight); color: var(--color-text);">{{form_title}}</h3>
+        <form class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Name</label>
+            <input type="text" placeholder="{{name_placeholder}}" class="w-full px-4 py-3 text-sm outline-none transition-colors" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Email</label>
+            <input type="email" placeholder="{{email_placeholder}}" class="w-full px-4 py-3 text-sm outline-none transition-colors" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1" style="color: var(--color-text-secondary);">Phone</label>
+            <input type="tel" placeholder="{{phone_placeholder}}" class="w-full px-4 py-3 text-sm outline-none transition-colors" style="background-color: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-text-muted); border-radius: var(--radius-sm);">
+          </div>
+          <button type="submit" class="w-full px-6 py-4 text-base font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{form_cta}}</button>
+          <p class="text-xs text-center" style="color: var(--color-text-muted);">{{form_disclaimer}}</p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>

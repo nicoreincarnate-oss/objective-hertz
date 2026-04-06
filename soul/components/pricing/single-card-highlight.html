@@ -1,0 +1,38 @@
+---
+section_type: pricing
+variant: single-card-highlight
+style_direction: [dark-cinematic, cosmos-dark-curation, bold-editorial]
+complexity: low
+cdn_deps: []
+---
+<section style="background-color: var(--color-bg); padding: var(--section-py) 0;">
+  <div class="max-w-2xl mx-auto px-[var(--container-px)]">
+    <div class="text-center mb-12">
+      <h2 class="text-4xl md:text-5xl mb-4" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); color: var(--color-text);">{{section_title}}</h2>
+      <p class="text-lg" style="color: var(--color-text-secondary);">{{section_subtitle}}</p>
+    </div>
+    <div class="p-10 md:p-14 text-center" style="background-color: var(--color-surface); border: 2px solid var(--color-accent); border-radius: var(--radius-lg);">
+      <p class="text-sm font-medium uppercase tracking-widest mb-4" style="color: var(--color-accent);">{{plan_name}}</p>
+      <div class="flex items-baseline justify-center gap-2 mb-4">
+        <span class="text-6xl font-bold" style="font-family: var(--font-display); color: var(--color-text);">{{plan_price}}</span>
+        <span class="text-lg" style="color: var(--color-text-muted);">{{plan_period}}</span>
+      </div>
+      <p class="text-base mb-8" style="color: var(--color-text-secondary);">{{plan_desc}}</p>
+      <ul class="space-y-3 mb-10 text-left max-w-sm mx-auto">
+        <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+          <svg class="w-5 h-5 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          {{feature_1}}
+        </li>
+        <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+          <svg class="w-5 h-5 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          {{feature_2}}
+        </li>
+        <li class="flex items-center gap-3 text-sm" style="color: var(--color-text-secondary);">
+          <svg class="w-5 h-5 flex-shrink-0" style="color: var(--color-accent);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          {{feature_3}}
+        </li>
+      </ul>
+      <a href="{{cta_url}}" class="inline-flex items-center justify-center px-10 py-4 text-base font-semibold text-white transition-all hover:opacity-90" style="background-color: var(--color-accent); border-radius: var(--radius-md);">{{cta_text}}</a>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,29 @@
+---
+section_type: features
+variant: stats-counter-bar
+style_direction: [minimal-geometric, bold-editorial, dark-cinematic, playful-animated]
+complexity: medium
+cdn_deps: []
+---
+<section style="background-color: var(--color-surface); padding: var(--section-py) 0;">
+  <div class="max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center" x-data="{ shown: false }" x-intersect.once="shown = true">
+      <div class="space-y-2">
+        <p class="text-4xl md:text-5xl font-bold tabular-nums" style="font-family: var(--font-display); color: var(--color-accent);" x-text="shown ? '{{stat_1_value}}' : '0'">0</p>
+        <p class="text-sm uppercase tracking-widest" style="color: var(--color-text-muted);">{{stat_1_label}}</p>
+      </div>
+      <div class="space-y-2">
+        <p class="text-4xl md:text-5xl font-bold tabular-nums" style="font-family: var(--font-display); color: var(--color-accent);" x-text="shown ? '{{stat_2_value}}' : '0'">0</p>
+        <p class="text-sm uppercase tracking-widest" style="color: var(--color-text-muted);">{{stat_2_label}}</p>
+      </div>
+      <div class="space-y-2">
+        <p class="text-4xl md:text-5xl font-bold tabular-nums" style="font-family: var(--font-display); color: var(--color-accent);" x-text="shown ? '{{stat_3_value}}' : '0'">0</p>
+        <p class="text-sm uppercase tracking-widest" style="color: var(--color-text-muted);">{{stat_3_label}}</p>
+      </div>
+      <div class="space-y-2">
+        <p class="text-4xl md:text-5xl font-bold tabular-nums" style="font-family: var(--font-display); color: var(--color-accent);" x-text="shown ? '{{stat_4_value}}' : '0'">0</p>
+        <p class="text-sm uppercase tracking-widest" style="color: var(--color-text-muted);">{{stat_4_label}}</p>
+      </div>
+    </div>
+  </div>
+</section>

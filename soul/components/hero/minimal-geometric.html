@@ -1,0 +1,22 @@
+---
+section_type: hero
+variant: minimal-geometric
+style_direction: [minimal-geometric, arena-monastic-grid, fukuda-optical-precision]
+complexity: low
+cdn_deps: []
+---
+<section class="min-h-screen flex items-center" style="background-color: var(--color-bg); padding: var(--section-py) 0;">
+  <div class="w-full max-w-[var(--container-max)] mx-auto px-[var(--container-px)]">
+    <div class="max-w-3xl">
+      <h1 class="text-5xl md:text-7xl mb-8" style="font-family: var(--font-display); font-weight: var(--heading-weight); line-height: var(--heading-lh); letter-spacing: var(--ls-heading); color: var(--color-text);">
+        {{headline}}
+      </h1>
+      <p class="text-lg md:text-xl mb-12" style="font-family: var(--font-body); color: var(--color-text-secondary); line-height: var(--body-lh); max-width: 36rem;">
+        {{subheadline}}
+      </p>
+      <a href="{{cta_url}}" class="inline-flex items-center justify-center px-8 py-4 text-sm font-medium tracking-wide uppercase transition-colors" style="color: var(--color-bg); background-color: var(--color-text); border-radius: var(--radius-sm);">
+        {{cta_text}}
+      </a>
+    </div>
+  </div>
+</section>
