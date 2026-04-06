@@ -2,17 +2,29 @@
 
 Composition layer — stores agent state in SQLite, delegates all computation
 to the five existing primitives (Intelligence, Agent, Tools, Engine, Learning).
+
+Task 24-05 (ANATOMY_TASK_RESILIENCE):
+  - ``_prune_agent_messages()`` — caps ``agent_messages`` at ``max_messages``
+    per agent and logs a WARNING when pruning occurs.
+  - ``check_state_size()`` — warns if serialized agent state exceeds 1 MB.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sqlite3
+import sys
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
+
+_STATE_SIZE_WARN_BYTES = 1_048_576  # 1 MB
 
 _CREATE_AGENTS = """\
 CREATE TABLE IF NOT EXISTS managed_agents (
@@ -92,6 +104,7 @@ class AgentManager:
 
     def __init__(self, db_path: str) -> None:
         self._db_path = str(db_path)
+        self._a2a_tasks: dict[str, Any] = {}  # agent_id → linked A2ATask
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -211,6 +224,42 @@ class AgentManager:
             (status, time.time(), agent_id),
         )
         self._conn.commit()
+        # Task 24-03: sync to linked A2A task when feature flag is on
+        self._sync_a2a_state(agent_id, status)
+
+    def _sync_a2a_state(self, agent_id: str, status: str) -> None:
+        """Sync agent status change to the linked A2A task, if any.
+
+        Gated behind ``ANATOMY_TASK_RESILIENCE``.  The linked task is
+        looked up from ``_a2a_tasks`` (callers can register one via
+        ``link_a2a_task``).
+        """
+        if os.environ.get("ANATOMY_TASK_RESILIENCE", "").lower() not in ("true", "1"):
+            return
+        a2a_task = self._a2a_tasks.get(agent_id)
+        if a2a_task is None:
+            return
+        try:
+            from shared.protocols import sync_agent_status_to_a2a
+
+            sync_agent_status_to_a2a(status, a2a_task)
+        except (ImportError, AttributeError, RuntimeError, OSError, ValueError) as _exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug(
+                "Failed to sync A2A state for agent %s", agent_id, exc_info=True
+            )
+
+    def link_a2a_task(self, agent_id: str, a2a_task: Any) -> None:
+        """Register an A2A task to keep in sync with agent status changes.
+
+        When the agent's status changes via ``_set_status``, the linked
+        A2A task's state will be updated to the corresponding value
+        (gated behind ``ANATOMY_TASK_RESILIENCE``).
+        """
+        self._a2a_tasks[agent_id] = a2a_task
+
+    def unlink_a2a_task(self, agent_id: str) -> None:
+        """Remove the A2A task link for an agent."""
+        self._a2a_tasks.pop(agent_id, None)
 
     # ── Tick concurrency guard ────────────────────────────────────
 
@@ -442,7 +491,7 @@ class AgentManager:
                     tpl = data.get("template", {})
                     tpl["source"] = "built-in"
                     templates.append(tpl)
-        except Exception:
+        except (OSError, ImportError, AttributeError, ValueError, KeyError) as _exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             pass
 
         # User templates
@@ -454,7 +503,7 @@ class AgentManager:
                     tpl = data.get("template", {})
                     tpl["source"] = "user"
                     templates.append(tpl)
-                except Exception:
+                except (OSError, ValueError, KeyError, UnicodeDecodeError) as _exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                     pass
 
         return templates
@@ -540,6 +589,122 @@ class AgentManager:
             (message_id,),
         )
         self._conn.commit()
+
+    # ── Message pruning & state caps (Task 24-05, ANATOMY_TASK_RESILIENCE) ──
+
+    def _prune_agent_messages(
+        self,
+        agent_id: str,
+        max_messages: int = 50,
+    ) -> int:
+        """Delete oldest messages when count exceeds *max_messages*.
+
+        Returns the number of messages pruned.  Logs a WARNING when
+        pruning actually occurs.
+
+        Gated behind ``ANATOMY_TASK_RESILIENCE`` — returns 0 immediately
+        when the flag is off.
+        """
+        if os.environ.get("ANATOMY_TASK_RESILIENCE", "").lower() not in ("true", "1"):
+            return 0
+
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM agent_messages WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        total = row["cnt"] if row else 0
+
+        if total <= max_messages:
+            return 0
+
+        to_prune = total - max_messages
+        # Delete the oldest messages (smallest created_at)
+        self._conn.execute(
+            "DELETE FROM agent_messages WHERE id IN ("
+            "  SELECT id FROM agent_messages"
+            "  WHERE agent_id = ?"
+            "  ORDER BY created_at ASC"
+            "  LIMIT ?"
+            ")",
+            (agent_id, to_prune),
+        )
+        self._conn.commit()
+
+        logger.warning(
+            "Pruned %d agent messages for agent %s (was %d, cap %d)",
+            to_prune,
+            agent_id,
+            total,
+            max_messages,
+        )
+        return to_prune
+
+    def check_state_size(self, agent_id: str) -> int:
+        """Return serialized state size in bytes.  Logs WARNING if > 1 MB.
+
+        Gated behind ``ANATOMY_TASK_RESILIENCE``.
+        """
+        if os.environ.get("ANATOMY_TASK_RESILIENCE", "").lower() not in ("true", "1"):
+            return 0
+
+        agent = self.get_agent(agent_id)
+        if not agent:
+            return 0
+
+        size = sys.getsizeof(json.dumps(agent, default=str))
+
+        # Also include messages + checkpoints
+        messages = self.list_messages(agent_id, limit=9999)
+        size += sys.getsizeof(json.dumps(messages, default=str))
+
+        checkpoints = self.list_checkpoints(agent_id)
+        size += sys.getsizeof(json.dumps(checkpoints, default=str))
+
+        if size > _STATE_SIZE_WARN_BYTES:
+            logger.warning(
+                "Agent %s state size %d bytes exceeds 1 MB threshold",
+                agent_id,
+                size,
+            )
+        return size
+
+    async def sync_cost_from_postgres(self, agent_id: str) -> dict[str, Any]:
+        """Sync agent cost totals from Postgres cost_events (authoritative source).
+
+        Pulls total_tokens and total_cost from cost_events table and updates
+        the SQLite record. Called during weekly dashboard generation.
+        """
+        try:
+            from shared.db import fetch_one
+
+            row = await fetch_one(
+                """SELECT
+                    COALESCE(SUM(tokens_in + tokens_out), 0) AS total_tokens,
+                    COALESCE(SUM(cost_usd), 0) AS total_cost,
+                    COUNT(*) AS total_runs
+                FROM cost_events
+                WHERE agent_id = %s""",
+                (agent_id,),
+            )
+            if row:
+                self._conn.execute(
+                    "UPDATE managed_agents SET total_tokens = ?, total_cost = ?, total_runs = ?, updated_at = ? WHERE id = ?",
+                    (int(row["total_tokens"]), float(row["total_cost"]), int(row["total_runs"]), time.time(), agent_id),
+                )
+                self._conn.commit()
+        except (ImportError, OSError, RuntimeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+            pass  # Postgres may be unavailable; SQLite values remain as-is
+        return self.get_agent(agent_id) or {}
+
+    def end_tick_with_caps(self, agent_id: str, max_messages: int = 50) -> None:
+        """End a tick and apply memory caps (pruning + state size check).
+
+        Convenience wrapper that calls ``end_tick``, ``_prune_agent_messages``,
+        and ``check_state_size`` in sequence.
+        """
+        self.end_tick(agent_id)
+        self._prune_agent_messages(agent_id, max_messages)
+        self.check_state_size(agent_id)
 
     def add_agent_response(self, agent_id: str, content: str) -> dict:
         msg_id = uuid4().hex[:16]
