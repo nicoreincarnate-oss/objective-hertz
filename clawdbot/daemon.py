@@ -27,6 +27,56 @@ from shared.skill_loader import execute_skill, find_skill, list_installed_skills
 
 logger = setup_logging("clawdbot")
 
+# ── Playwright pool for V2 visual pipeline ────────────────────────────
+_playwright_pool = None
+
+try:
+    from clawdbot.renderer import PlaywrightPool as _PlaywrightPoolCls
+except ImportError:  # phase 34 module not yet available
+    _PlaywrightPoolCls = None  # type: ignore[assignment,misc]
+
+
+async def _start_playwright_pool() -> None:
+    """Start the shared Playwright browser pool if V2 is enabled."""
+    global _playwright_pool
+    if _PlaywrightPoolCls is None:
+        logger.debug("PlaywrightPool not available (renderer module missing)")
+        return
+    if os.environ.get(
+        "CLAWDBOT_V2_ENABLED", "",
+    ).lower() not in ("true", "1", "yes"):
+        return
+    try:
+        _playwright_pool = _PlaywrightPoolCls()
+        await _playwright_pool.start()
+        logger.info("Playwright pool started for V2 pipeline")
+        # Inject into site_builder so it can access the pool
+        from clawdbot.site_builder import _set_playwright_pool
+        _set_playwright_pool(_playwright_pool)
+    except Exception as exc:
+        logger.warning("Failed to start Playwright pool: %s", exc)
+        _playwright_pool = None
+
+
+async def _stop_playwright_pool() -> None:
+    """Shut down the shared Playwright browser pool."""
+    global _playwright_pool
+    if _playwright_pool is None:
+        return
+    try:
+        await _playwright_pool.stop()
+        logger.info("Playwright pool stopped")
+    except Exception as exc:
+        logger.warning("Error stopping Playwright pool: %s", exc)
+    finally:
+        _playwright_pool = None
+        try:
+            from clawdbot.site_builder import _set_playwright_pool
+            _set_playwright_pool(None)
+        except Exception:
+            pass
+
+
 CORE_BOOTSTRAP_CAPABILITIES = ("browser", "scraper", "web_search")
 CLAWDBOT_AGENT_MESH_SPECS = (
     {
@@ -258,6 +308,7 @@ class ClawdBotDaemon(AgentBase):
         """Start ClawdBot's main loop."""
         logger.info("ClawdBot starting up...")
         await db.init_pool()
+        await _start_playwright_pool()
         await self.requeue_stale_tasks()
         await self.register()
         await self._bootstrap_runtime_capabilities(force=True)
@@ -302,6 +353,7 @@ class ClawdBotDaemon(AgentBase):
                 "ClawdBot shutdown timed out with %d in-flight operation(s); stale tasks will be requeued on restart",
                 len(self._active_work),
             )
+        await _stop_playwright_pool()
         await self.wait_until_stopped()
         logger.info("ClawdBot stopped.")
 
