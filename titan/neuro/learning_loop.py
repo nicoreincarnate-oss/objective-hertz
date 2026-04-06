@@ -87,7 +87,7 @@ async def neural_reflection() -> dict[str, Any]:
             WHERE es.neuro_scores IS NOT NULL
             AND es.sent_at > NOW() - INTERVAL '30 days'
         """)
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Failed to fetch reflection data: %s", exc)
         return {"status": "query_error", "error": str(exc)}
 
@@ -118,13 +118,13 @@ async def neural_reflection() -> dict[str, Any]:
             try:
                 await _create_neural_rule(dim, stats)
                 rules_created.append(dim)
-            except Exception as exc:
+            except (OSError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.error("Failed to create rule for %s: %s", dim, exc)
 
     # Update composite weights based on correlations
     try:
         await _update_composite_weights(correlations)
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Failed to update weights: %s", exc)
 
     return {
@@ -231,7 +231,7 @@ async def compute_segment_profiles() -> dict[str, dict[str, float]]:
             GROUP BY c.industry
             HAVING COUNT(*) >= 100
         """)
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Failed to fetch segment data: %s", exc)
         return {}
 
@@ -256,7 +256,7 @@ async def compute_segment_profiles() -> dict[str, dict[str, float]]:
                    ON CONFLICT (category, key) DO UPDATE SET value = EXCLUDED.value""",
                 (f"neural_profile_{industry}", json.dumps(profiles[industry])),
             )
-        except Exception as exc:
+        except (ImportError, OSError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Could not store profile for %s: %s", industry, exc)
 
     logger.info("Computed segment profiles for %d industries", len(profiles))
@@ -289,3 +289,112 @@ def compute_correlations(
             "n": len(dim_scores),
         }
     return correlations
+
+
+# ---------------------------------------------------------------------------
+# AlphaEvolve wiring — email template + scoring rubric evolution
+# ---------------------------------------------------------------------------
+
+
+async def evolve_email_template(
+    seed_template: str,
+    experiment_id: str | None = None,
+) -> Any | None:
+    """Trigger AlphaEvolve evolution for an email template.
+
+    Called daily by Perseus scheduler, or when email open rate drops
+    below 20% for 3 consecutive days.
+
+    Returns the best EvolveCandidate, or None if evolution is disabled.
+    """
+    try:
+        from shared.evolve_engine import (
+            ALPHA_EVOLVE_ENABLED,
+            EvolveConfig,
+            EvolveEngine,
+            evaluate_email_template,
+        )
+    except ImportError:
+        logger.debug("shared.evolve_engine not available")
+        return None
+
+    if not ALPHA_EVOLVE_ENABLED:
+        return None
+
+    config = EvolveConfig(
+        population_size=10,
+        num_islands=2,
+        max_generations=5,
+        breadth_model="fast",
+        depth_model="smart",
+    )
+
+    engine = EvolveEngine()
+    try:
+        best = await engine.evolve(
+            seed=seed_template,
+            artifact_type="email_template",
+            evaluator=evaluate_email_template,
+            config=config,
+            experiment_id=experiment_id or "email_template_daily",
+        )
+        logger.info(
+            "Email template evolution complete: best=%s score=%.3f",
+            best.id, sum(best.metrics.values()) if best.metrics else 0.0,
+        )
+        return best
+    except (ValueError, RuntimeError) as exc:
+        logger.warning("Email template evolution skipped: %s", exc)
+        return None
+
+
+async def evolve_scoring_rubric(
+    seed_rubric: str,
+    experiment_id: str | None = None,
+) -> Any | None:
+    """Trigger AlphaEvolve evolution for a scoring rubric.
+
+    Called weekly by Perseus scheduler, or when lead conversion rate
+    drops below baseline.
+
+    Returns the best EvolveCandidate, or None if evolution is disabled.
+    """
+    try:
+        from shared.evolve_engine import (
+            ALPHA_EVOLVE_ENABLED,
+            EvolveConfig,
+            EvolveEngine,
+            evaluate_scoring_rubric,
+        )
+    except ImportError:
+        logger.debug("shared.evolve_engine not available")
+        return None
+
+    if not ALPHA_EVOLVE_ENABLED:
+        return None
+
+    config = EvolveConfig(
+        population_size=10,
+        num_islands=2,
+        max_generations=5,
+        breadth_model="fast",
+        depth_model="smart",
+    )
+
+    engine = EvolveEngine()
+    try:
+        best = await engine.evolve(
+            seed=seed_rubric,
+            artifact_type="scoring_rubric",
+            evaluator=evaluate_scoring_rubric,
+            config=config,
+            experiment_id=experiment_id or "scoring_rubric_weekly",
+        )
+        logger.info(
+            "Scoring rubric evolution complete: best=%s score=%.3f",
+            best.id, sum(best.metrics.values()) if best.metrics else 0.0,
+        )
+        return best
+    except (ValueError, RuntimeError) as exc:
+        logger.warning("Scoring rubric evolution skipped: %s", exc)
+        return None
