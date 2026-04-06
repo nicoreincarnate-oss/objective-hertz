@@ -16,15 +16,35 @@ from shared.skill_loader import list_installed_skills, find_skill
 logger = logging.getLogger("perseus.clawdbot.a2a")
 
 
+import os as _os
+
+_V2_ENABLED = _os.environ.get(
+    "CLAWDBOT_V2_ENABLED", "",
+).lower() in ("true", "1", "yes")
+
+_V2_CAPABILITIES = [
+    "site_build_v2",
+    "section_plan",
+    "fullpage_qa",
+    "visual_score",
+] if _V2_ENABLED else []
+
 CLAWDBOT_CARD = AgentCard(
     name="clawdbot",
     description=(
-        "The hands of Perseus — skills executor, browser automator, web scraper, "
-        "site builder/verifier, lead enricher, image generator, N8N workflow trigger. "
-        "26 capability categories with self-equipping resolver and safety vetting gate."
+        "The hands of Perseus — skills executor, browser automator, "
+        "web scraper, site builder/verifier, lead enricher, image "
+        "generator, N8N workflow trigger. "
+        + (
+            "V2 visual production pipeline active. "
+            if _V2_ENABLED
+            else ""
+        )
+        + "26+ capability categories with self-equipping resolver "
+        "and safety vetting gate."
     ),
     url="http://localhost:9003",
-    version="1.0.0",
+    version="2.0.0" if _V2_ENABLED else "1.0.0",
     capabilities=[
         "ask",
         "skill_execute", "skill_list", "skill_find",
@@ -48,6 +68,7 @@ CLAWDBOT_CARD = AgentCard(
         "health_check",
         "events_recent",
         "event_relay",
+        *_V2_CAPABILITIES,
     ],
 )
 
