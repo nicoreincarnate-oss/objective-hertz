@@ -89,6 +89,7 @@ packages = ["openjarvis", "shared", "titan", "hermes", "clawdbot", "tools", "per
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 markers = [
     "live: requires running inference engine",

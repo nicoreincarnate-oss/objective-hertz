@@ -263,10 +263,10 @@ class LLMClient:
         self._last_usage = None
         self._airllm_model: Any | None = None
         self._airllm_model_id: str | None = None
-        self._airllm_lock = asyncio.Lock()
+        self._airllm_lock: asyncio.Lock | None = None  # created lazily for Py 3.9 compat
         self._ollm_model: Any | None = None
         self._ollm_model_id: str | None = None
-        self._ollm_lock = asyncio.Lock()
+        self._ollm_lock: asyncio.Lock | None = None  # created lazily for Py 3.9 compat
         self._spiral_guard = _DeathSpiralGuard()
 
     def _fire_metrics(
@@ -458,7 +458,7 @@ class LLMClient:
         # Task 27-03: Memory index injection — give every LLM call awareness of
         # available memories so it can reason about stored knowledge.
         if os.environ.get("ANATOMY_MEMORY_INDEX", "").lower() in ("true", "1"):
-            from shared.memory_index import get_memory_index, _MAX_ENTRIES
+            from shared.memory_index import _MAX_ENTRIES, get_memory_index
 
             idx = get_memory_index()
             if idx:
@@ -1237,6 +1237,8 @@ class LLMClient:
         )
 
     async def _get_airllm_model(self, model_name: str) -> Any:
+        if self._airllm_lock is None:
+            self._airllm_lock = asyncio.Lock()
         async with self._airllm_lock:
             if self._airllm_model is not None and self._airllm_model_id == model_name:
                 return self._airllm_model
@@ -1286,6 +1288,8 @@ class LLMClient:
         )
 
     async def _get_ollm_model(self, model_name: str) -> Any:
+        if self._ollm_lock is None:
+            self._ollm_lock = asyncio.Lock()
         async with self._ollm_lock:
             if self._ollm_model is not None and self._ollm_model_id == model_name:
                 return self._ollm_model
