@@ -27,13 +27,117 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
+from shared.agent_loop import AbortSignal, TickResult
 from shared.config import config
 from shared.logging_config import setup_logging
 from shared.observability import capture_exception, install_asyncio_exception_handler
 
 logger = setup_logging("orchestrator")
+
+
+def _generator_loop_enabled() -> bool:
+    """Check ANATOMY_GENERATOR_LOOP feature flag."""
+    return os.environ.get("ANATOMY_GENERATOR_LOOP", "").lower() in ("true", "1")
+
+
+async def _run_loop(
+    name: str,
+    generator: AsyncGenerator[TickResult, None],
+    *,
+    abort_signal: AbortSignal | None = None,
+) -> None:
+    """Consume an async generator loop, logging each tick result.
+
+    This utility replaces the repeated ``while self._running`` pattern
+    across orchestrator loops.  It:
+    - Consumes the generator until a terminal TickResult
+    - Logs each tick at DEBUG level, terminals at INFO
+    - Checks an optional abort signal between ticks
+    - Stops cleanly on terminal results
+
+    Phase 26b-06 (Anatomy Integration A-06).
+    Gated behind ANATOMY_GENERATOR_LOOP feature flag.
+    """
+    async for tick in generator:
+        if abort_signal and abort_signal.is_aborted:
+            logger.info("[%s] abort signal received, stopping loop", name)
+            break
+
+        if tick.is_terminal:
+            logger.info(
+                "[%s] loop terminated: %s — %s",
+                name,
+                tick.terminal,
+                tick.terminal_message,
+            )
+            break
+
+        logger.debug(
+            "[%s] tick %d: %s",
+            name,
+            tick.turn_number,
+            tick.content[:120] if tick.content else "ok",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 18b-06: Fast-path dispatch for --status / --health / --version
+#
+# These flags query the *running* orchestrator (or print static info) and
+# exit immediately — no full boot, no DB pool, no vassal spawning needed.
+# ---------------------------------------------------------------------------
+
+_ORCHESTRATOR_VERSION = "0.9.0"
+
+
+def _fast_path_dispatch() -> bool:
+    """Handle lightweight CLI queries without booting the full system.
+
+    Returns True if a fast-path flag was handled (caller should sys.exit),
+    False otherwise (proceed with normal boot).
+    """
+    if len(sys.argv) < 2:
+        return False
+
+    flag = sys.argv[1]
+
+    if flag == "--version":
+        print(f"OpenJarvis Orchestrator v{_ORCHESTRATOR_VERSION}")
+        return True
+
+    if flag in ("--status", "--health"):
+        import urllib.error
+        import urllib.request
+
+        a2a_port = int(os.environ.get("ORCHESTRATOR_A2A_PORT", "9000"))
+        url = f"http://localhost:{a2a_port}/health"
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                body = resp.read().decode()
+                if flag == "--health":
+                    # --health: print full JSON response
+                    print(body)
+                else:
+                    # --status: concise one-liner
+                    try:
+                        data = json.loads(body)
+                        status = data.get("status", "unknown")
+                        print(f"OpenJarvis: {status} (port {a2a_port})")
+                    except (json.JSONDecodeError, KeyError):
+                        print(f"OpenJarvis: running (port {a2a_port})")
+        except urllib.error.URLError:
+            print(f"OpenJarvis: not reachable on port {a2a_port}")
+            sys.exit(1)
+        except (OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            print(f"OpenJarvis: error querying health — {exc}")
+            sys.exit(1)
+        return True
+
+    return False
 
 # Vassal A2A endpoints
 VASSAL_CONFIG = {
@@ -66,9 +170,26 @@ FRAMEWORK_AGENT_SPECS = [
         "name": "openjarvis-boss-reasoner",
         "agent_type": "orchestrator",
         "config": {
+            "model": "smart",  # Sonnet — strategic reasoning requires depth
             "instruction": (
                 "Act as OpenJarvis's strategic reasoning core. Investigate system issues, "
-                "inspect runtime state, and produce actionable recommendations for the boss."
+                "inspect runtime state, and produce actionable recommendations for the boss.\n"
+                "\n"
+                "KEY FILES TO REASON ABOUT:\n"
+                "- orchestrator.py — top-level entry point, daemon lifecycle, agent registration\n"
+                "- shared/db.py — Postgres pool, system_config table (get_config/set_config)\n"
+                "- titan/daemon.py — revenue pipeline state, stage progression, stuck tasks\n"
+                "- perseus/scheduler.py — 15 scheduled task definitions, cron health\n"
+                "\n"
+                "METRICS TO CHECK:\n"
+                "- budget_tracking totals: SELECT SUM(cost) FROM budget_tracking WHERE date = CURRENT_DATE\n"
+                "- task_queue depth: SELECT status, COUNT(*) FROM task_queue GROUP BY status\n"
+                "- agent_decisions recent: SELECT * FROM agent_decisions ORDER BY created_at DESC LIMIT 20\n"
+                "- system_config flags: SELECT key, value FROM system_config WHERE key LIKE 'ANATOMY_%%'\n"
+                "\n"
+                "OUTPUT FORMAT:\n"
+                "Return a JSON object with keys: finding (str), severity (P0-P3), "
+                "affected_component (str), recommended_action (str), evidence (list[str])."
             ),
             "tools": [
                 "think", "file_read", "shell_exec", "memory_store",
@@ -87,14 +208,44 @@ FRAMEWORK_AGENT_SPECS = [
         "name": "openjarvis-react-investigator",
         "agent_type": "native_react",
         "config": {
+            "model": "fast",  # Haiku — log inspection is classification
             "instruction": (
                 "Use ReAct to inspect logs, search for failures, and gather concrete evidence "
-                "about runtime regressions before escalation."
+                "about runtime regressions before escalation.\n"
+                "\n"
+                "LOG PATHS TO INSPECT:\n"
+                "- logs/perseus.log — scheduler daemon, task execution, cron drift\n"
+                "- logs/titan.log — revenue pipeline stages, lead processing failures\n"
+                "- logs/hermes.log — alert dispatch, Telegram delivery, API errors\n"
+                "- logs/clawdbot.log — browser automation, site builds, Netlify deploys\n"
+                "\n"
+                "ERROR PATTERNS TO SEARCH FOR:\n"
+                "- 'Traceback' or 'Exception' — unhandled errors\n"
+                "- 'timeout' or 'ConnectionRefused' — infrastructure failures\n"
+                "- 'budget_exceeded' or 'rate_limit' — cost overruns\n"
+                "- 'FATAL' or 'CRITICAL' — daemon-killing errors\n"
+                "\n"
+                "DB TABLES FOR DIAGNOSIS:\n"
+                "- events: SELECT * FROM events WHERE level = 'error' ORDER BY created_at DESC LIMIT 50\n"
+                "- task_queue: SELECT * FROM task_queue WHERE status = 'failed' ORDER BY updated_at DESC LIMIT 20\n"
+                "- budget_tracking: SELECT * FROM budget_tracking WHERE date = CURRENT_DATE\n"
+                "\n"
+                "INVESTIGATION METHODOLOGY:\n"
+                "1. Read the most recent 200 lines of each log file\n"
+                "2. Search for error patterns across all logs\n"
+                "3. Cross-reference errors with task_queue and events tables\n"
+                "4. Produce a structured finding: {file, line_range, error_class, root_cause, fix_suggestion}"
             ),
             "tools": [
                 "think", "file_read", "shell_exec", "memory_store",
                 "memory_retrieve", "memory_search",
             ],
+            # Phase 21 — read-only restriction: investigators observe, never mutate
+            "disallowed_tools": [
+                "browser_click", "browser_type", "browser_navigate",
+                "file_write", "file_delete",
+            ],
+            "permission_level": "supervised",
             "schedule_type": "interval",
             "schedule_value": 900,
             "router_policy": "heuristic",
@@ -108,9 +259,33 @@ FRAMEWORK_AGENT_SPECS = [
         "name": "openjarvis-runtime-monitor",
         "agent_type": "monitor_operative",
         "config": {
+            "model": "fast",  # Haiku — monitoring is classification
+            "context_level": "minimal",  # Strip heavy context for cost savings
             "instruction": (
                 "Monitor OpenJarvis runtime health, tool failures, scheduler drift, and agent "
-                "activity. Persist state between ticks and escalate actionable anomalies."
+                "activity. Persist state between ticks and escalate actionable anomalies.\n"
+                "\n"
+                "HEALTH CHECK ENDPOINTS TO PROBE:\n"
+                "- http://localhost:9000/health — orchestrator A2A server\n"
+                "- http://localhost:9001/health — Titan revenue daemon\n"
+                "- http://localhost:9002/health — Hermes alerts daemon\n"
+                "- http://localhost:9003/health — ClawdBot site builder\n"
+                "\n"
+                "DAEMON PROCESSES TO VERIFY (via shell_exec 'pgrep -f'):\n"
+                "- perseus/daemon.py — scheduler must be running\n"
+                "- titan/daemon.py — revenue pipeline must be running\n"
+                "- hermes/daemon.py — alert dispatch must be running\n"
+                "- clawdbot/daemon.py — site builder must be running\n"
+                "\n"
+                "DB CONNECTIVITY CHECKS:\n"
+                "- Run: SELECT 1 FROM system_config LIMIT 1 — validates Postgres is reachable\n"
+                "- Check pool: SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()\n"
+                "\n"
+                "ALERT THRESHOLDS:\n"
+                "- Daemon health endpoint non-200 for >2 consecutive checks → P1 escalation\n"
+                "- task_queue WHERE status = 'failed' count > 10 in last hour → P1 escalation\n"
+                "- budget_tracking daily cost > 80%% of $800/30 daily budget → P2 warning\n"
+                "- No agent_decisions rows in last 30 minutes → P2 stall warning"
             ),
             "tools": [
                 "think", "memory_store", "memory_retrieve", "memory_search",
@@ -147,6 +322,9 @@ class Orchestrator:
         self._operator_manager = None
         self._learning_handler = None
         self._loop_tasks: list[asyncio.Task] = []
+        # Phase 26a-05 (A-15): Deferred post-first-tick initialization
+        self._first_tick_done = asyncio.Event()
+        self._post_first_tick_launched = False
 
     # ── A2A Handler ───────────────────────────────────────────────────
 
@@ -200,7 +378,7 @@ class Orchestrator:
                 from tools.budget_guard import get_budget_report
                 report = await get_budget_report()
                 return json.dumps(report, default=str)
-            except Exception as exc:
+            except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 return json.dumps({"error": str(exc)})
 
         if capability == "sleep_cycle_trigger":
@@ -225,7 +403,7 @@ class Orchestrator:
         logger.info("  OPENJARVIS — THE BOSS IS STARTING")
         logger.info("=" * 60)
 
-        # 1. Boot OJ runtime
+        # 1. Boot OJ runtime (sync — no DB needed)
         from shared.oj_bridge import (
             get_agent_manager,
             get_audit_logger,
@@ -237,18 +415,27 @@ class Orchestrator:
         get_agent_manager()
         get_audit_logger()
 
+        # 2. DB pool init — MUST complete before integration boot and framework
+        # bootstrap because both write to / read from Postgres.
         from shared.db import init_pool
         await init_pool()
-        logger.info("OJ runtime initialized")
+        logger.info("OJ runtime + DB pool initialized")
 
-        # Boot integration modules (telemetry, tool registry, MCP, etc.)
+        # Phase 18b-05: Parallelize independent boot phases.
+        #
+        # Dependency analysis:
+        #   - boot_integration() needs DB pool (telemetry writes metrics) but
+        #     does NOT need the OJ framework (tools, agents, operators).
+        #   - _bootstrap_openjarvis_framework() needs DB pool (SystemBuilder
+        #     persists agent configs) and the event bus, but does NOT need
+        #     integration modules (tool registry, MCP, channels).
+        #   - Therefore these two can safely run concurrently after init_pool().
         from shared.integration_boot import boot_integration
-        integration_status = await boot_integration("orchestrator")
+        integration_status, _ = await asyncio.gather(
+            boot_integration("orchestrator"),
+            self._bootstrap_openjarvis_framework(bus),
+        )
         logger.info("Integration boot status: %s", integration_status)
-
-        # Boot the full OpenJarvis framework so production actually uses
-        # managed agents, tools, operators, routing, and learning hooks.
-        await self._bootstrap_openjarvis_framework(bus)
 
         # 2. Start vassals (with port-probe reconciliation)
         project_dir = os.path.dirname(os.path.abspath(__file__))
@@ -258,8 +445,8 @@ class Orchestrator:
         await self._probe_and_start_vassals()
         logger.info("Vassal supervisor ready")
 
-        # Wait for A2A servers to come up
-        await asyncio.sleep(3)
+        # Wait for A2A servers to come up (readiness probe replaces fixed sleep)
+        await self._wait_for_vassals_ready()
 
         # 3. Discover capabilities
         from openjarvis.vassals.discovery import VassalDiscovery
@@ -286,7 +473,7 @@ class Orchestrator:
         try:
             from tools.budget_guard import BudgetGuard
             budget_guard = BudgetGuard()
-        except Exception:
+        except (ImportError, OSError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
             pass
 
         # Create WakeupQueue (Phase 16: event-driven wakeup)
@@ -320,16 +507,33 @@ class Orchestrator:
         logger.info("=" * 60)
 
         try:
-            loops = [
-                self._scheduler.start(),       # Strategic brain
-                self._relay.start_polling(),   # Event bridge
-                self._command_loop(),          # Operator commands
-                self._followup_loop(),         # Stale task monitoring
-                self._sleep_cycle_loop(),      # Nightly optimization
-                self._scout_loop(),            # External intelligence
-                self._deerflow_loop(),         # Continuous evolution research
-                self._self_audit_loop(),       # Codebase self-audit
-            ]
+            # Phase 26a-05 (A-15): When ANATOMY_RUNTIME_STATE is active, defer
+            # non-critical loops (scout, deerflow, self-audit) until after the
+            # first scheduler tick completes.  This reduces boot-time contention
+            # and lets the strategic brain assess state before background work.
+            if self._deferred_startup_enabled():
+                logger.info("Deferred startup active — scout/deerflow/audit deferred to post-first-tick")
+                loops = [
+                    self._scheduler_with_first_tick_signal(),  # Signals after tick 1
+                    self._relay.start_polling(),   # Event bridge (lightweight)
+                    self._command_loop(),          # Operator commands (critical)
+                    self._followup_loop(),         # Stale task monitoring (critical)
+                    self._post_first_tick_init(),  # Launches deferred loops after tick 1
+                ]
+            else:
+                loops = [
+                    self._scheduler.start(),       # Strategic brain
+                    self._relay.start_polling(),   # Event bridge
+                    self._command_loop(),          # Operator commands
+                    self._followup_loop(),         # Stale task monitoring
+                    self._sleep_cycle_loop(),      # Nightly optimization
+                    self._scout_loop(),            # External intelligence
+                    self._deerflow_loop(),         # Continuous evolution research
+                    self._self_audit_loop(),       # Codebase self-audit
+                ]
+            # Memory bus subscriber — ingest memory.changed events into MAGMA
+            loops.append(self._memory_bus_loop())
+
             if config.ruflo.enabled:
                 loops.append(self._ruflo_validation_loop())  # Ruflo fix validation
                 loops.append(self._ruflo_maintenance_loop())  # Weekly maintenance
@@ -354,7 +558,7 @@ class Orchestrator:
                 vassal.status = "running"
                 logger.info("Adopted already-running vassal %s on port %d",
                             name, vassal.a2a_port)
-            except Exception:
+            except (OSError, ConnectionError, TimeoutError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 # Not running — spawn it
                 ok = await self._supervisor.start(name)
                 if ok:
@@ -366,6 +570,131 @@ class Orchestrator:
         self._supervisor._monitor_task = asyncio.create_task(
             self._supervisor._monitor_loop()
         )
+
+    async def _wait_for_vassals_ready(
+        self,
+        timeout: float = 15.0,
+        interval: float = 0.5,
+    ) -> None:
+        """Poll vassal health endpoints until all respond 200 or timeout.
+
+        Replaces a fixed ``asyncio.sleep(3)`` with an active readiness probe
+        so the orchestrator proceeds as soon as vassals are truly healthy.
+        """
+        import aiohttp
+
+        # Guard: supervisor not yet created or no vassals registered
+        if self._supervisor is None:
+            logger.info("Readiness probe skipped: supervisor not initialized")
+            return
+
+        vassals = getattr(self._supervisor, "_vassals", {})
+        if not vassals:
+            logger.info("Readiness probe skipped: no vassals registered")
+            return
+
+        # Build URL map for all registered vassals
+        health_targets: dict[str, str] = {}
+        for name, vassal in vassals.items():
+            port = getattr(vassal, "a2a_port", None)
+            if port:
+                health_targets[name] = f"http://localhost:{port}/a2a/health"
+
+        if not health_targets:
+            logger.info("Readiness probe skipped: no vassal health endpoints")
+            return
+
+        logger.info(
+            "Readiness probe: waiting for %d vassals (%s)",
+            len(health_targets),
+            ", ".join(health_targets),
+        )
+
+        elapsed = 0.0
+        ready: set[str] = set()
+        while elapsed < timeout:
+            ready = set()
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=2),
+                ) as session:
+                    for name, url in health_targets.items():
+                        try:
+                            async with session.get(url) as resp:
+                                if resp.status == 200:
+                                    ready.add(name)
+                        except (OSError, ConnectionError, TimeoutError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+                            pass  # vassal not ready yet
+            except (OSError, ConnectionError, TimeoutError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+                pass  # session-level error, retry
+
+            if ready == set(health_targets):
+                logger.info(
+                    "All vassals ready after %.1fs", elapsed,
+                )
+                return
+
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        not_ready = set(health_targets) - ready
+        logger.warning(
+            "Readiness probe timed out after %.1fs — not ready: %s (proceeding anyway)",
+            timeout,
+            ", ".join(sorted(not_ready)),
+        )
+
+    # ── Phase 26a-05 (A-15): Deferred post-first-tick startup ─────────
+
+    @staticmethod
+    def _deferred_startup_enabled() -> bool:
+        """Check if deferred startup is gated on via ANATOMY_RUNTIME_STATE."""
+        return os.environ.get("ANATOMY_RUNTIME_STATE", "").lower() in ("1", "true", "yes")
+
+    async def _scheduler_with_first_tick_signal(self):
+        """Wrap the scheduler loop: signal _first_tick_done after tick 1."""
+        # The scheduler's _tick_count starts at 0 and increments at the
+        # beginning of each _tick().  We monitor it from a parallel task
+        # while the scheduler runs normally.
+        monitor = asyncio.create_task(self._monitor_first_tick())
+        try:
+            await self._scheduler.start()
+        finally:
+            monitor.cancel()
+
+    async def _monitor_first_tick(self):
+        """Poll scheduler tick count and signal when first tick completes."""
+        try:
+            while not self._first_tick_done.is_set():
+                if self._scheduler and getattr(self._scheduler, "_tick_count", 0) >= 1:
+                    self._first_tick_done.set()
+                    logger.info("First scheduler tick completed — launching deferred loops")
+                    return
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
+
+    async def _post_first_tick_init(self):
+        """Launch non-critical loops after the first scheduler tick.
+
+        Defers: sleep_cycle, scout, deerflow, self-audit.
+        These are background intelligence loops that do not need to run
+        during boot — waiting for the first strategic tick reduces
+        startup contention and lets the scheduler assess state first.
+        """
+        await self._first_tick_done.wait()
+        if self._post_first_tick_launched:
+            return
+        self._post_first_tick_launched = True
+
+        logger.info("Post-first-tick init: starting deferred loops")
+        deferred = [
+            self._sleep_cycle_loop(),
+            self._scout_loop(),
+            self._deerflow_loop(),
+            self._self_audit_loop(),
+        ]
+        await asyncio.gather(*deferred)
 
     async def _bootstrap_openjarvis_framework(self, bus):
         """Boot the full OpenJarvis system layer inside production."""
@@ -406,11 +735,17 @@ class Orchestrator:
                 len(manifests),
                 len(active_ops),
             )
-        except Exception as exc:
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("OpenJarvis framework bootstrap failed: %s", exc, exc_info=True)
 
     def _ensure_framework_agents(self):
-        """Create and schedule baseline managed OpenJarvis agents."""
+        """Create and schedule baseline managed OpenJarvis agents.
+
+        When ANATOMY_DECLARATIVE_AGENTS flag is enabled, loads agent specs
+        from TOML files in the agents/ directory. Falls back to the
+        hardcoded FRAMEWORK_AGENT_SPECS if TOML loading fails or the
+        flag is off (Phase 28-02 — D-26, D-27).
+        """
         if not self._oj_system or not self._oj_system.agent_manager:
             return
 
@@ -418,7 +753,30 @@ class Orchestrator:
         scheduler = self._oj_system.agent_scheduler
         existing = {agent["name"]: agent for agent in manager.list_agents()}
 
-        for spec in FRAMEWORK_AGENT_SPECS:
+        # Phase 28-02: Declarative agent definitions from TOML
+        specs = FRAMEWORK_AGENT_SPECS
+        if os.environ.get("ANATOMY_DECLARATIVE_AGENTS", "").lower() in ("true", "1"):
+            try:
+                from shared.agent_loader import load_agent_specs
+
+                toml_specs = load_agent_specs()
+                if toml_specs:
+                    specs = toml_specs
+                    logger.info(
+                        "Loaded %d agent specs from TOML (declarative mode)",
+                        len(toml_specs),
+                    )
+                else:
+                    logger.warning(
+                        "TOML agent specs empty, falling back to hardcoded FRAMEWORK_AGENT_SPECS",
+                    )
+            except (ImportError, OSError, ValueError, KeyError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.warning(
+                    "Failed to load TOML agent specs, falling back to hardcoded: %s",
+                    exc,
+                )
+
+        for spec in specs:
             desired_config = dict(spec["config"])
             current = existing.get(spec["name"])
             if current is None:
@@ -465,7 +823,7 @@ class Orchestrator:
             try:
                 self._operator_manager.activate(operator_id)
                 active.append(operator_id)
-            except Exception as exc:
+            except (RuntimeError, ValueError, KeyError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("Failed to activate operator %s: %s", operator_id, exc)
         return active
 
@@ -481,7 +839,7 @@ class Orchestrator:
                 try:
                     result = orchestrator.run(agent_id=agent_id)
                     logger.info("Learning run for %s: %s", agent_id, result.get("status", "ok"))
-                except Exception as exc:
+                except (RuntimeError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                     logger.warning("Learning run failed for %s: %s", agent_id, exc)
 
             threading.Thread(target=_run, daemon=True, name=f"oj-learning-{agent_id[:6]}").start()
@@ -491,7 +849,15 @@ class Orchestrator:
     # ── Operator Command Loop (boss-specific) ─────────────────────────
 
     async def _command_loop(self):
-        """Listen for operator commands and decompose into agent work."""
+        """Listen for operator commands and decompose into agent work.
+
+        When ANATOMY_GENERATOR_LOOP is enabled, delegates to the generator
+        version consumed via ``_run_loop``.
+        """
+        if _generator_loop_enabled():
+            await _run_loop("command_loop", self._command_loop_gen())
+            return
+
         while self._running:
             try:
                 from shared.db import execute as db_execute
@@ -525,9 +891,57 @@ class Orchestrator:
                         "UPDATE task_queue SET status = 'completed' WHERE id = %s",
                         (task_id,))
 
-            except Exception as exc:
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("Command loop: %s", exc)
 
+            await asyncio.sleep(10)
+
+    async def _command_loop_gen(self) -> AsyncGenerator[TickResult, None]:
+        """Generator version of _command_loop (Phase 26b-06)."""
+        turn = 0
+        while self._running:
+            processed = 0
+            error_msg = ""
+            try:
+                from shared.db import execute as db_execute
+                from shared.db import fetch_all
+
+                commands = await fetch_all(
+                    """SELECT id, payload FROM task_queue
+                       WHERE task_type = 'operator_command'
+                       AND status = 'pending'
+                       ORDER BY created_at ASC LIMIT 3"""
+                )
+                for cmd in commands or []:
+                    task_id = cmd["id"]
+                    payload = cmd.get("payload", {})
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                    text = payload.get("text", payload.get("description", ""))
+                    if not text:
+                        await db_execute(
+                            "UPDATE task_queue SET status = 'completed' WHERE id = %s",
+                            (task_id,))
+                        continue
+
+                    await db_execute(
+                        "UPDATE task_queue SET status = 'running' WHERE id = %s",
+                        (task_id,))
+                    await self._handle_command(text)
+                    await db_execute(
+                        "UPDATE task_queue SET status = 'completed' WHERE id = %s",
+                        (task_id,))
+                    processed += 1
+
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                error_msg = str(exc)
+                logger.warning("Command loop: %s", exc)
+
+            yield TickResult(
+                content=f"processed={processed}" + (f" error={error_msg}" if error_msg else ""),
+                turn_number=turn,
+            )
+            turn += 1
             await asyncio.sleep(10)
 
     async def _handle_command(self, command: str):
@@ -595,7 +1009,7 @@ class Orchestrator:
                  f"Decomposed into {len(tasks)} tasks: {reasoning[:200]}"),
             )
 
-        except Exception as exc:
+        except (OSError, ValueError, KeyError, json.JSONDecodeError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.error("Boss command handling failed: %s", exc)
             from shared.comms import send_alert
             await send_alert(
@@ -606,7 +1020,15 @@ class Orchestrator:
     # ── Followup Loop (boss-specific) ─────────────────────────────────
 
     async def _followup_loop(self):
-        """Monitor team progress and intervene when needed."""
+        """Monitor team progress and intervene when needed.
+
+        When ANATOMY_GENERATOR_LOOP is enabled, delegates to the generator
+        version consumed via ``_run_loop``.
+        """
+        if _generator_loop_enabled():
+            await _run_loop("followup_loop", self._followup_loop_gen())
+            return
+
         while self._running:
             try:
                 from shared.comms import ask_agent, send_alert
@@ -650,10 +1072,138 @@ class Orchestrator:
                                 sender="openjarvis",
                             )
 
-            except Exception as exc:
+            except (OSError, ValueError, KeyError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("Followup loop: %s", exc)
 
             await asyncio.sleep(300)
+
+    async def _followup_loop_gen(self) -> AsyncGenerator[TickResult, None]:
+        """Generator version of _followup_loop (Phase 26b-06)."""
+        turn = 0
+        while self._running:
+            stale_count = 0
+            down_agents: list[str] = []
+            error_msg = ""
+            try:
+                from shared.comms import ask_agent, send_alert
+                from shared.db import fetch_all, fetch_val
+
+                stale = await fetch_all(
+                    """SELECT id, task_type, assigned_agent, created_at FROM task_queue
+                       WHERE status = 'running'
+                       AND created_at < NOW() - INTERVAL '10 minutes'
+                       LIMIT 5"""
+                )
+                for task in stale or []:
+                    stale_count += 1
+                    agent = task.get("assigned_agent", "unknown")
+                    task_type = task.get("task_type", "unknown")
+                    logger.warning("Boss: task '%s' assigned to %s is stale (10+ min)",
+                                   task_type, agent)
+
+                    response = await ask_agent(
+                        "openjarvis", agent,
+                        f"You have task '{task_type}' running for 10+ minutes. Status?",
+                        timeout=10,
+                    )
+                    if response:
+                        logger.info("Boss followup — %s says: %s",
+                                    agent, response.get("answer", "")[:150])
+
+                for agent_name in ("titan", "clawdbot", "hermes"):
+                    recent = await fetch_val(
+                        """SELECT COUNT(*) FROM task_queue
+                           WHERE assigned_agent = %s AND status = 'completed'
+                           AND created_at > NOW() - INTERVAL '30 minutes'""",
+                        (agent_name,),
+                    ) or 0
+                    if recent == 0:
+                        from shared.comms import is_agent_alive
+                        alive = await is_agent_alive(agent_name, max_age_seconds=120)
+                        if not alive:
+                            down_agents.append(agent_name)
+                            logger.error("Boss: %s appears down", agent_name)
+                            await send_alert(
+                                f"Agent {agent_name} may be down. No completions in 30min.",
+                                sender="openjarvis",
+                            )
+
+            except (OSError, ValueError, KeyError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                error_msg = str(exc)
+                logger.warning("Followup loop: %s", exc)
+
+            yield TickResult(
+                content=f"stale={stale_count} down={down_agents}" + (f" error={error_msg}" if error_msg else ""),
+                turn_number=turn,
+            )
+            turn += 1
+            await asyncio.sleep(300)
+
+    # ── Memory Bus Subscriber Loop ───────────────────────────────────
+
+    async def _memory_bus_loop(self) -> None:
+        """Poll for memory.changed events and feed them to MAGMA.
+
+        On startup, runs catch_up() to ingest anything missed while the
+        orchestrator was down.  Then polls the events table every 5 seconds
+        for new memory.changed events, dispatches each to the
+        MagmaMemorySubscriber, and acknowledges processed rows.
+        """
+        from shared.comms import MEMORY_CHANGED_TOPIC
+
+        try:
+            from shared.magma import get_memory_subscriber
+            subscriber = get_memory_subscriber()
+        except (ImportError, RuntimeError) as exc:
+            logger.warning("Memory bus subscriber unavailable: %s", exc)
+            return
+
+        # Catch-up on missed events from previous downtime
+        try:
+            caught_up = await subscriber.catch_up()
+            if caught_up:
+                logger.info("Memory bus: caught up %d missed records", caught_up)
+        except (ConnectionError, RuntimeError, OSError) as exc:
+            logger.debug("Memory bus catch-up failed (non-fatal): %s", exc)
+
+        logger.info("Memory bus subscriber started — polling for %s events", MEMORY_CHANGED_TOPIC)
+        last_seen_id = 0
+
+        while self._running:
+            try:
+                from shared.db import execute, fetch_all
+                rows = await fetch_all(
+                    """SELECT id, payload FROM events
+                       WHERE event_type = %s AND acknowledged = FALSE AND id > %s
+                       ORDER BY id ASC LIMIT 50""",
+                    (MEMORY_CHANGED_TOPIC, last_seen_id),
+                )
+                for row in rows:
+                    event_id = row["id"]
+                    payload = row.get("payload", {})
+                    if isinstance(payload, str):
+                        import json as _json
+                        try:
+                            payload = _json.loads(payload)
+                        except (ValueError, TypeError):
+                            payload = {}
+
+                    try:
+                        await subscriber.handle_event(payload)
+                    except (RuntimeError, OSError, ConnectionError) as exc:
+                        logger.debug("Memory bus: handle_event failed for %s: %s", event_id, exc)
+
+                    # Acknowledge regardless (avoid infinite retry on bad payloads)
+                    await execute(
+                        "UPDATE events SET acknowledged = TRUE WHERE id = %s",
+                        (event_id,),
+                    )
+                    last_seen_id = max(last_seen_id, event_id)
+
+            except (ConnectionError, RuntimeError, OSError) as exc:
+                logger.debug("Memory bus poll error (will retry): %s", exc)
+
+            await asyncio.sleep(5)
 
     # ── Nightly Sleep Cycle ───────────────────────────────────────────
 
@@ -693,13 +1243,23 @@ class Orchestrator:
             cycle_id = datetime.datetime.now().strftime("%Y-%m-%d")
             await evaluate_division_need(state, cycle_id)
 
-        except Exception as exc:
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.error("Sleep cycle error: %s", exc, exc_info=True)
 
     # ── Codebase Self-Audit ────────────────────────────────────────────
 
     async def _self_audit_loop(self):
-        """Run codebase self-audit every 3 hours with multi-agent consensus."""
+        """Run codebase self-audit every 3 hours with multi-agent consensus.
+
+        When ANATOMY_GENERATOR_LOOP is enabled, delegates to the generator
+        version consumed via ``_run_loop``.
+        """
+        if _generator_loop_enabled():
+            # Initial delay preserved
+            await asyncio.sleep(1800)
+            await _run_loop("self_audit_loop", self._self_audit_loop_gen())
+            return
+
         # Initial delay: wait 30 min after startup for system to stabilize
         await asyncio.sleep(1800)
 
@@ -713,8 +1273,41 @@ class Orchestrator:
                     result.get("approved", 0),
                     result.get("applied", 0),
                 )
-            except Exception as exc:
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("Self-audit failed: %s", exc)
+
+            # Wait 3 hours until next cycle
+            wait = 10800  # 3 hours
+            while self._running and wait > 0:
+                chunk = min(wait, 60)
+                await asyncio.sleep(chunk)
+                wait -= chunk
+
+    async def _self_audit_loop_gen(self) -> AsyncGenerator[TickResult, None]:
+        """Generator version of _self_audit_loop (Phase 26b-06)."""
+        turn = 0
+        while self._running:
+            findings = 0
+            error_msg = ""
+            try:
+                from perseus.self_audit import run_self_audit
+                result = await run_self_audit()
+                findings = result.get("total_findings", 0)
+                logger.info(
+                    "Self-audit: %d findings, %d approved, %d applied",
+                    findings,
+                    result.get("approved", 0),
+                    result.get("applied", 0),
+                )
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                error_msg = str(exc)
+                logger.warning("Self-audit failed: %s", exc)
+
+            yield TickResult(
+                content=f"findings={findings}" + (f" error={error_msg}" if error_msg else ""),
+                turn_number=turn,
+            )
+            turn += 1
 
             # Wait 3 hours until next cycle
             wait = 10800  # 3 hours
@@ -765,7 +1358,7 @@ class Orchestrator:
                                 if findings:
                                     validation_details[fpath] = [f.get("issue", "") for f in findings]
                                     validation_passed = False
-                    except Exception as e:
+                    except (ImportError, OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                         logger.debug("Ruflo validation analysis failed: %s", e)
                         validation_details["error"] = str(e)
 
@@ -807,7 +1400,7 @@ class Orchestrator:
 
                     logger.info("Ruflo task %d validation: %s (%s)", task_id, status, task_type)
 
-            except Exception as exc:
+            except (OSError, ValueError, KeyError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.debug("Ruflo validation loop error: %s", exc)
 
             # Check every 60 seconds
@@ -851,7 +1444,7 @@ class Orchestrator:
                 result = await run_scout_cycle(include_tier2=is_morning)
                 logger.info("Scout cycle: %d found, %d new, %d actionable",
                             result.get("total", 0), result.get("new", 0), result.get("actionable", 0))
-            except Exception as exc:
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("Scout cycle failed: %s", exc)
 
     async def _deerflow_loop(self):
@@ -922,7 +1515,7 @@ class Orchestrator:
                     if "error" not in result:
                         last_brief_date = now.date()
                         logger.info("DeerFlow daily brief generated: %s", result.get("artifact", {}))
-            except Exception as exc:
+            except (ImportError, OSError, RuntimeError, ValueError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.debug("DeerFlow loop error: %s", exc)
 
             await asyncio.sleep(60)
@@ -966,7 +1559,7 @@ class Orchestrator:
                     if task_id:
                         logger.info("Weekly maintenance: dispatched %s to Ruflo (task %s)",
                                    task_type, task_id)
-                except Exception as e:
+                except (OSError, ValueError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                     logger.debug("Weekly maintenance dispatch failed: %s", e)
 
             # Check every 5 minutes
@@ -1001,7 +1594,7 @@ class Orchestrator:
             from shared.db import close_pool
             await close_pool()
             logger.info("DB pool closed")
-        except Exception:
+        except (OSError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
             pass
 
         if self._oj_system is not None:
@@ -1015,7 +1608,7 @@ class Orchestrator:
                     )
                 self._oj_system.close()
                 logger.info("OpenJarvis system closed")
-            except Exception:
+            except (OSError, RuntimeError, AttributeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("OpenJarvis system cleanup failed", exc_info=True)
 
         logger.info("OpenJarvis shutdown complete")
@@ -1085,6 +1678,10 @@ async def main_with_a2a():
 
 
 if __name__ == "__main__":
+    # Phase 18b-06: fast-path for lightweight queries — no full boot needed
+    if _fast_path_dispatch():
+        sys.exit(0)
+
     if os.environ.get("ORCHESTRATOR_A2A", "1") == "1":
         asyncio.run(main_with_a2a())
     else:

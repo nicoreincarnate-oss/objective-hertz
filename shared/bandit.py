@@ -77,6 +77,7 @@ class BanditPolicy:
 
     def __init__(self):
         self._experiments: dict[str, Experiment] = {}
+        self._snapshot_loaded: set[str] = set()
 
     def _get_or_create(self, experiment_id: str, arms: list[str] | None = None) -> Experiment:
         if experiment_id not in self._experiments:
@@ -85,6 +86,18 @@ class BanditPolicy:
                 exp.add_arm(arm_name)
             self._experiments[experiment_id] = exp
         return self._experiments[experiment_id]
+
+    async def _ensure_snapshot_loaded(self, experiment_id: str) -> None:
+        """Load persisted snapshot on first access per experiment (lazy init)."""
+        if experiment_id in self._snapshot_loaded:
+            return
+        self._snapshot_loaded.add(experiment_id)
+        try:
+            restored = await self.load_snapshot(experiment_id)
+            if restored:
+                logger.debug("Bandit snapshot restored for %s", experiment_id)
+        except (ConnectionError, RuntimeError, OSError, ImportError) as exc:
+            logger.debug("Bandit snapshot load skipped for %s: %s", experiment_id, exc)
 
     async def select(self, experiment_id: str, arms: list[str] | None = None) -> str:
         """Select an arm via Thompson Sampling.
@@ -98,6 +111,7 @@ class BanditPolicy:
         if not BANDIT_ENABLED:
             return (arms or ["default"])[0]
 
+        await self._ensure_snapshot_loaded(experiment_id)
         exp = self._get_or_create(experiment_id, arms)
 
         if not exp.arms:
