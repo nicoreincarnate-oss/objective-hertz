@@ -1,8 +1,12 @@
-"""Per-call cost event recording — Paperclip Pattern 8.
+"""Per-call cost event recording — Paperclip Pattern 8 + Phase 31 BATS.
 
 Every LLM call emits a CostEvent to the cost_events table.
 Includes task_id from observability context for attribution.
 Feature flag: PER_CALL_COST_EVENTS_ENABLED (env-based, default false).
+
+Phase 31 additions:
+- UnifiedBudget: tracks combined token + tool costs with regime awareness (BATS)
+- CostEvent extended with tool_name, budget_regime, task_id linkage
 """
 
 from __future__ import annotations
@@ -19,6 +23,135 @@ def _cost_events_enabled() -> bool:
     return os.environ.get("PER_CALL_COST_EVENTS_ENABLED", "false").lower() in ("true", "1", "yes")
 
 
+def _bats_enabled() -> bool:
+    return os.environ.get("BATS_ADAPTIVE_BUDGET", "true").lower() in ("true", "1", "yes")
+
+
+# ---------------------------------------------------------------------------
+# Tool pricing defaults (Phase 31 — BATS)
+# ---------------------------------------------------------------------------
+
+DEFAULT_TOOL_PRICES: dict[str, float] = {
+    # Internal tools (compute proxy)
+    "shell_exec": 0.001,
+    "file_read": 0.001,
+    "file_write": 0.001,
+    "git": 0.001,
+    # External API tools
+    "web_search": 0.01,
+    "firecrawl": 0.01,
+    "crawl4ai": 0.01,
+    "searxng": 0.01,
+    # No-cost tools
+    "think": 0.0,
+    "calculator": 0.0,
+}
+
+
+# ---------------------------------------------------------------------------
+# UnifiedBudget — Phase 31 BATS budget awareness
+# ---------------------------------------------------------------------------
+
+@dataclass
+class UnifiedBudget:
+    """Tracks combined token + tool costs with regime awareness (BATS).
+
+    Budget regimes:
+    - HIGH (>=70% remaining): explore freely
+    - MEDIUM (30-70%): verify before new tools
+    - LOW (10-30%): wrap up, respond with current knowledge
+    - CRITICAL (<10%): respond immediately with best available answer
+    """
+    # Token costs
+    token_budget_usd: float          # allocated for this task
+    token_spent_usd: float = 0.0
+    # Tool costs
+    tool_budgets: dict[str, int] = field(default_factory=dict)   # tool -> max calls
+    tool_used: dict[str, int] = field(default_factory=dict)      # tool -> calls made
+    tool_prices: dict[str, float] = field(default_factory=dict)  # tool -> $/call
+
+    @property
+    def total_budget(self) -> float:
+        return self.token_budget_usd + sum(
+            self.tool_budgets.get(t, 0) * self.tool_prices.get(t, 0)
+            for t in self.tool_budgets
+        )
+
+    @property
+    def total_spent(self) -> float:
+        return self.token_spent_usd + sum(
+            self.tool_used.get(t, 0) * self.tool_prices.get(t, 0)
+            for t in self.tool_used
+        )
+
+    @property
+    def remaining_pct(self) -> float:
+        tb = max(self.total_budget, 0.001)
+        return max(0.0, (1 - self.total_spent / tb) * 100)
+
+    @property
+    def budget_regime(self) -> str:
+        pct = self.remaining_pct
+        if pct >= 70:
+            return "HIGH"
+        if pct >= 30:
+            return "MEDIUM"
+        if pct >= 10:
+            return "LOW"
+        return "CRITICAL"
+
+    def record_token_spend(self, cost_usd: float) -> None:
+        """Record token spend."""
+        self.token_spent_usd += cost_usd
+
+    def record_tool_use(self, tool_name: str) -> None:
+        """Record a tool call, using default pricing if unknown."""
+        self.tool_used[tool_name] = self.tool_used.get(tool_name, 0) + 1
+        if tool_name not in self.tool_prices:
+            self.tool_prices[tool_name] = DEFAULT_TOOL_PRICES.get(tool_name, 0.001)
+
+    @property
+    def regime_hint(self) -> str:
+        """Return a behavioral hint string for the current budget regime."""
+        regime = self.budget_regime
+        if regime == "HIGH":
+            return "explore freely"
+        if regime == "MEDIUM":
+            return "verify before new tools"
+        if regime == "LOW":
+            return "wrap up, respond with current knowledge"
+        return "respond immediately with best available answer"
+
+    def format_status(self) -> str:
+        """Format a compact budget status message (capped at ~80 tokens)."""
+        tool_count = sum(self.tool_used.values())
+        tool_budget_total = sum(self.tool_budgets.values()) if self.tool_budgets else 0
+        return (
+            f"[BUDGET: {self.remaining_pct:.0f}% remaining | "
+            f"regime={self.budget_regime} | "
+            f"tokens=${self.token_spent_usd:.2f}/${self.token_budget_usd:.2f} | "
+            f"tools={tool_count}/{tool_budget_total or '?'} | "
+            f"hint={self.regime_hint}]"
+        )
+
+
+def create_default_budget(
+    token_budget_usd: float = 1.0,
+    tool_budget_per_tool: int = 10,
+) -> UnifiedBudget:
+    """Create a UnifiedBudget with sensible defaults."""
+    tool_budgets = {name: tool_budget_per_tool for name in DEFAULT_TOOL_PRICES}
+    return UnifiedBudget(
+        token_budget_usd=token_budget_usd,
+        tool_budgets=tool_budgets,
+        tool_prices=dict(DEFAULT_TOOL_PRICES),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CostEvent — original + Phase 31 enhancements
+# ---------------------------------------------------------------------------
+
 @dataclass
 class CostEvent:
     """Single LLM call cost record."""
@@ -32,6 +165,9 @@ class CostEvent:
     task_id: str | None = None
     task_type: str | None = None
     event_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    # Phase 31 — BATS enhancements
+    tool_name: str | None = None         # which tool triggered this cost
+    budget_regime: str | None = None     # regime at time of event
 
 
 async def emit_cost_event(event: CostEvent) -> None:
@@ -206,3 +342,47 @@ async def get_average_cost_by_task_type(task_type: str, lookback_days: int = 30)
     except (OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("Average cost lookup failed: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: BATS budget decision logging
+# ---------------------------------------------------------------------------
+
+async def log_budget_decision(
+    task_id: str | None,
+    regime: str,
+    token_spent: float,
+    token_budget: float,
+    tool_calls_made: int,
+    tool_budget: int,
+    constraint_triggered: str | None,
+    action_taken: str,
+) -> None:
+    """Log a BATS budget decision to the budget_decisions table.
+
+    Fire-and-forget: logs warning on failure, never raises.
+    """
+    if not _bats_enabled():
+        return
+
+    try:
+        from shared.db import execute
+
+        await execute(
+            """INSERT INTO budget_decisions
+               (task_id, regime, token_spent, token_budget,
+                tool_calls_made, tool_budget, constraint_triggered, action_taken)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                task_id,
+                regime,
+                round(token_spent, 6),
+                round(token_budget, 6),
+                tool_calls_made,
+                tool_budget,
+                constraint_triggered,
+                action_taken,
+            ),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("Budget decision log failed (non-fatal): %s", exc)

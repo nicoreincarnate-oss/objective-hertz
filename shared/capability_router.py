@@ -7,11 +7,17 @@ Falls back to static routing when A2A discovery is unavailable.
 
 Now also queries the UnifiedToolRegistry for local tool matches
 before falling back to remote A2A agents.
+
+Phase 31 additions:
+- UGO (Utility-Guided Orchestration) utility scorer
+- score_actions() evaluates utility before each tool/agent call
 """
+from __future__ import annotations
 
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -77,7 +83,7 @@ class CapabilityRouter:
                             skill_name = skill if isinstance(skill, str) else skill.get("name", "")
                             if skill_name:
                                 self._capability_map[skill_name] = agent_name
-            except Exception as e:
+            except (httpx.HTTPError, OSError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.debug(f"Discovery failed for {agent_name} at {url}: {e}")
 
         logger.info(
@@ -145,7 +151,7 @@ class CapabilityRouter:
                 "latency_seconds": getattr(result, "latency_seconds", 0.0),
             }
 
-        except Exception as exc:
+        except (ImportError, AttributeError, KeyError, ValueError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug("ToolRegistry lookup failed for '%s': %s", tool_name, exc)
             return None
 
@@ -195,7 +201,7 @@ class CapabilityRouter:
                 if spec.env_satisfied():
                     return f"tool:{spec.name}"
 
-        except Exception as exc:
+        except (ImportError, AttributeError, KeyError, ValueError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug("ToolRegistry check failed for '%s': %s", task_type, exc)
 
         return None
@@ -254,3 +260,150 @@ def get_capability_router() -> CapabilityRouter:
     if _router is None:
         _router = CapabilityRouter()
     return _router
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: UGO — Utility-Guided Orchestration
+# ---------------------------------------------------------------------------
+
+def _ugo_enabled() -> bool:
+    return os.environ.get("UGO_UTILITY_ROUTING", "true").lower() in ("true", "1", "yes")
+
+
+# Default lambda weights — tunable via bandit (Task 3c)
+LAMBDA_COST = 0.3
+LAMBDA_UNCERTAINTY = 0.5
+LAMBDA_REDUNDANCY = 0.8
+
+# Action types that UGO evaluates
+UGO_ACTIONS = ("respond", "retrieve", "tool_call", "verify", "stop")
+
+
+@dataclass
+class UtilityScore:
+    """Scored action candidate from UGO evaluation."""
+    action: str             # respond | retrieve | tool_call | verify | stop
+    gain: float             # estimated information gain
+    step_cost: float        # normalized cost (0-1)
+    uncertainty: float      # current uncertainty (0-1)
+    redundancy: float       # overlap with prior actions (0-1)
+    utility: float          # computed U(a|s_t)
+
+
+def _estimate_gain(action: str, current_confidence: float) -> float:
+    """Heuristic gain estimation per action type."""
+    if action == "respond":
+        return current_confidence  # high confidence = good time to respond
+    if action == "retrieve":
+        return 1.0 - current_confidence  # low confidence = high gain from retrieval
+    if action == "tool_call":
+        return 0.6  # fixed moderate — tools generally useful
+    if action == "verify":
+        return 0.3  # fixed modest — verification has diminishing returns
+    return 0.0  # stop: no new information
+
+
+def _estimate_cost(
+    action: str,
+    budget: object | None = None,
+) -> float:
+    """Normalized cost estimation per action type."""
+    if action == "respond":
+        return 0.05  # just the response tokens
+    if action == "retrieve":
+        return 0.15  # MAGMA query + embedding
+    if action == "tool_call":
+        if budget is not None and hasattr(budget, "token_budget_usd"):
+            # Normalize tool cost against budget
+            avg_tool_cost = 0.01  # default for external tools
+            budget_usd = max(getattr(budget, "token_budget_usd", 1.0), 0.001)
+            return min(avg_tool_cost / budget_usd, 1.0)
+        return 0.20
+    if action == "verify":
+        return 0.10  # verification LLM call
+    return 0.0  # stop: free
+
+
+def _estimate_redundancy(
+    action: str,
+    action_history: list[str],
+    tool_call_hashes: set[str],
+) -> float:
+    """Estimate redundancy of an action given history."""
+    # Count how many times this action type appeared
+    type_count = sum(1 for a in action_history if a == action)
+
+    if type_count > 3:
+        return 0.5  # partial redundancy after 3+ of same type
+
+    # For tool_call, check if we have exact hash matches
+    if action == "tool_call" and tool_call_hashes:
+        # If there are any hashes, there's some redundancy risk
+        return min(len(tool_call_hashes) * 0.1, 0.5)
+
+    return 0.0
+
+
+def score_actions(
+    current_confidence: float,
+    budget: object | None = None,
+    action_history: list[str] | None = None,
+    tool_call_hashes: set[str] | None = None,
+    available_tools: list[str] | None = None,
+    lambda_cost: float = LAMBDA_COST,
+    lambda_uncertainty: float = LAMBDA_UNCERTAINTY,
+    lambda_redundancy: float = LAMBDA_REDUNDANCY,
+) -> list[UtilityScore]:
+    """Score all available actions by utility. Returns sorted highest-first.
+
+    Implements UGO (Utility-Guided Orchestration) from Phase 31.
+    When UGO_UTILITY_ROUTING is disabled, returns a default ordering.
+
+    Args:
+        current_confidence: agent's confidence in its current answer (0-1)
+        budget: UnifiedBudget instance for cost normalization
+        action_history: list of previously taken action types
+        tool_call_hashes: set of (tool_name:args) hashes already executed
+        available_tools: list of available tool names (unused currently)
+        lambda_cost: cost penalty weight
+        lambda_uncertainty: uncertainty penalty weight
+        lambda_redundancy: redundancy penalty weight
+
+    Returns:
+        List of UtilityScore sorted by utility (highest first)
+    """
+    if not _ugo_enabled():
+        # Default ordering when UGO is off
+        return [
+            UtilityScore(a, 0.5, 0.0, 0.0, 0.0, 0.5)
+            for a in UGO_ACTIONS
+        ]
+
+    hist = action_history or []
+    hashes = tool_call_hashes or set()
+
+    # Budget-regime bias: in LOW/CRITICAL, bias toward respond/stop
+    regime_bias: dict[str, float] = {}
+    if budget is not None and hasattr(budget, "budget_regime"):
+        regime = getattr(budget, "budget_regime", "HIGH")
+        if regime in ("LOW", "CRITICAL"):
+            regime_bias = {"respond": 0.3, "stop": 0.2}
+        elif regime == "MEDIUM":
+            regime_bias = {"respond": 0.1}
+
+    scores = []
+    for action in UGO_ACTIONS:
+        gain = _estimate_gain(action, current_confidence) + regime_bias.get(action, 0.0)
+        cost = _estimate_cost(action, budget)
+        uncertainty = 1.0 - current_confidence
+        redundancy = _estimate_redundancy(action, hist, hashes)
+
+        utility = (
+            gain
+            - lambda_cost * cost
+            - lambda_uncertainty * uncertainty
+            - lambda_redundancy * redundancy
+        )
+        scores.append(UtilityScore(action, gain, cost, uncertainty, redundancy, utility))
+
+    return sorted(scores, key=lambda s: s.utility, reverse=True)
