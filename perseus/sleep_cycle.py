@@ -49,7 +49,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
         from titan.memory import memory_gc
         gc_stats = await memory_gc()
         logger.info(f"Sleep cycle memory GC: {gc_stats}")
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Sleep cycle memory GC failed (non-critical): {e}")
 
     # Phase A: gather everything
@@ -154,7 +154,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
             logger.warning(f"Self-play NOT sustainable: mutual_info={sustainability.get('mutual_info', 0):.3f}. "
                           f"{sustainability.get('recommendation', '')}")
             await emit_event("self_play_unsustainable", sustainability)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Self-play check failed (non-critical): {e}")
 
     # LoRA training check: if enough training data has accumulated, schedule a run
@@ -167,7 +167,7 @@ async def run_sleep_cycle() -> dict[str, Any]:
                 logger.info(f"Sleep cycle: scheduled LoRA training task (id={task_id})")
             else:
                 logger.debug("Sleep cycle: LoRA training task already queued")
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"LoRA training check failed (non-critical): {e}")
 
     # Git commit (best-effort)
@@ -252,21 +252,24 @@ async def _gather_system_snapshot() -> dict[str, Any]:
             ["git", "log", "--oneline", "-7", "--", "soul/", "titan/pipeline/"],
             capture_output=True, text=True, timeout=5,
         ).stdout[:2000]
-    except Exception:
+    except (OSError, subprocess.SubprocessError, TimeoutError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         git_log = ""
 
     # MAGMA causal subgraph for Alpha/Beta (if enabled)
     causal_context = ""
     try:
         from shared.config import config as _cfg
-        from shared.magma import magma_retrieve
+        from shared.magma import _pomdp_enabled, magma_retrieve, pomdp_retrieve
         if _cfg.memory.magma_enabled:
-            causal_context = await magma_retrieve(
+            _query = (
                 "Why did metrics change this week? What caused pipeline errors? "
-                "What rule changes led to what outcomes?",
-                limit=15,
+                "What rule changes led to what outcomes?"
             )
-    except Exception:
+            if _pomdp_enabled():
+                causal_context, _belief = await pomdp_retrieve(_query, limit=15)
+            else:
+                causal_context = await magma_retrieve(_query, limit=15)
+    except (ImportError, OSError, RuntimeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         causal_context = ""
 
     return {
@@ -381,7 +384,7 @@ async def _get_rolled_back_proposals(days: int = 7) -> list[dict]:
             if isinstance(changes, list):
                 proposals.extend(changes)
         return proposals
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, KeyError, json.JSONDecodeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"Failed to fetch rolled-back proposals: {e}")
         return []
 
@@ -545,7 +548,7 @@ async def _apply_changes(proposals: list[dict], cycle_id: int) -> int:
                     if success:
                         applied += 1
 
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning(f"Failed to apply proposal: {proposal.get('what', 'unknown')}: {e}")
 
     return applied
@@ -559,7 +562,7 @@ async def _update_all_self_models(snapshot: dict) -> None:
         try:
             metrics = await compute_agent_metrics(agent_name)
             await update_self_model(agent_name, metrics)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, KeyError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"Self-model update failed for {agent_name}: {e}")
 
 
@@ -570,7 +573,7 @@ async def _check_cell_division(snapshot: dict, cycle_id: int) -> None:
     from perseus.cell_division import evaluate_division_need
     try:
         await evaluate_division_need(snapshot, cycle_id)
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError, ValueError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"Cell division check failed (non-critical): {e}")
 
 
@@ -627,7 +630,7 @@ async def _check_self_play_conditions(cycle_id: int) -> dict:
                WHERE cycle_date > NOW() - INTERVAL '14 days'
                ORDER BY cycle_date ASC""",
         )
-    except Exception:
+    except (OSError, RuntimeError, ValueError):  # IGUS-FIX: Narrowed exception type (CWE-755)
         return {"sustainable": True, "mutual_info": 1.0, "recommendation": "check unavailable"}
 
     if len(cycles) < 4:

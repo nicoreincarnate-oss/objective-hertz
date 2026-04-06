@@ -417,6 +417,39 @@ async def select_model(
     )
 
 
+async def select_model_with_t2(
+    tier: str,
+    task_type: str = "general",
+    budget_remaining_pct: float = 100.0,
+    required_context: int = 0,
+    prefer_local: bool = False,
+) -> tuple[ModelSelection, T2Selection]:
+    """Convenience wrapper: returns (ModelSelection, T2Selection).
+
+    When T2_MODEL_SELECT is enabled and the task is verifiable, delegates to
+    select_model_t2() which may downgrade the model and increase passes.
+    Otherwise returns (select_model(...), T2Selection(passes=1)).
+    """
+    if _t2_enabled():
+        hints = _TASK_TYPE_HINTS.get(task_type, _TASK_TYPE_HINTS["general"])
+        if hints.get("pass_k_eligible", False) and hints.get("verifier"):
+            return await select_model_t2(
+                tier=tier,
+                task_type=task_type,
+                budget_remaining_pct=budget_remaining_pct,
+                required_context=required_context,
+                prefer_local=prefer_local,
+            )
+    base = await select_model(
+        tier=tier,
+        task_type=task_type,
+        budget_remaining_pct=budget_remaining_pct,
+        required_context=required_context,
+        prefer_local=prefer_local,
+    )
+    return base, T2Selection(model=base.model_id, passes=1)
+
+
 # ---------------------------------------------------------------------------
 # Catalog introspection helpers
 # ---------------------------------------------------------------------------

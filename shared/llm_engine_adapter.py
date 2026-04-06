@@ -74,9 +74,19 @@ if _USE_OJ_ENGINE:
 _MODEL_SELECTOR_AVAILABLE = False
 _select_model_fn: Any = None
 
+_select_model_with_t2_fn: Any = None
+_T2Selection: Any = None
+_execute_with_t2_fn: Any = None
+
 try:
+    from shared.model_selector import T2Selection as _T2Sel
+    from shared.model_selector import execute_with_t2 as _exec_t2
     from shared.model_selector import select_model as _sel_model
+    from shared.model_selector import select_model_with_t2 as _sel_t2
     _select_model_fn = _sel_model
+    _select_model_with_t2_fn = _sel_t2
+    _T2Selection = _T2Sel
+    _execute_with_t2_fn = _exec_t2
     _MODEL_SELECTOR_AVAILABLE = True
     logger.debug("Model selector available — dynamic tier resolution enabled")
 except (ImportError, ModuleNotFoundError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
@@ -316,9 +326,10 @@ async def _oj_generate(
 
     # Resolve model ID from tier — prefer dynamic selector, fall back to hardcoded
     _selection_obj = None
-    if _MODEL_SELECTOR_AVAILABLE and _select_model_fn is not None:
+    _t2_sel = None
+    if _MODEL_SELECTOR_AVAILABLE and _select_model_with_t2_fn is not None:
         try:
-            _selection_obj = await _select_model_fn(
+            _selection_obj, _t2_sel = await _select_model_with_t2_fn(
                 tier=model,
                 task_type=pipeline_stage or "general",
                 budget_remaining_pct=_budget_pct,
@@ -329,6 +340,26 @@ async def _oj_generate(
                 "Model selector chose %s (engine=%s) — %s",
                 model_id, engine_key, _selection_obj.reason,
             )
+            if _t2_sel is not None and _t2_sel.passes > 1:
+                logger.info(
+                    "T2 pass@k: %s x%d (%s, verifier=%s)",
+                    _t2_sel.model, _t2_sel.passes,
+                    _t2_sel.selection_strategy, _t2_sel.verifier,
+                )
+                # Override model_id with T2-selected model
+                model_id = _t2_sel.model
+        except (ValueError, KeyError, TypeError, OSError) as sel_exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.warning("Model selector failed, using hardcoded tier map: %s", sel_exc)
+            model_id, engine_key = _OJ_TIER_MAP.get(tier, _OJ_TIER_MAP["fast"])
+    elif _MODEL_SELECTOR_AVAILABLE and _select_model_fn is not None:
+        try:
+            _selection_obj = await _select_model_fn(
+                tier=model,
+                task_type=pipeline_stage or "general",
+                budget_remaining_pct=_budget_pct,
+            )
+            model_id = _selection_obj.model_id
+            engine_key = _selection_obj.engine
         except (ValueError, KeyError, TypeError, OSError) as sel_exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Model selector failed, using hardcoded tier map: %s", sel_exc)
             model_id, engine_key = _OJ_TIER_MAP.get(tier, _OJ_TIER_MAP["fast"])
@@ -344,6 +375,41 @@ async def _oj_generate(
             kwargs["response_format"] = ResponseFormat(type="json_object")
         except ImportError:
             pass
+
+    # --- T2 pass@k: run multiple passes when T2Selection says so ---
+    if (
+        _t2_sel is not None
+        and _t2_sel.passes > 1
+        and _execute_with_t2_fn is not None
+    ):
+        async def _single_generate() -> str:
+            r = await asyncio.to_thread(
+                engine.generate,
+                messages,
+                model=model_id,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            )
+            return r.get("content", "")
+
+        candidates = await _execute_with_t2_fn(_t2_sel, _single_generate)
+        content = candidates[0] if candidates else ""
+        metadata: dict[str, Any] = {
+            "cost_usd": None,
+            "input_tokens": None,
+            "output_tokens": None,
+            "model": model_id,
+            "finish_reason": "stop",
+            "t2_passes": _t2_sel.passes,
+            "t2_candidates": len(candidates),
+            "t2_strategy": _t2_sel.selection_strategy,
+        }
+        if _selection_obj is not None:
+            metadata["selector_reason"] = _selection_obj.reason
+            metadata["selector_estimated_cost"] = _selection_obj.estimated_cost * _t2_sel.passes
+            metadata["selector_fallback_model"] = _selection_obj.fallback_model
+        return content, metadata
 
     # OJ Engine.generate() is synchronous — run in thread pool
     result = await asyncio.to_thread(

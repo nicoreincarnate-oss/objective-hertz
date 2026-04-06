@@ -283,7 +283,15 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 _last_node_ids: dict[str, str] = {}
 _last_node_ts: dict[str, str] = {}
-_node_ids_lock = asyncio.Lock()
+_node_ids_lock: asyncio.Lock | None = None
+
+
+def _get_node_ids_lock() -> asyncio.Lock:
+    """Lazily create the asyncio.Lock to avoid event-loop errors on import."""
+    global _node_ids_lock
+    if _node_ids_lock is None:
+        _node_ids_lock = asyncio.Lock()
+    return _node_ids_lock
 
 _EVENT_BOUNDARIES = re.compile(
     r"(?:^|\n)(?:\d+[\.\)]\s|[-•]\s|Stage \d|Step \d|Then |Next |After that )",
@@ -389,7 +397,7 @@ async def magma_ingest(
                 )
 
                 # Temporal edge with REAL delta_seconds
-                async with _node_ids_lock:
+                async with _get_node_ids_lock():
                     prev_id = _last_node_ids.get(category)
                     prev_ts = _last_node_ts.get(category)
                 delta = 0
@@ -407,7 +415,7 @@ async def magma_ingest(
                            CREATE (prev)-[:TEMPORAL {delta_seconds: $delta}]->(curr)""",
                         prev_id=prev_id, curr_id=node_id, delta=delta,
                     )
-                async with _node_ids_lock:
+                async with _get_node_ids_lock():
                     _last_node_ids[category] = node_id
                     _last_node_ts[category] = ts
 
@@ -991,6 +999,16 @@ def prefetch_retrieve(
     if os.environ.get("ANATOMY_MEMORY_INDEX", "").lower() not in ("true", "1"):
         return None
     try:
+        if _pomdp_enabled():
+            async def _pomdp_text_only() -> str:
+                result, _belief = await pomdp_retrieve(
+                    query, limit=limit, client_id=client_id, query_type=query_type,
+                )
+                return result
+            return asyncio.create_task(
+                _pomdp_text_only(),
+                name=f"prefetch_pomdp_retrieve:{query[:40]}",
+            )
         return asyncio.create_task(
             magma_retrieve(query, limit=limit, client_id=client_id, query_type=query_type),
             name=f"prefetch_retrieve:{query[:40]}",

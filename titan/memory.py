@@ -350,11 +350,14 @@ async def get_relevant_learnings(
     magma_prefix = ""
     if config.memory.magma_enabled:
         try:
-            from shared.magma import magma_retrieve
-            result = await magma_retrieve(context, limit=limit, client_id=client_id, query_type=query_type)
-            if result and not result.startswith("[LOW CONFIDENCE"):
+            from shared.magma import _pomdp_enabled, magma_retrieve, pomdp_retrieve
+            if _pomdp_enabled():
+                result, _belief = await pomdp_retrieve(context, limit=limit, client_id=client_id, query_type=query_type)
+            else:
+                result = await magma_retrieve(context, limit=limit, client_id=client_id, query_type=query_type)
+            if result and not result.startswith("[LOW CONFIDENCE") and not result.startswith("[SAFETY WARNING"):
                 return result
-            if result and result.startswith("[LOW CONFIDENCE"):
+            if result and (result.startswith("[LOW CONFIDENCE") or result.startswith("[SAFETY WARNING")):
                 # Carry the warning, but still use flat-stack data below
                 magma_prefix = result + "\n"
         except (OSError, ValueError, KeyError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
