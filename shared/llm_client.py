@@ -14,15 +14,21 @@ TurboQuant integration (March 2026):
   Requires Ollama >= 0.6.2. Controlled by OLLAMA_KV_CACHE_TYPE env var.
 """
 
+from __future__ import annotations
+
 import asyncio
 import base64
+import json as _json
 import logging
 import os
 import time
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 import httpx
+import psycopg
 
 from shared.airllm_policy import (
     choose_heavy_local_backend,
@@ -31,12 +37,65 @@ from shared.airllm_policy import (
 )
 from shared.config import config
 from shared.db import get_config
+from shared.prompt_builder import CACHE_BOUNDARY_MARKER, get_session_latch
 
 logger = logging.getLogger("perseus.llm")
 
+# Sticky session month — computed once at import time so all budget queries within
+# a process lifetime use the same month boundary, avoiding midnight drift.
+_SESSION_MONTH = date.today().replace(day=1)
+
+# Task 23-02: Feature flag for graduated model fallback chain
+_UNIFIED_LLM_ENABLED = os.environ.get("ANATOMY_UNIFIED_LLM", "").lower() in ("true", "1")
+
+# Task 26b-07: Feature flag for streaming/generator loop support
+_GENERATOR_LOOP_ENABLED = os.environ.get("ANATOMY_GENERATOR_LOOP", "").lower() in ("true", "1")
+
+# Task 26b-07: Watchdog timeout per model tier (seconds between chunks)
+_STREAM_WATCHDOG_TIMEOUTS: dict[str, float] = {
+    "fast": 30.0,    # Haiku
+    "smart": 60.0,   # Sonnet
+    "genius": 120.0,  # Opus
+}
+_STREAM_WATCHDOG_DEFAULT = 60.0
+
+
+@dataclass
+class StreamChunk:
+    """A single chunk from a streaming LLM response."""
+
+    text: str = ""
+    chunk_type: str = "text_delta"  # text_delta | tool_use_start | tool_use_delta | message_stop
+    tool_name: str = ""
+    tool_id: str = ""
+    tool_input_json: str = ""
+    is_final: bool = False
+
+# Task 23-02: Graduated model fallback chain.
+# When a Claude API call fails, try the next tier before falling back to Ollama.
+# "local" maps to Ollama — the terminal fallback.
+_MODEL_FALLBACK_CHAIN: dict[str, list[str]] = {
+    "genius": ["smart", "fast", "local"],
+    "smart": ["fast", "local"],
+    "fast": ["local"],
+    "local": [],  # no fallback from local
+}
+
+
+async def check_budget_for_llm_call_import(model: str) -> str:
+    """Lazy import wrapper to avoid circular imports in fallback chain."""
+    from shared.middleware import check_budget_for_llm_call
+    return await check_budget_for_llm_call(model)
+
 
 async def _resolve_model(tier: str) -> str:
-    """Resolve model ID, checking dashboard override first, then .env config."""
+    """Resolve model ID, checking dashboard override first, then .env config.
+
+    Phase 18b-04: Model tier lookups are latched via StickyLatch so that
+    mid-session dashboard changes to model_genius / model_fast / etc. don't
+    alter the system prompt and bust the Anthropic prompt cache.  The latch
+    stores the first-seen value per db_key for the process lifetime.
+    """
     _MODEL_MAP = {
         "genius": ("model_genius", config.claude.genius_model),
         "fast": ("model_fast", config.claude.fast_model),
@@ -49,8 +108,23 @@ async def _resolve_model(tier: str) -> str:
         "embed": ("model_embed", config.ollama.embed_model),
     }
     db_key, fallback = _MODEL_MAP.get(tier, ("model_primary", config.claude.primary_model))
-    override = await get_config(db_key, None)
-    return str(override) if override else fallback
+
+    # StickyLatch: latch the resolved model on first read per tier so cache
+    # stays stable even if dashboard config changes mid-session.
+    latch = get_session_latch()
+    latch_key = f"model_tier:{db_key}"
+
+    async def _fetch_model() -> str:
+        override = await get_config(db_key, None)
+        return str(override) if override else fallback
+
+    # StickyLatch.get() is sync; for async factory we do a one-shot check:
+    # if latched, return immediately; otherwise await the factory and latch.
+    latched = latch.peek(latch_key)
+    if latched is not None:
+        return latched
+    resolved = await _fetch_model()
+    return latch.get(latch_key, lambda: resolved)
 
 # Approximate cost per 1K tokens (input + output blended) as of March 2026
 # Conservative estimates — better to overcount than undercount
@@ -61,8 +135,128 @@ _COST_PER_1K = {
 }
 
 
+# Task 17-03: Optimal max_tokens per pipeline stage to reduce output token waste.
+# Stages that only need a label get tiny budgets; generative stages get large ones.
+_MAX_TOKENS_BY_STAGE: dict[str, int] = {
+    "classify": 50,
+    "extract": 256,
+    "score": 128,
+    "summarize": 512,
+    "email_draft": 4096,
+    "proposal": 8192,
+    "site_build": 8192,
+    "research": 4096,
+    "brief": 2048,
+}
+
+# Default max_tokens used by generate() — used to detect "caller didn't override".
+_DEFAULT_MAX_TOKENS = 2048
+
+
+def _build_system_blocks(system_str: str) -> list[dict]:
+    """Split a system prompt string into structured content blocks with cache_control.
+
+    If the string contains CACHE_BOUNDARY_MARKER, the stable prefix (everything
+    before the marker) gets ``cache_control: {"type": "ephemeral"}`` so Anthropic
+    prompt caching can reuse it across calls.  The volatile suffix (marker +
+    everything after) gets no cache_control.
+
+    If the marker is NOT found, the entire string is cached as one block.
+
+    Returns an empty list for empty/whitespace-only input.
+    """
+    if not system_str or not system_str.strip():
+        return []
+
+    idx = system_str.find(CACHE_BOUNDARY_MARKER)
+    if idx >= 0:
+        stable_prefix = system_str[:idx]
+        volatile_suffix = system_str[idx:]  # includes the marker itself
+        blocks: list[dict] = []
+        if stable_prefix:
+            blocks.append({
+                "type": "text",
+                "text": stable_prefix,
+                "cache_control": {"type": "ephemeral"},
+            })
+        if volatile_suffix:
+            blocks.append({
+                "type": "text",
+                "text": volatile_suffix,
+            })
+        return blocks
+
+    # No boundary found — cache the entire string
+    return [
+        {
+            "type": "text",
+            "text": system_str,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+class _DeathSpiralGuard:
+    """Circuit breaker that trips after repeated LLM failures to prevent runaway retries.
+
+    When tripped, the guard enters a cooldown period during which all LLM calls are
+    rejected with RuntimeError.  A single success resets the failure window.
+
+    Thresholds are configurable via environment variables:
+      LLM_SPIRAL_MAX_FAILURES  — failures needed to trip (default 5)
+      LLM_SPIRAL_WINDOW        — sliding window in seconds (default 300)
+      LLM_SPIRAL_COOLDOWN      — cooldown in seconds after tripping (default 60)
+    """
+
+    def __init__(self) -> None:
+        self._max_failures = int(os.environ.get("LLM_SPIRAL_MAX_FAILURES", "5"))
+        self._window = float(os.environ.get("LLM_SPIRAL_WINDOW", "300"))
+        self._cooldown = float(os.environ.get("LLM_SPIRAL_COOLDOWN", "60"))
+        self._failures: list[float] = []
+        self._tripped_at: float | None = None
+
+    def record_failure(self) -> None:
+        """Record a failure timestamp; trip if threshold is exceeded."""
+        now = time.monotonic()
+        self._failures.append(now)
+        # Prune failures outside the sliding window
+        cutoff = now - self._window
+        self._failures = [t for t in self._failures if t >= cutoff]
+        if len(self._failures) >= self._max_failures:
+            self._tripped_at = now
+            logger.warning(
+                "Death spiral guard tripped: %d failures in %.0fs window, cooldown %.0fs",
+                len(self._failures),
+                self._window,
+                self._cooldown,
+            )
+
+    def record_success(self) -> None:
+        """A successful call clears the failure history."""
+        self._failures.clear()
+        self._tripped_at = None
+
+    @property
+    def is_tripped(self) -> bool:
+        """True if the guard is in cooldown after being tripped."""
+        if self._tripped_at is None:
+            return False
+        elapsed = time.monotonic() - self._tripped_at
+        if elapsed >= self._cooldown:
+            # Cooldown expired — auto-reset
+            self._tripped_at = None
+            self._failures.clear()
+            return False
+        return True
+
+
 class LLMClient:
-    """Unified interface to Claude API + Ollama. Budget-aware."""
+    """Unified interface to Claude API + Ollama. Budget-aware.
+
+    DEPRECATED: When ANATOMY_UNIFIED_LLM + UNIFIED_LLM_FACTORY are enabled,
+    this class is bypassed in favor of shared.llm_factory.UnifiedLLMFactory.
+    This class will be removed after the 48h parallel run validates the unified path.
+    """
 
     def __init__(self):
         self._http: httpx.AsyncClient | None = None
@@ -73,6 +267,7 @@ class LLMClient:
         self._ollm_model: Any | None = None
         self._ollm_model_id: str | None = None
         self._ollm_lock = asyncio.Lock()
+        self._spiral_guard = _DeathSpiralGuard()
 
     def _fire_metrics(
         self,
@@ -133,8 +328,35 @@ class LLMClient:
     def _get_http(self) -> httpx.AsyncClient:
         """Lazy-init the HTTP client so import alone never triggers network/SSL."""
         if self._http is None or self._http.is_closed:
-            self._http = httpx.AsyncClient(timeout=120.0)
+            self._http = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=30.0,
+                    read=90.0,
+                    write=30.0,
+                    pool=10.0,
+                )
+            )
         return self._http
+
+    async def preconnect(self) -> None:
+        """Fire a lightweight HEAD request to Claude API during startup.
+
+        Overlaps TCP + TLS handshake with other init work (e.g. DB pool),
+        saving 100-200ms on the first real API call.  Fire-and-forget:
+        errors are silently ignored so startup is never blocked.
+
+        Phase 28-14 (F-15).
+        """
+        try:
+            client = self._get_http()
+            await client.head(
+                "https://api.anthropic.com/v1/messages",
+                headers={"anthropic-version": "2023-06-01"},
+            )
+            logger.debug("API preconnect: TLS handshake completed")
+        except (httpx.HTTPError, OSError, TimeoutError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+            # Silently ignore — this is purely an optimization
+            pass
 
     @staticmethod
     def _inject_dna(system: str, daemon_name: str) -> str:
@@ -155,14 +377,14 @@ class LLMClient:
             if system:
                 return f"{dna_text}\n\n---\n\n{system}"
             return dna_text
-        except Exception as exc:
+        except (ImportError, OSError, AttributeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug("DNA injection skipped: %s", exc)
             try:
                 from shared.agent_dna import get_circuit_breaker
 
                 get_circuit_breaker().record(False)
-            except Exception:
-                pass
+            except (ImportError, AttributeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.debug("Circuit breaker record failed: %s", exc)
             return system
 
     async def generate(
@@ -171,7 +393,7 @@ class LLMClient:
         *,
         system: str = "",
         model: str = "auto",
-        max_tokens: int = 2048,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
         temperature: float = 0.7,
         client_id: int | None = None,
         pipeline_stage: str = "",
@@ -201,6 +423,18 @@ class LLMClient:
         if model == "auto":
             model = "fast"
 
+        # Task 17-03: Output slot optimization — use stage-specific max_tokens when
+        # the caller left the default value and a pipeline_stage is provided.
+        if max_tokens == _DEFAULT_MAX_TOKENS and pipeline_stage:
+            max_tokens = _MAX_TOKENS_BY_STAGE.get(pipeline_stage, _DEFAULT_MAX_TOKENS)
+
+        # Task 17-04: Death spiral guard — reject calls while in cooldown
+        if self._spiral_guard.is_tripped:
+            raise RuntimeError(
+                "LLM death spiral guard is active — too many consecutive failures. "
+                "Calls are blocked for cooldown period."
+            )
+
         # DNA injection: prepend daemon DNA to system prompt when enabled
         if use_dna and daemon_name:
             system = self._inject_dna(system, daemon_name)
@@ -213,6 +447,15 @@ class LLMClient:
             if lifecycle_path.exists():
                 lifecycle = lifecycle_path.read_text()
                 system = f"{lifecycle}\n\n---\n\n{system}" if system else lifecycle
+
+        # Task 27-03: Memory index injection — give every LLM call awareness of
+        # available memories so it can reason about stored knowledge.
+        if os.environ.get("ANATOMY_MEMORY_INDEX", "").lower() in ("true", "1"):
+            from shared.memory_index import get_memory_index, _MAX_ENTRIES
+
+            idx = get_memory_index()
+            if idx:
+                system = f"{system}\n\n## Memory Index ({_MAX_ENTRIES} entries)\n{idx}"
 
         t0 = time.perf_counter()
         resolved_model = model
@@ -253,8 +496,17 @@ class LLMClient:
             self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
             return result
 
+        # Task 23-02: Graduated fallback chain when ANATOMY_UNIFIED_LLM is enabled
+        if _UNIFIED_LLM_ENABLED:
+            return await self._generate_with_fallback_chain(
+                prompt, system, resolved_model, max_tokens, temperature,
+                client_id, pipeline_stage, t0,
+            )
+
+        # Legacy binary fallback: Claude fails → Ollama
         try:
             result = await self._claude_generate(prompt, system, resolved_model, max_tokens, temperature)
+            self._spiral_guard.record_success()
             await self._record_claude_spend(
                 prompt,
                 result,
@@ -262,13 +514,361 @@ class LLMClient:
                 resolved_model,
                 client_id=client_id,
                 pipeline_stage=pipeline_stage,
+                usage=self._last_usage,
             )
             self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, result, t0, True, None)
+            # Task 27-06: Background learning extraction from LLM responses
+            from shared.learning_extractor import maybe_extract_background
+            maybe_extract_background(result, pipeline_stage or "")
             return result
-        except Exception as e:
+        except Exception as e:  # Intentional: model fallback catch-all (Claude → Ollama)  # IGUS-FIX
+            self._spiral_guard.record_failure()
             logger.warning(f"Claude API failed, falling back to Ollama: {e}")
             self._fire_metrics(pipeline_stage or "unknown", resolved_model, "generate", prompt, "", t0, False, type(e).__name__)
             return await self._best_local_generate(prompt, system, "local", max_tokens, temperature, pipeline_stage)
+
+    @staticmethod
+    def _strip_thinking_blocks(text: str) -> str:
+        """Strip extended thinking blocks that Opus may return.
+
+        When falling back from Opus to Sonnet/Haiku, the response may contain
+        <thinking>...</thinking> blocks that downstream consumers don't expect.
+        """
+        import re
+        return re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL).strip()
+
+    async def _generate_with_fallback_chain(
+        self,
+        prompt: str,
+        system: str,
+        starting_model: str,
+        max_tokens: int,
+        temperature: float,
+        client_id: int | None,
+        pipeline_stage: str,
+        t0: float,
+    ) -> str:
+        """Graduated fallback chain: Opus -> Sonnet -> Haiku -> Ollama.
+
+        Each tier is tried in order. Failures are logged with model, error,
+        and attempt number. Thinking blocks are stripped when falling back
+        from genius to lower tiers.
+        """
+        chain = [starting_model] + _MODEL_FALLBACK_CHAIN.get(starting_model, ["local"])
+        last_error: Exception | None = None
+
+        for attempt, model_tier in enumerate(chain, start=1):
+            if model_tier == "local":
+                # Terminal fallback — use Ollama
+                logger.info(
+                    "Fallback chain: attempt %d/%d, falling back to Ollama (local) "
+                    "after %s failure: %s",
+                    attempt,
+                    len(chain),
+                    starting_model,
+                    last_error,
+                )
+                return await self._best_local_generate(
+                    prompt, system, "local", max_tokens, temperature, pipeline_stage
+                )
+
+            try:
+                resolved = await check_budget_for_llm_call_import(model_tier)
+                if resolved in ("local", "local-small"):
+                    # Budget gate downgraded us — skip to next tier
+                    logger.info(
+                        "Fallback chain: attempt %d/%d, budget downgraded %s to %s, skipping",
+                        attempt, len(chain), model_tier, resolved,
+                    )
+                    last_error = RuntimeError(f"Budget downgraded {model_tier} to {resolved}")
+                    continue
+
+                result = await self._claude_generate(prompt, system, resolved, max_tokens, temperature)
+                self._spiral_guard.record_success()
+                await self._record_claude_spend(
+                    prompt, result, system, resolved,
+                    client_id=client_id,
+                    pipeline_stage=pipeline_stage,
+                    usage=self._last_usage,
+                )
+                self._fire_metrics(
+                    pipeline_stage or "unknown", resolved, "generate",
+                    prompt, result, t0, True, None,
+                )
+
+                # Strip thinking blocks when we fell back from genius
+                if model_tier != starting_model and starting_model == "genius":
+                    result = self._strip_thinking_blocks(result)
+
+                if attempt > 1:
+                    logger.info(
+                        "Fallback chain: succeeded on attempt %d/%d with model %s "
+                        "(original: %s)",
+                        attempt, len(chain), model_tier, starting_model,
+                    )
+                return result
+
+            except Exception as e:  # Intentional: model fallback catch-all (graduated chain)  # IGUS-FIX
+                self._spiral_guard.record_failure()
+                last_error = e
+                logger.warning(
+                    "Fallback chain: attempt %d/%d, model %s failed: %s. "
+                    "Trying next tier.",
+                    attempt, len(chain), model_tier, e,
+                )
+                self._fire_metrics(
+                    pipeline_stage or "unknown", model_tier, "generate",
+                    prompt, "", t0, False, type(e).__name__,
+                )
+                continue
+
+        # Should not reach here, but safety net
+        logger.error("Fallback chain exhausted for model %s", starting_model)
+        return await self._best_local_generate(
+            prompt, system, "local", max_tokens, temperature, pipeline_stage
+        )
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        model: str = "auto",
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+        temperature: float = 0.7,
+        pipeline_stage: str = "",
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Stream LLM response chunks via SSE, with a watchdog timer per model tier.
+
+        When ANATOMY_GENERATOR_LOOP is disabled, falls back to a single-chunk
+        yield of the non-streaming generate() result.
+
+        The watchdog timer monitors time between chunks.  If no chunk arrives
+        within the tier-specific timeout, streaming is abandoned and the method
+        falls back to a non-streaming generate() call, yielding the full result
+        as a single chunk.
+
+        Parses Anthropic SSE event types:
+        - message_start, content_block_start, content_block_delta,
+          content_block_stop, message_delta, message_stop
+
+        Tool-use blocks are detected at content_block_start and emitted as
+        StreamChunk(chunk_type="tool_use_start") so callers can begin tool
+        execution before the full response completes.
+
+        Phase 26b-07 (Anatomy Integration B-06).
+        """
+        if not _GENERATOR_LOOP_ENABLED:
+            # Feature flag off: delegate to non-streaming generate()
+            result = await self.generate(
+                prompt, system=system, model=model,
+                max_tokens=max_tokens, temperature=temperature,
+                pipeline_stage=pipeline_stage,
+            )
+            yield StreamChunk(text=result, chunk_type="text_delta", is_final=True)
+            return
+
+        if model == "auto":
+            model = "fast"
+
+        # Check prerequisites for streaming
+        if not config.claude.api_key or model in ("local", "local-small", "local-heavy", "airllm"):
+            result = await self.generate(
+                prompt, system=system, model=model,
+                max_tokens=max_tokens, temperature=temperature,
+                pipeline_stage=pipeline_stage,
+            )
+            yield StreamChunk(text=result, chunk_type="text_delta", is_final=True)
+            return
+
+        watchdog_timeout = _STREAM_WATCHDOG_TIMEOUTS.get(model, _STREAM_WATCHDOG_DEFAULT)
+
+        try:
+            async for chunk in self._claude_generate_stream(
+                prompt, system, model, max_tokens, temperature, watchdog_timeout
+            ):
+                yield chunk
+        except TimeoutError:
+            logger.warning(
+                "Stream watchdog fired for model=%s (timeout=%.0fs), "
+                "falling back to non-streaming call",
+                model, watchdog_timeout,
+            )
+            result = await self.generate(
+                prompt, system=system, model=model,
+                max_tokens=max_tokens, temperature=temperature,
+                pipeline_stage=pipeline_stage,
+            )
+            yield StreamChunk(text=result, chunk_type="text_delta", is_final=True)
+        except Exception as e:  # Intentional: model fallback catch-all (stream → non-stream)  # IGUS-FIX
+            logger.warning(
+                "Streaming failed for model=%s: %s, falling back to non-streaming",
+                model, e,
+            )
+            result = await self.generate(
+                prompt, system=system, model=model,
+                max_tokens=max_tokens, temperature=temperature,
+                pipeline_stage=pipeline_stage,
+            )
+            yield StreamChunk(text=result, chunk_type="text_delta", is_final=True)
+
+    async def _claude_generate_stream(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        watchdog_timeout: float,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Internal SSE streaming against the Anthropic Messages API.
+
+        Raises asyncio.TimeoutError if no chunk arrives within watchdog_timeout.
+        """
+        if not config.claude.api_key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+
+        model_id = await _resolve_model(model)
+        messages = [{"role": "user", "content": prompt}]
+
+        prompt_cache_enabled = os.environ.get(
+            "ANATOMY_PROMPT_CACHE", ""
+        ).lower() in ("true", "1")
+
+        body: dict[str, Any] = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": messages,
+            "stream": True,
+        }
+        if system:
+            if prompt_cache_enabled:
+                body["system"] = _build_system_blocks(system)
+            else:
+                body["system"] = system
+
+        headers = {
+            "x-api-key": config.claude.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if prompt_cache_enabled:
+            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
+
+        client = self._get_http()
+
+        async with client.stream(
+            "POST",
+            "https://api.anthropic.com/v1/messages",
+            json=body,
+            headers=headers,
+            timeout=max(watchdog_timeout * 2, 120.0),
+        ) as response:
+            response.raise_for_status()
+
+            current_tool_name = ""
+            current_tool_id = ""
+            tool_input_parts: list[str] = []
+
+            async for raw_line in self._sse_lines_with_watchdog(
+                response, watchdog_timeout
+            ):
+                # Parse SSE format: "event: <type>\ndata: <json>"
+                if not raw_line.startswith("data: "):
+                    continue
+                json_str = raw_line[6:]
+                if json_str.strip() == "[DONE]":
+                    break
+
+                try:
+                    event = _json.loads(json_str)
+                except _json.JSONDecodeError:
+                    continue
+
+                event_type = event.get("type", "")
+
+                if event_type == "content_block_start":
+                    block = event.get("content_block", {})
+                    if block.get("type") == "tool_use":
+                        current_tool_name = block.get("name", "")
+                        current_tool_id = block.get("id", "")
+                        tool_input_parts = []
+                        yield StreamChunk(
+                            chunk_type="tool_use_start",
+                            tool_name=current_tool_name,
+                            tool_id=current_tool_id,
+                        )
+
+                elif event_type == "content_block_delta":
+                    delta = event.get("delta", {})
+                    delta_type = delta.get("type", "")
+
+                    if delta_type == "text_delta":
+                        yield StreamChunk(
+                            text=delta.get("text", ""),
+                            chunk_type="text_delta",
+                        )
+                    elif delta_type == "input_json_delta":
+                        partial = delta.get("partial_json", "")
+                        tool_input_parts.append(partial)
+                        yield StreamChunk(
+                            chunk_type="tool_use_delta",
+                            tool_name=current_tool_name,
+                            tool_id=current_tool_id,
+                            tool_input_json=partial,
+                        )
+
+                elif event_type == "content_block_stop":
+                    if current_tool_name:
+                        current_tool_name = ""
+                        current_tool_id = ""
+                        tool_input_parts = []
+
+                elif event_type == "message_stop":
+                    yield StreamChunk(chunk_type="message_stop", is_final=True)
+                    return
+
+                elif event_type == "message_delta":
+                    # Contains stop_reason, usage, etc.
+                    pass
+
+        # If we exit the stream without message_stop, yield final
+        yield StreamChunk(chunk_type="message_stop", is_final=True)
+
+    async def _sse_lines_with_watchdog(
+        self,
+        response: httpx.Response,
+        watchdog_timeout: float,
+    ) -> AsyncGenerator[str, None]:
+        """Iterate SSE lines from an httpx streaming response with a watchdog timer.
+
+        Raises asyncio.TimeoutError if no line arrives within watchdog_timeout seconds.
+        """
+        buffer = ""
+        async for raw_bytes in self._aiter_bytes_with_watchdog(response, watchdog_timeout):
+            buffer += raw_bytes.decode("utf-8", errors="replace")
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                stripped = line.strip()
+                if stripped:
+                    yield stripped
+
+    async def _aiter_bytes_with_watchdog(
+        self,
+        response: httpx.Response,
+        watchdog_timeout: float,
+    ) -> AsyncGenerator[bytes, None]:
+        """Iterate bytes from httpx response, raising TimeoutError on watchdog expiry."""
+        aiter = response.aiter_bytes().__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    aiter.__anext__(), timeout=watchdog_timeout
+                )
+                yield chunk
+            except StopAsyncIteration:
+                return
 
     async def generate_with_images(
         self,
@@ -319,9 +919,10 @@ class LLMClient:
                 client_id=client_id,
                 pipeline_stage=pipeline_stage,
                 extra_input_tokens=image_token_overhead,
+                usage=self._last_usage,
             )
             return result
-        except Exception:
+        except Exception:  # Intentional: bare re-raise preserves caller error handling  # IGUS-FIX
             raise
 
     async def _record_claude_spend(
@@ -334,14 +935,31 @@ class LLMClient:
         client_id: int | None = None,
         pipeline_stage: str = "",
         extra_input_tokens: float = 0.0,
+        usage: dict | None = None,
     ):
-        """Estimate and record the cost of a Claude API call, optionally tagged to a lead."""
+        """Estimate and record the cost of a Claude API call, optionally tagged to a lead.
+
+        When ``usage`` is provided and the ``ANATOMY_ACCURATE_TOKENS`` env var is
+        truthy, real token counts from the API response are used instead of the
+        ``len(text)//4`` heuristic.  Cached tokens (prompt caching) are subtracted
+        from the billable input count.
+        """
         try:
             from shared.db import execute
 
-            # Rough token estimate: ~4 chars per token
-            input_tokens = ((len(prompt) + len(system)) / 4) + extra_input_tokens
-            output_tokens = len(result) / 4
+            use_accurate = (
+                usage is not None
+                and os.environ.get("ANATOMY_ACCURATE_TOKENS", "").lower() in ("true", "1")
+            )
+
+            if use_accurate:
+                cached = usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
+                input_tokens = max(0, usage.get("input_tokens", 0) - cached) + extra_input_tokens
+                output_tokens = usage.get("output_tokens", 0)
+            else:
+                # Rough token estimate: ~4 chars per token
+                input_tokens = ((len(prompt) + len(system)) / 4) + extra_input_tokens
+                output_tokens = len(result) / 4
             total_tokens = input_tokens + output_tokens
 
             tier = "opus" if model == "genius" else ("haiku" if model == "fast" else "sonnet")
@@ -349,7 +967,7 @@ class LLMClient:
 
             # Only record if cost is meaningful (>$0.001)
             if cost >= 0.001:
-                month = date.today().replace(day=1)
+                month = _SESSION_MONTH
                 desc = f"claude-{tier} ~{int(total_tokens)}tok"
                 if pipeline_stage:
                     desc = f"{pipeline_stage}: {desc}"
@@ -358,8 +976,13 @@ class LLMClient:
                        VALUES (%s, 'claude_api', %s, %s, %s, %s)""",
                     (month, round(cost, 4), desc, client_id, pipeline_stage or None),
                 )
-        except Exception as e:
-            logger.debug(f"Spend recording failed (non-critical): {e}")
+        except (psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            # IGUS-FIX: Budget guard fail-closed — DB error blocks Claude, falls back to local (AEGIS 1.3)
+            # If we can't record spend, budget tracking becomes inaccurate and future
+            # calls will see $0 spend, effectively failing open. Raise so caller
+            # falls back to Ollama rather than allowing untracked Claude spend.
+            logger.critical("Spend recording DB failed — failing closed to prevent untracked spend: %s", e)
+            raise RuntimeError(f"Budget guard fail-closed: spend recording failed ({e})") from e
 
     async def _claude_generate(
         self, prompt: str, system: str, model: str, max_tokens: int, temperature: float
@@ -371,6 +994,10 @@ class LLMClient:
         model_id = await _resolve_model(model)
         messages = [{"role": "user", "content": prompt}]
 
+        prompt_cache_enabled = os.environ.get(
+            "ANATOMY_PROMPT_CACHE", ""
+        ).lower() in ("true", "1")
+
         body = {
             "model": model_id,
             "max_tokens": max_tokens,
@@ -378,16 +1005,28 @@ class LLMClient:
             "messages": messages,
         }
         if system:
-            body["system"] = system
+            if prompt_cache_enabled:
+                body["system"] = _build_system_blocks(system)
+            else:
+                body["system"] = system
+
+        # Model-specific request timeout: genius (Opus) gets longer for complex reasoning
+        _MODEL_TIMEOUTS = {"genius": 180.0, "fast": 60.0}
+        request_timeout = _MODEL_TIMEOUTS.get(model, 120.0)
+
+        headers = {
+            "x-api-key": config.claude.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        if prompt_cache_enabled:
+            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
 
         resp = await self._get_http().post(
             "https://api.anthropic.com/v1/messages",
             json=body,
-            headers={
-                "x-api-key": config.claude.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
+            headers=headers,
+            timeout=request_timeout,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -396,6 +1035,17 @@ class LLMClient:
         usage = data.get("usage", {})
         if usage:
             self._last_usage = usage  # Cache for more accurate spend recording
+
+        # Log cache effectiveness when prompt caching is active
+        if prompt_cache_enabled and usage:
+            cache_read = usage.get("cache_read_input_tokens", 0)
+            cache_creation = usage.get("cache_creation_input_tokens", 0)
+            if cache_read or cache_creation:
+                logger.info(
+                    "Prompt cache stats: read=%d creation=%d tokens",
+                    cache_read,
+                    cache_creation,
+                )
 
         if not data.get("content") or not data["content"]:
             raise RuntimeError("Empty response from Claude API")
@@ -464,7 +1114,7 @@ class LLMClient:
                 if ft_model:
                     logger.debug("Using fine-tuned model %s for stage %s", ft_model, pipeline_stage)
                     return ft_model
-            except Exception:
+            except (ImportError, psycopg.Error, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass  # Fall through to base model
         return await _resolve_model("local" if model == "local" else "local-small")
 
@@ -516,7 +1166,7 @@ class LLMClient:
             if selected_backend == "airllm":
                 return await self._airllm_generate(prompt, system, model, max_tokens, temperature, pipeline_stage)
             raise RuntimeError("No heavy-local backend selected")
-        except Exception as exc:
+        except Exception as exc:  # Intentional: model fallback catch-all (heavy-local → Ollama)  # IGUS-FIX
             logger.warning(
                 "Heavy local backend unavailable, falling back to Ollama (%s via %s): %s",
                 pipeline_stage or "no-stage",
@@ -568,7 +1218,7 @@ class LLMClient:
 
             try:
                 from airllm import AutoModel
-            except Exception as exc:  # pragma: no cover - import path depends on optional dependency
+            except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed from bare Exception
                 raise RuntimeError("airllm package is not installed") from exc
 
             kwargs: dict[str, Any] = {
@@ -617,7 +1267,7 @@ class LLMClient:
 
             try:
                 from ollm import AutoInference
-            except Exception as exc:
+            except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed from bare Exception
                 raise RuntimeError("ollm package is not installed") from exc
 
             # oLLM is best for very large offline contexts; default to CPU/MPS friendly mode.
@@ -653,7 +1303,7 @@ class LLMClient:
 
         try:
             import torch
-        except Exception as exc:
+        except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed from bare Exception
             raise RuntimeError("torch is required for ollm generation") from exc
 
         messages = [
@@ -682,7 +1332,7 @@ class LLMClient:
     ) -> str:
         try:
             import torch
-        except Exception:  # pragma: no cover - torch import is optional
+        except ImportError:  # IGUS-FIX: Narrowed from bare Exception — torch is optional
             torch = None
 
         tokenizer = getattr(model_obj, "tokenizer", None)
@@ -781,5 +1431,252 @@ class LLMClient:
             await self._http.aclose()
 
 
-# Singleton
-llm = LLMClient()
+# ---------------------------------------------------------------------------
+# Task 23-01: Unified LLM Protocol & Factory (Anatomy Integration Phase 23)
+#
+# Two LLM paths exist: LLMClient (daemon path with budget/DNA/cost recording)
+# and CloudEngine (OpenJarvis engine path with multi-provider support).
+# The protocol defines the common interface; the factory chooses the backend.
+#
+# When ANATOMY_UNIFIED_LLM=true, the factory wraps CloudEngine with the
+# cross-cutting concerns (budget, DNA, cost recording, prompt caching) that
+# LLMClient provides.  When false (default), the existing LLMClient is used
+# unchanged — zero behavior change.
+# ---------------------------------------------------------------------------
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class LLMProtocol(Protocol):
+    """Common interface that both LLM backends must satisfy.
+
+    This protocol allows callers to depend on a stable interface regardless
+    of whether the underlying backend is LLMClient or a CloudEngine wrapper.
+    """
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        **kwargs: Any,
+    ) -> str: ...
+
+    async def generate_with_images(
+        self,
+        prompt: str,
+        *,
+        images: list[bytes],
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        **kwargs: Any,
+    ) -> str: ...
+
+
+class _CloudEngineWrapper:
+    """Wraps openjarvis.engine.cloud.CloudEngine behind LLMProtocol.
+
+    Adds the cross-cutting concerns from LLMClient:
+    - Budget enforcement via shared.middleware
+    - DNA injection via shared.agent_dna
+    - Cost recording via shared.db
+    - Death spiral guard
+    - Prompt caching support
+
+    The CloudEngine is lazily imported so that this module doesn't pull in
+    heavy SDK dependencies at import time.
+    """
+
+    def __init__(self) -> None:
+        self._engine: Any = None
+        self._spiral_guard = _DeathSpiralGuard()
+
+    def _get_engine(self) -> Any:
+        """Lazily import and instantiate CloudEngine."""
+        if self._engine is None:
+            from openjarvis.engine.cloud import CloudEngine
+            self._engine = CloudEngine()
+        return self._engine
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        client_id: int | None = None,
+        pipeline_stage: str = "",
+        use_dna: bool = False,
+        daemon_name: str = "",
+        **kwargs: Any,
+    ) -> str:
+        """Generate text via CloudEngine with LLMClient cross-cutting concerns."""
+        if model == "auto":
+            model = "fast"
+
+        # Death spiral guard
+        if self._spiral_guard.is_tripped:
+            raise RuntimeError(
+                "LLM death spiral guard is active — too many consecutive failures. "
+                "Calls are blocked for cooldown period."
+            )
+
+        # DNA injection
+        if use_dna and daemon_name:
+            system = LLMClient._inject_dna(system, daemon_name)
+
+        # Resolve model tier to actual model ID
+        resolved_model = await _resolve_model(model)
+
+        # Budget check
+        if config.claude.api_key and model not in ("local", "local-small", "local-heavy", "airllm"):
+            from shared.middleware import check_budget_for_llm_call
+            budget_result = await check_budget_for_llm_call(model)
+            if budget_result in ("local", "local-small"):
+                # Budget downgraded — fall back to LLMClient's local path
+                # since CloudEngine doesn't support Ollama.
+                _fallback = LLMClient()
+                return await _fallback._best_local_generate(
+                    prompt, system, budget_result, max_tokens, temperature, pipeline_stage
+                )
+            resolved_model = await _resolve_model(budget_result)
+
+        # Build messages for CloudEngine (it expects Message objects or dicts)
+        from openjarvis.core.types import Message, MessageRole
+        messages: list[Message] = []
+        if system:
+            messages.append(Message(role=MessageRole.SYSTEM, content=system))
+        messages.append(Message(role=MessageRole.USER, content=prompt))
+
+        try:
+            engine = self._get_engine()
+            result_dict = engine.generate(
+                messages,
+                model=resolved_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            self._spiral_guard.record_success()
+            content = result_dict.get("content", "")
+
+            # Record cost to DB (fire-and-forget)
+            usage = result_dict.get("usage", {})
+            cost_usd = result_dict.get("cost_usd", 0.0)
+            try:
+                from shared.db import execute
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    execute(
+                        "INSERT INTO llm_spend (month, model, prompt_tokens, "
+                        "completion_tokens, cost_usd, pipeline_stage) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (
+                            _SESSION_MONTH,
+                            resolved_model,
+                            usage.get("prompt_tokens", 0),
+                            usage.get("completion_tokens", 0),
+                            cost_usd,
+                            pipeline_stage or "unknown",
+                        ),
+                    )
+                )
+            except (psycopg.Error, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+                pass  # Cost recording is best-effort
+
+            return content
+
+        except Exception as e:  # Intentional: model fallback catch-all (CloudEngine → Ollama)  # IGUS-FIX
+            self._spiral_guard.record_failure()
+            logger.warning("CloudEngine generate failed: %s, falling back to LLMClient Ollama", e)
+            _fallback = LLMClient()
+            return await _fallback._best_local_generate(
+                prompt, system, "local", max_tokens, temperature, pipeline_stage
+            )
+
+    async def generate_with_images(
+        self,
+        prompt: str,
+        *,
+        images: list[bytes],
+        system: str = "",
+        model: str = "smart",
+        max_tokens: int = 2048,
+        temperature: float = 0.2,
+        client_id: int | None = None,
+        pipeline_stage: str = "",
+        **kwargs: Any,
+    ) -> str:
+        """Generate text from prompt + images via CloudEngine.
+
+        CloudEngine doesn't natively support image inputs in all providers,
+        so this delegates to LLMClient's image path which uses the Anthropic
+        SDK directly.  This preserves the budget and cost-recording behavior.
+        """
+        _fallback = LLMClient()
+        return await _fallback.generate_with_images(
+            prompt,
+            images=images,
+            system=system,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            client_id=client_id,
+            pipeline_stage=pipeline_stage,
+        )
+
+    async def close(self) -> None:
+        """Release CloudEngine resources."""
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
+
+
+class UnifiedLLMFactory:
+    """Factory that creates the appropriate LLM backend based on configuration.
+
+    Decision tree (when ANATOMY_UNIFIED_LLM=true):
+    1. If USE_OJ_ENGINE=true -> _CloudEngineWrapper (CloudEngine + cross-cutting)
+    2. If UNIFIED_LLM_FACTORY=true -> shared.llm_factory.UnifiedLLMFactory (Phase 23 provider-based)
+    3. Otherwise -> LLMClient (existing behavior with graduated fallback chain)
+    """
+
+    @staticmethod
+    def create() -> Any:
+        """Create the appropriate LLM backend."""
+        use_oj = os.environ.get("USE_OJ_ENGINE", "").lower() in ("true", "1")
+        use_factory = os.environ.get("UNIFIED_LLM_FACTORY", "").lower() in ("true", "1")
+
+        if use_oj:
+            logger.info("UnifiedLLMFactory: creating CloudEngine wrapper (USE_OJ_ENGINE=true)")
+            return _CloudEngineWrapper()
+        if use_factory:
+            logger.info("UnifiedLLMFactory: creating provider-based factory (UNIFIED_LLM_FACTORY=true)")
+            from shared.llm_factory import UnifiedLLMFactory as ProviderFactory
+            return ProviderFactory()
+        logger.info("UnifiedLLMFactory: creating standard LLMClient")
+        return LLMClient()
+
+
+def _create_llm_client() -> Any:
+    """Create the LLM singleton, respecting the ANATOMY_UNIFIED_LLM feature flag.
+
+    When the flag is OFF (default), the existing LLMClient is used unchanged.
+    When ON, the UnifiedLLMFactory decides which backend to instantiate:
+      - USE_OJ_ENGINE=true -> CloudEngine wrapper
+      - UNIFIED_LLM_FACTORY=true -> Phase 23 provider-based factory
+      - Otherwise -> LLMClient with graduated fallback chain
+    """
+    if os.environ.get("ANATOMY_UNIFIED_LLM", "").lower() in ("true", "1"):
+        return UnifiedLLMFactory.create()
+    return LLMClient()
+
+
+# Singleton -- may be LLMClient, _CloudEngineWrapper, or UnifiedLLMFactory
+# depending on feature flags
+llm = _create_llm_client()

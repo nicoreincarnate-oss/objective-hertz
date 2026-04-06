@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import glob
 import logging
+import os
+import tempfile
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -74,14 +77,157 @@ class AgentExecutor:
         )
         return agent.run(input_text)
 
+    def _invoke_one_shot(self, agent: dict, config: dict) -> AgentResult:
+        """Fast path for single-turn classification agents.
+
+        Skips: retry/continuation logic, agentId/sendMessage prompt injection,
+        full trace recording, memory retrieval, multi-turn context assembly.
+
+        Builds a minimal system prompt + user message, makes ONE LLM call,
+        and returns the text result.
+
+        Trigger: agent config has ``"one_shot": true`` and the
+        ``ANATOMY_MODEL_TIERING`` feature flag is enabled.
+        """
+        tick_start = time.time()
+
+        engine = self._system.engine if self._system else None
+        if engine is None:
+            raise FatalError("No engine available for one-shot agent")
+
+        model = config.get("model") or (
+            self._system.model if self._system else ""
+        )
+        if not model:
+            raise FatalError("No model configured for one-shot agent")
+
+        # Apply model tiering if available (Phase 18a-03)
+        try:
+            from shared.model_tiers import get_tiered_model
+
+            model = get_tiered_model(agent.get("id", ""), model)
+        except ImportError:
+            pass
+
+        system_prompt = config.get("system_prompt", "")
+        instruction = config.get("instruction", "")
+        input_text = instruction or agent.get("summary_memory", "") or "Classify."
+
+        # Append any pending messages
+        pending = self._manager.get_pending_messages(agent["id"])
+        if pending:
+            user_msgs = "\n".join(f"User: {m['content']}" for m in pending)
+            input_text = f"{input_text}\n\nNew instructions:\n{user_msgs}"
+            for m in pending:
+                self._manager.mark_message_delivered(m["id"])
+
+        logger.info(
+            "One-shot agent %s: model=%s, input_len=%d",
+            agent.get("id", "?"), model, len(input_text),
+        )
+
+        # Single LLM call — no retry, no continuation, no tool injection
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": input_text})
+
+        result = engine.generate(
+            messages,
+            model=model,
+            max_tokens=config.get("max_tokens", 256),
+            temperature=config.get("temperature", 0.0),
+        )
+
+        content = result.get("content", "")
+        tick_duration = time.time() - tick_start
+
+        logger.info(
+            "One-shot agent %s completed in %.2fs",
+            agent.get("id", "?"), tick_duration,
+        )
+
+        return AgentResult(
+            content=content,
+            tool_results=[],
+            turns=1,
+            metadata={
+                "one_shot": True,
+                "duration": tick_duration,
+                **result.get("usage", {}),
+            },
+        )
+
+    def _drain_pending_messages(self, agent_id: str) -> list[dict]:
+        """Drain buffered A2A messages before tool execution begins.
+
+        When ANATOMY_COORDINATION_V2 is enabled, messages from other agents
+        are buffered in an AgentMessageQueue during tool execution. This
+        method drains them at the start of each tick so they are processed
+        between tool rounds, not mid-execution.
+
+        Returns the list of drained messages (empty if flag is off or no
+        queue is available).
+        """
+        if os.environ.get("ANATOMY_COORDINATION_V2", "").lower() not in ("true", "1"):
+            return []
+
+        try:
+            from shared.message_queue import AgentMessageQueue
+
+            queue: AgentMessageQueue | None = getattr(self, "_message_queues", {}).get(agent_id)
+            if queue is None:
+                return []
+
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # We are inside an async context -- schedule and return
+                # This should not normally happen in execute_tick (sync),
+                # but handle defensively.
+                return []
+
+            # Run drain synchronously since execute_tick is sync
+            messages = asyncio.get_event_loop().run_until_complete(queue.drain())
+            if messages:
+                logger.debug(
+                    "Drained %d pending messages for agent %s",
+                    len(messages),
+                    agent_id,
+                )
+            return messages
+        except (ImportError, RuntimeError, ValueError, TypeError, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug(
+                "Message drain failed for agent %s: %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+            return []
+
+    def register_message_queue(self, agent_id: str, queue: "Any") -> None:
+        """Register an AgentMessageQueue for a managed agent."""
+        if not hasattr(self, "_message_queues"):
+            self._message_queues: dict[str, Any] = {}
+        self._message_queues[agent_id] = queue
+
     def execute_tick(self, agent_id: str) -> None:
         """Run one tick for the given agent.
 
-        1. Acquire concurrency guard (start_tick)
-        2. Invoke agent with retry logic
-        3. Update stats
-        4. Release guard (end_tick)
+        1. Drain pending messages (ANATOMY_COORDINATION_V2)
+        2. Acquire concurrency guard (start_tick)
+        3. Invoke agent with retry logic
+        4. Update stats
+        5. Release guard (end_tick)
         """
+        # Phase 22-04: drain buffered messages BEFORE tool execution
+        drained = self._drain_pending_messages(agent_id)
+
         try:
             self._manager.start_tick(agent_id)
         except ValueError:
@@ -92,6 +238,13 @@ class AgentExecutor:
         if agent is None:
             logger.error("Agent %s not found", agent_id)
             return
+
+        # If we drained messages, inject them as pending messages
+        if drained:
+            for msg in drained:
+                content = msg.get("text", msg.get("content", ""))
+                if content:
+                    self._manager.send_message(agent_id, content)
 
         self._bus.publish(EventType.AGENT_TICK_START, {
             "agent_id": agent_id,
@@ -159,17 +312,130 @@ class AgentExecutor:
                     tick_start, tick_duration, trace_steps,
                 )
 
+            # Phase 22-06: comprehensive agent cleanup after tick
+            self._cleanup_agent_tick(agent_id)
+
+    def _cleanup_agent_tick(self, agent_id: str) -> None:
+        """Comprehensive post-tick cleanup (Phase 22-06 — D-03).
+
+        Runs after every tick (success or failure) to prevent resource leaks:
+        - Unsubscribes any lingering event handlers registered during the tick
+        - Clears temporary file caches scoped to the agent
+        - Logs cleanup at DEBUG level
+
+        Gated behind ANATOMY_COORDINATION_V2 feature flag.
+        """
+        if os.environ.get("ANATOMY_COORDINATION_V2", "").lower() not in ("true", "1"):
+            return
+
+        cleaned_events = 0
+        cleaned_files = 0
+
+        # 1. Unsubscribe any event handlers that reference this agent_id.
+        #    The EventBus stores subscribers per event type. We scan all
+        #    registered handlers and remove any whose closure captures this
+        #    agent_id (detected via __qualname__ containing 'execute_tick').
+        try:
+            for event_type in list(EventType):
+                subs = self._bus._subscribers.get(event_type, [])
+                to_remove = []
+                for handler in subs:
+                    # Check if handler is a local closure from execute_tick
+                    # that was not already removed (belt-and-suspenders)
+                    qualname = getattr(handler, "__qualname__", "")
+                    if "execute_tick" in qualname:
+                        to_remove.append(handler)
+                for handler in to_remove:
+                    try:
+                        self._bus.unsubscribe(event_type, handler)
+                        cleaned_events += 1
+                    except (ValueError, KeyError):
+                        pass  # Already removed
+        except (RuntimeError, ValueError, TypeError, AttributeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug(
+                "Agent %s cleanup: event unsubscribe scan failed: %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+
+        # 2. Clear temporary file caches scoped to this agent
+        #    Agents may write temp files via shell_exec or file operations.
+        #    Pattern: /tmp/oj_agent_<agent_id>_*
+        try:
+            pattern = os.path.join(
+                tempfile.gettempdir(), f"oj_agent_{agent_id}_*"
+            )
+            for tmp_path in glob.glob(pattern):
+                try:
+                    os.remove(tmp_path)
+                    cleaned_files += 1
+                except OSError:
+                    pass  # File already gone or locked
+        except (OSError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug(
+                "Agent %s cleanup: temp file removal failed: %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+
+        logger.debug(
+            "Agent %s tick cleanup: unsubscribed %d event handlers, "
+            "removed %d temp files",
+            agent_id,
+            cleaned_events,
+            cleaned_files,
+        )
+
     def _run_with_retries(self, agent: dict) -> AgentResult:
-        """Invoke the agent, retrying on RetryableError up to _MAX_RETRIES."""
+        """Invoke the agent, retrying on RetryableError up to _MAX_RETRIES.
+
+        When ANATOMY_UNIFIED_LLM is enabled, errors are withheld during
+        recovery attempts instead of being immediately propagated.  Only
+        after all recovery is exhausted are the errors surfaced (logged
+        and raised), preventing cascading failures in downstream systems
+        (EventBus listeners, Titan pipeline, A2A consumers).
+        """
+        use_withholding = os.environ.get(
+            "ANATOMY_UNIFIED_LLM", ""
+        ).lower() in ("true", "1")
+
+        withholder = None
+        if use_withholding:
+            try:
+                from shared.error_withholding import ErrorWithholder
+
+                withholder = ErrorWithholder(max_recovery_attempts=_MAX_RETRIES)
+            except ImportError:
+                logger.debug(
+                    "shared.error_withholding not available, "
+                    "falling back to standard retry"
+                )
+
         last_error: AgentTickError | None = None
 
         for attempt in range(_MAX_RETRIES):
             try:
-                return self._invoke_agent(agent)
+                result = self._invoke_agent(agent)
+                # Recovery succeeded — discard any withheld errors
+                if withholder is not None:
+                    withholder.clear()
+                return result
             except AgentTickError as e:
                 if not e.retryable or attempt == _MAX_RETRIES - 1:
+                    if withholder is not None:
+                        withholder.withhold(e)
+                        for held in withholder.release():
+                            logger.warning(
+                                "Agent %s withheld error released: %s",
+                                agent["id"],
+                                held,
+                            )
                     raise
                 last_error = e
+                if withholder is not None:
+                    withholder.withhold(e)
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
@@ -179,7 +445,17 @@ class AgentExecutor:
             except Exception as e:
                 classified = classify_error(e)
                 if not classified.retryable or attempt == _MAX_RETRIES - 1:
+                    if withholder is not None:
+                        withholder.withhold(classified)
+                        for held in withholder.release():
+                            logger.warning(
+                                "Agent %s withheld error released: %s",
+                                agent["id"],
+                                held,
+                            )
                     raise classified from e
+                if withholder is not None:
+                    withholder.withhold(classified)
                 delay = retry_delay(attempt)
                 logger.info(
                     "Agent %s tick retry %d/%d in %ds: %s",
@@ -201,10 +477,30 @@ class AgentExecutor:
 
         config = agent.get("config", {})
 
+        # One-shot optimization (Phase 18a-04 — D-05)
+        # Agents with "one_shot": true in their config are simple classifiers
+        # that do one LLM call and return. Skip all multi-turn overhead.
+        # Gated behind ANATOMY_MODEL_TIERING feature flag.
+        if (
+            config.get("one_shot") is True
+            and os.environ.get("ANATOMY_MODEL_TIERING", "").lower()
+            in ("true", "1")
+        ):
+            return self._invoke_one_shot(agent, config)
+
         # Resolve engine + model from JarvisSystem
         engine = self._system.engine if self._system else None
         if engine is None:
             raise FatalError("No engine available in JarvisSystem")
+
+        # Phase 23: When unified LLM is active, wrap engine with fallback chain
+        if os.environ.get("ANATOMY_UNIFIED_LLM", "").lower() in ("true", "1"):
+            try:
+                from shared.llm_factory import UnifiedEngineAdapter
+                engine = UnifiedEngineAdapter(engine)
+            except ImportError:
+                pass  # Graceful degradation if factory module unavailable
+
         model = config.get("model") or (
             self._system.model
             if self._system else ""
@@ -239,7 +535,7 @@ class AgentExecutor:
                 selected = policy.select_model(ctx)
                 if selected:
                     model = selected
-            except Exception:
+            except (ImportError, KeyError, ValueError, TypeError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass  # Fall back to configured model
 
         # Build runtime tool set from agent config. Without this, managed
@@ -250,16 +546,74 @@ class AgentExecutor:
         if tool_names and self._system:
             try:
                 agent_tools = self._system._build_tools(tool_names)
-            except Exception:
+            except (ImportError, KeyError, ValueError, TypeError, RuntimeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning(
-                    "Failed to build tools for agent %s: %s",
+                    "Failed to build tools for agent %s: %s — %s",
                     agent.get("id", ""),
                     tool_names,
+                    exc,
                     exc_info=True,
                 )
 
+        # Phase 21 — Per-agent permission filtering (gated)
+        permission_profile = None
+        if os.environ.get("ANATOMY_AGENT_PERMISSIONS", "").lower() in ("true", "1"):
+            try:
+                from shared.permissions import (
+                    get_permission_profile,
+                    is_tool_allowed,
+                    publish_escalation,
+                )
+
+                permission_profile = get_permission_profile(config)
+                if tool_names:
+                    filtered_names = []
+                    for tname in tool_names:
+                        if is_tool_allowed(permission_profile, tname):
+                            filtered_names.append(tname)
+                        else:
+                            publish_escalation(
+                                self._bus,
+                                agent.get("id", ""),
+                                tname,
+                                f"tool={tname} requested by agent config",
+                                f"Denied by permission profile: level={permission_profile.level.value}",
+                            )
+                    if filtered_names != tool_names:
+                        logger.info(
+                            "Agent %s: permission filter reduced tools from %s to %s",
+                            agent.get("id", ""),
+                            tool_names,
+                            filtered_names,
+                        )
+                        # Rebuild tools with the filtered set
+                        if self._system and filtered_names:
+                            try:
+                                agent_tools = self._system._build_tools(filtered_names)
+                            except (ImportError, KeyError, ValueError, TypeError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+                                logger.warning(
+                                    "Failed to rebuild filtered tools for agent %s",
+                                    agent.get("id", ""),
+                                    exc_info=True,
+                                )
+                        elif not filtered_names:
+                            agent_tools = []
+            except ImportError:
+                logger.debug("shared.permissions not available, skipping permission filtering")
+
+        # Context stripping for lightweight agents (gated by ANATOMY_MODEL_TIERING)
+        system_prompt = config.get("system_prompt")
+        if config.get("context_level") == "minimal" and system_prompt:
+            try:
+                from shared.context_stripper import is_enabled, strip_context
+
+                if is_enabled():
+                    system_prompt = strip_context(system_prompt)
+            except (ImportError, ValueError, TypeError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
+                pass  # Fall back to full context if stripping fails
+
         agent_kwargs: dict[str, Any] = {
-            "system_prompt": config.get("system_prompt"),
+            "system_prompt": system_prompt,
             "bus": self._bus,
             "max_turns": config.get("max_turns", 10),
             "temperature": config.get(
@@ -342,6 +696,18 @@ class AgentExecutor:
             for m in pending:
                 self._manager.mark_message_delivered(m["id"])
 
+        # Phase 26b-04: Route to run_iter() when generator loop is enabled
+        # and the agent has implemented it (has_run_iter() returns True).
+        if (
+            os.environ.get("ANATOMY_GENERATOR_LOOP", "").lower() in ("true", "1")
+            and hasattr(agent_instance, "has_run_iter")
+            and agent_instance.has_run_iter()
+        ):
+            logger.info(
+                "Agent %s: using generator-based run_iter()",
+                agent.get("id", "?"),
+            )
+
         # Build AgentContext with memory results from FTS5 backend
         from openjarvis.agents._stubs import AgentContext
 
@@ -388,7 +754,7 @@ class AgentExecutor:
                             f"Retrieved context from knowledge base:\n"
                             f"{retrieved}\n\n{input_text}"
                         )
-            except Exception:
+            except (ImportError, ValueError, TypeError, KeyError, RuntimeError, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass  # Don't break agent tick if memory retrieval fails
 
         agent_ctx.memory_results = memory_results
@@ -544,7 +910,7 @@ class AgentExecutor:
         )
         try:
             self._trace_store.save(trace)
-        except Exception:
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning(
-                "Failed to save trace for agent %s", agent_id, exc_info=True,
+                "Failed to save trace for agent %s: %s", agent_id, exc, exc_info=True,
             )

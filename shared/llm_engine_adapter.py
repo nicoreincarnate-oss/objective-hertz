@@ -1,6 +1,10 @@
 """
-LLM Engine Adapter — Drop-in replacement for shared.llm_client that can route
+LLM Engine Adapter -- Drop-in replacement for shared.llm_client that can route
 through OpenJarvis InferenceEngine when the USE_OJ_ENGINE feature flag is enabled.
+
+DEPRECATED: Use shared.llm_client (with ANATOMY_UNIFIED_LLM=true and
+UNIFIED_LLM_FACTORY=true) instead. This module will be removed after the
+Phase 23 48h parallel run validates the unified path.
 
 Feature flag: USE_OJ_ENGINE env var (default "false")
   - When false: delegates 100% to the original LLMClient (zero behavior change)
@@ -23,6 +27,9 @@ import os
 import time
 from datetime import date
 from typing import Any
+
+# Sticky session month — computed once at import time to avoid midnight drift.
+_SESSION_MONTH = date.today().replace(day=1)
 
 logger = logging.getLogger("perseus.llm.adapter")
 
@@ -56,7 +63,7 @@ if _USE_OJ_ENGINE:
         _oj_estimate_cost = _est_cost
         _OJ_AVAILABLE = True
         logger.info("OJ Engine imports succeeded — adapter will route through OJ when enabled")
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning("OJ Engine imports failed, falling back to original llm_client: %s", exc)
         _OJ_AVAILABLE = False
 
@@ -72,7 +79,7 @@ try:
     _select_model_fn = _sel_model
     _MODEL_SELECTOR_AVAILABLE = True
     logger.debug("Model selector available — dynamic tier resolution enabled")
-except Exception as exc:
+except (ImportError, ModuleNotFoundError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
     logger.debug("Model selector unavailable, using hardcoded tier map: %s", exc)
     _MODEL_SELECTOR_AVAILABLE = False
 
@@ -123,7 +130,7 @@ def _init_oj_engines() -> Any:
         _oj_multi_engine = multi
         _oj_engines_initialized = True
         return multi
-    except Exception as exc:
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Failed to initialize OJ engines: %s", exc)
         raise
 
@@ -163,7 +170,7 @@ async def _check_budget(tier: str) -> str:
     try:
         from shared.middleware import check_budget_for_llm_call
         return await check_budget_for_llm_call(tier)
-    except Exception as exc:
+    except (ImportError, OSError, ValueError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error("Budget check failed, falling back to local: %s", exc)
         return "local"
 
@@ -207,7 +214,7 @@ async def _record_spend(
             cost = (total_tokens / 1000) * _COST_PER_1K[cost_key]
 
         if cost >= 0.001:
-            month = date.today().replace(day=1)
+            month = _SESSION_MONTH
             cost_key = _tier_to_cost_key(tier)
             desc = f"oj-claude-{cost_key} ~{int(total_tokens)}tok"
             if pipeline_stage:
@@ -217,7 +224,7 @@ async def _record_spend(
                    VALUES (%s, 'claude_api', %s, %s, %s, %s)""",
                 (month, round(cost, 4), desc, client_id, pipeline_stage or None),
             )
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug("OJ spend recording failed (non-critical): %s", e)
 
 
@@ -276,7 +283,7 @@ def _fire_metrics_oj(
         loop.create_task(emit_cost_event(cost_event))
     except RuntimeError:
         pass  # No running event loop (testing)
-    except Exception as exc:
+    except (ImportError, AttributeError, TypeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug("OJ metrics fire failed (non-critical): %s", exc)
 
 
@@ -322,7 +329,7 @@ async def _oj_generate(
                 "Model selector chose %s (engine=%s) — %s",
                 model_id, engine_key, _selection_obj.reason,
             )
-        except Exception as sel_exc:
+        except (ValueError, KeyError, TypeError, OSError) as sel_exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("Model selector failed, using hardcoded tier map: %s", sel_exc)
             model_id, engine_key = _OJ_TIER_MAP.get(tier, _OJ_TIER_MAP["fast"])
     else:
@@ -406,7 +413,7 @@ async def _oj_generate_with_ollama_fallback(
             _budget_pct=_budget_pct,
         )
         return content, meta
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
         # Determine fallback model: use selector's fallback_model if available
         fallback = "local"
         if _MODEL_SELECTOR_AVAILABLE and _select_model_fn is not None:
@@ -424,7 +431,7 @@ async def _oj_generate_with_ollama_fallback(
                     )
                 else:
                     logger.warning("OJ cloud engine failed, falling back to local: %s", exc)
-            except Exception:
+            except (ValueError, KeyError, TypeError, OSError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("OJ cloud engine failed, falling back to local: %s", exc)
         else:
             logger.warning("OJ cloud engine failed, falling back to local: %s", exc)
@@ -536,7 +543,7 @@ class LLMClient:
                     prompt, content, t0, True, None,
                 )
                 return content
-            except Exception:
+            except (OSError, RuntimeError, ConnectionError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 # OJ Ollama also failed — fall through to original
                 return await self._original.generate(
                     prompt, system=system, model="local",
@@ -560,7 +567,7 @@ class LLMClient:
                     prompt, content, t0, True, None,
                 )
                 return content
-            except Exception:
+            except (OSError, RuntimeError, ConnectionError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 return await self._original.generate(
                     prompt, system=system, model=resolved_model,
                     max_tokens=max_tokens, temperature=temperature,
@@ -591,7 +598,7 @@ class LLMClient:
                 oj_output_tokens=meta.get("output_tokens"),
             )
             return content
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.warning("OJ Engine fully failed, delegating to original llm_client: %s", exc)
             _fire_metrics_oj(
                 pipeline_stage or "unknown", resolved_model, "generate",
@@ -639,7 +646,7 @@ class LLMClient:
             except json.JSONDecodeError:
                 # OJ returned non-JSON — try to extract
                 return _extract_json(content)
-            except Exception as exc:
+            except (OSError, RuntimeError, ConnectionError, TimeoutError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
                 logger.warning("OJ generate_json failed, falling back to text parse: %s", exc)
 
         # Fallback: generate text and parse JSON
@@ -693,7 +700,7 @@ class LLMClient:
         if self._use_oj and _oj_multi_engine is not None:
             try:
                 _oj_multi_engine.close()
-            except Exception:
+            except (OSError, RuntimeError):  # IGUS-FIX: Narrowed exception type (CWE-755)
                 pass
 
 
