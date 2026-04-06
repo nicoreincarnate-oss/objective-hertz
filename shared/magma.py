@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import httpx
 import json
 import logging
 import math
 import os
+import psycopg
 import re
 import time
 import uuid
@@ -50,6 +52,54 @@ class EdgeType(str, Enum):
     ENTITY = "INVOLVES"
 
 
+# ── Phase 26a-04: Memory type taxonomy with derivability filter (E-01) ──
+
+
+class MemoryType(str, Enum):
+    """Taxonomy of MAGMA memory types.
+
+    Derivable information (lead status, campaign metrics) duplicates
+    Postgres tables and creates stale parallel copies.  The derivability
+    filter rejects storage of content that belongs in an authoritative
+    relational table instead.
+    """
+    OPERATOR = "operator"        # Human-authored instructions / corrections
+    CORRECTION = "correction"    # Fixes to previous learnings
+    CAMPAIGN = "campaign"        # Campaign strategy insights
+    BOOKMARK = "bookmark"        # Saved references for later
+    INSIGHT = "insight"          # Derived learnings from pipeline
+    OBSERVATION = "observation"  # Daily observations (KAIROS)
+
+
+# Tables that contain authoritative data — don't store duplicates in MAGMA
+_DERIVABLE_TABLES: dict[str, str] = {
+    "lead_status": "leads",
+    "campaign_metrics": "campaigns",
+    "budget_data": "budget_tracking",
+    "task_status": "task_queue",
+    "agent_status": "managed_agents",
+}
+
+
+def _derivability_filter_enabled() -> bool:
+    """Check if the ANATOMY_RUNTIME_STATE feature flag is active."""
+    return os.environ.get("ANATOMY_RUNTIME_STATE", "").lower() in ("1", "true", "yes")
+
+
+def _is_derivable(content: str, category: str = "") -> bool:
+    """Check if this content duplicates information in a Postgres table.
+
+    Uses a simple keyword heuristic: if the content is primarily about
+    data that lives in a specific authoritative table, it should not be
+    duplicated in MAGMA.
+    """
+    content_lower = content.lower()
+    for keyword, table in _DERIVABLE_TABLES.items():
+        if keyword.replace("_", " ") in content_lower:
+            return True
+    return False
+
+
 # ── Constants ────────────────────────────────────────────────────────
 
 CAUSAL_CONFIDENCE_THRESHOLD = 0.4
@@ -66,6 +116,7 @@ CONFIDENCE_ABSTENTION_THRESHOLD = float(os.environ.get("MAGMA_ABSTENTION_THRESHO
 CONFIDENCE_SCORING_ENABLED = os.environ.get("MAGMA_CONFIDENCE_SCORING", "1") == "1"
 DOMAIN_SEGREGATION_ENABLED = os.environ.get("MAGMA_DOMAIN_SEGREGATION", "1") == "1"
 TEMPORAL_HALF_LIFE_DAYS = 14.0  # MMA paper: 30-day half-life, we use 14 for sales velocity
+STALENESS_THRESHOLD = float(os.environ.get("MAGMA_STALENESS_THRESHOLD", "0.3"))
 
 
 # ── Confidence Scoring (MMA paper) ──────────────────────────────────
@@ -118,6 +169,25 @@ def compute_anchor_confidence(anchor: dict) -> float:
     return rrf * (0.4 * reliability + 0.3 * decay + 0.3 * min(1.0, importance))
 
 
+def check_staleness(anchor: dict, threshold: float | None = None) -> str | None:
+    """Check if an anchor's temporal decay indicates staleness.
+
+    Returns a warning string if decay < threshold, None otherwise.
+    Threshold defaults to MAGMA_STALENESS_THRESHOLD env var (0.3).
+    """
+    if threshold is None:
+        threshold = STALENESS_THRESHOLD
+    decay = temporal_decay_factor(anchor.get("timestamp", ""))
+    if decay < threshold:
+        node_id = anchor.get("node_id", "unknown")
+        ts = anchor.get("timestamp", "unknown")
+        return (
+            f"Stale memory '{node_id}' (timestamp={ts}, decay={decay:.3f} < "
+            f"threshold={threshold:.2f}) — treat with caution"
+        )
+    return None
+
+
 # ── Neo4j Connection with Circuit Breaker ────────────────────────────
 
 _driver = None
@@ -165,7 +235,7 @@ def _get_driver():
             session.run("CREATE INDEX IF NOT EXISTS FOR (e:Entity) ON (e.name)")
         logger.info("MAGMA Neo4j driver initialized")
         return _driver
-    except Exception as e:
+    except (ImportError, OSError, ConnectionError, RuntimeError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.warning(f"MAGMA Neo4j unavailable (degrading to flat memory): {e}")
         return None
 
@@ -183,7 +253,8 @@ async def _get_embedding(text: str) -> list[float] | None:
             )
             resp.raise_for_status()
             return resp.json().get("embedding")
-    except Exception:
+    except (httpx.HTTPError, OSError, TimeoutError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("MAGMA embedding generation failed: %s", exc)
         return None
 
 
@@ -241,7 +312,17 @@ async def magma_ingest(
     - magma_node_id stored in Qdrant payload for identity linkage
     - Temporal delta computed from previous node timestamp
     - Zep temporal fact stored with magma_node_id in metadata
+    - Phase 26a-04: Derivability filter rejects content that duplicates
+      authoritative Postgres tables (gated behind ANATOMY_RUNTIME_STATE)
     """
+    # Phase 26a-04: Skip storage of derivable content when flag is active
+    if _derivability_filter_enabled() and _is_derivable(content, category):
+        logger.debug(
+            "MAGMA derivability filter: skipping storage of derivable content "
+            "(category=%s, len=%d)", category, len(content),
+        )
+        return []
+
     driver = _get_driver()
     if not driver:
         return []
@@ -270,7 +351,7 @@ async def magma_ingest(
                 outcome_magnitude=meta.get("outcome_magnitude", 0.5),
                 sample_size=meta.get("sample_size", 1),
             )
-        except Exception as e:
+        except (ImportError, httpx.HTTPError, OSError, TimeoutError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"MAGMA Mem0 write failed (non-critical): {e}")
 
         # Store in Zep WITH magma_node_id (if enabled), client-scoped
@@ -282,8 +363,8 @@ async def magma_ingest(
                 metadata={**meta, "magma_node_id": node_id},
                 client_id=meta.get("client_id"),
             )
-        except Exception:
-            pass
+        except (ImportError, httpx.HTTPError, OSError, TimeoutError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("MAGMA Zep store failed (non-critical): %s", exc)
 
         # Neo4j: node (with embedding_hash) + temporal edge + entity edges
         try:
@@ -339,15 +420,15 @@ async def magma_ingest(
                            CREATE (n)-[:INVOLVES {entity_type: $etype}]->(e)""",
                         name=entity_name.lower().strip(), node_id=node_id, etype=etype,
                     )
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"MAGMA Neo4j write failed (degrading gracefully): {e}")
 
         # Enqueue for slow path
         try:
             from shared.db import emit_event
             await emit_event("magma_consolidate", {"node_id": node_id, "category": category})
-        except Exception:
-            pass
+        except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("MAGMA consolidation enqueue failed (non-critical): %s", exc)
 
     return node_ids
 
@@ -423,7 +504,7 @@ async def magma_consolidate(node_id: str) -> bool:
                           collect(DISTINCT {id: sibling.node_id, content: sibling.content, cat: sibling.category}) as related""",
                 node_id=node_id,
             ).single()
-    except Exception as e:
+    except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         # Neo4j read failure is transient — raise so event stays unacknowledged
         raise RuntimeError(f"MAGMA consolidation read failed: {e}") from e
 
@@ -448,8 +529,9 @@ async def magma_consolidate(node_id: str) -> bool:
                     "score": sr.get("score", 0.0),
                     "cat": sr.get("category", ""),
                 })
-    except Exception:
-        pass
+    except (ConnectionError, OSError, TimeoutError, ValueError, KeyError) as e:
+        # IGUS-FIX: Narrow exception type for semantic neighbor search (CWE-755)
+        logger.warning("MAGMA semantic neighbor search failed: %s", e)
 
     all_neighbors = before_nodes + after_nodes + related_nodes
     if not all_neighbors and not semantic_neighbors:
@@ -486,7 +568,8 @@ async def magma_consolidate(node_id: str) -> bool:
         start = llm_result.find("{")
         end = llm_result.rfind("}") + 1
         causal = json.loads(llm_result[start:end])
-    except Exception:
+    except (json.JSONDecodeError, ValueError, KeyError, ImportError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("MAGMA causal inference parse failed: %s", exc)
         causal = {"caused_by": [], "caused": []}
 
     edges_written = 0
@@ -554,7 +637,7 @@ async def magma_consolidate(node_id: str) -> bool:
                     edges_written += 1
 
             session.run("MATCH (n:MemoryNode {node_id: $id}) SET n.consolidated = true", id=node_id)
-    except Exception as e:
+    except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         # Edge write failure is transient — raise so event stays unacknowledged
         raise RuntimeError(f"MAGMA edge write failed: {e}") from e
 
@@ -568,8 +651,8 @@ async def magma_consolidate(node_id: str) -> bool:
                        VALUES (%s, %s, %s, %s)""",
                     (rec["node_id"], rec["cause_node_id"], rec["effect_node_id"], rec["confidence"]),
                 )
-        except Exception:
-            pass
+        except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("MAGMA audit record insert failed: %s", exc)
 
     if edges_written:
         logger.info(f"MAGMA consolidated {node_id}: {edges_written} edges")
@@ -607,7 +690,8 @@ async def _search_memory_with_metadata(
                 )
                 resp.raise_for_status()
                 return _parse_results(resp.json().get("results", []))
-        except Exception:
+        except (httpx.HTTPError, OSError, TimeoutError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("MAGMA Mem0 search failed: %s", exc)
             return []
 
     if client_id is not None:
@@ -619,6 +703,124 @@ async def _search_memory_with_metadata(
         return client_results
     else:
         return await _search_ns("titan", limit)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Retrieval Telemetry (Phase 19 — Task 19-02)
+# ═══════════════════════════════════════════════════════════════
+
+async def _record_retrieval_stats(
+    query: str,
+    intent: str,
+    anchors_found: int,
+    anchors_used: int,
+    confidence_avg: float,
+    latency_ms: int,
+    decompose_ms: int,
+    anchor_ms: int,
+    beam_ms: int,
+    linearize_ms: int,
+    abstained: bool,
+) -> None:
+    """Fire-and-forget retrieval telemetry insert.
+
+    Logs warning on failure, never raises.
+    Respects ANATOMY_COST_DASHBOARD feature flag.
+    """
+    if os.environ.get("ANATOMY_COST_DASHBOARD", "").lower() not in ("true", "1"):
+        return
+
+    try:
+        from shared.db import execute
+
+        # Truncate long queries to 500 chars for storage
+        truncated_query = query[:500] if len(query) > 500 else query
+
+        await execute(
+            """INSERT INTO magma_retrieval_stats
+               (query, intent, anchors_found, anchors_used, confidence_avg,
+                latency_ms, decompose_ms, anchor_ms, beam_ms, linearize_ms, abstained)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                truncated_query,
+                intent,
+                anchors_found,
+                anchors_used,
+                confidence_avg,
+                latency_ms,
+                decompose_ms,
+                anchor_ms,
+                beam_ms,
+                linearize_ms,
+                abstained,
+            ),
+        )
+    except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.warning("Failed to record retrieval stats: %s", exc)
+
+
+async def compute_alma_adjustments_from_telemetry(
+    query_type: str, lookback_days: int = 7
+) -> dict:
+    """Compute ALMA meta-param adjustments from retrieval telemetry.
+
+    Analyzes magma_retrieval_stats for a query_type to identify:
+    - High abstention rate -> increase beam_width, lower abstention threshold
+    - High latency -> decrease max_depth, decrease beam_width
+    - Low anchor utilization -> adjust rrf_k, increase lambda_semantic
+
+    Returns adjustment dict compatible with update_meta_params().
+    Feature flag: ANATOMY_COST_DASHBOARD
+    """
+    if os.environ.get("ANATOMY_COST_DASHBOARD", "").lower() not in ("true", "1"):
+        return {}
+
+    try:
+        from shared.db import fetch_one
+
+        stats = await fetch_one(
+            """SELECT
+                COUNT(*) AS total_queries,
+                AVG(anchors_found) AS avg_anchors_found,
+                AVG(anchors_used) AS avg_anchors_used,
+                AVG(confidence_avg) AS avg_confidence,
+                AVG(latency_ms) AS avg_latency,
+                SUM(CASE WHEN abstained THEN 1 ELSE 0 END) AS abstention_count,
+                AVG(beam_ms) AS avg_beam_ms,
+                AVG(anchor_ms) AS avg_anchor_ms
+            FROM magma_retrieval_stats
+            WHERE query_type = %s
+              AND created_at >= NOW() - INTERVAL %s""",
+            (query_type, f"{lookback_days} days"),
+        )
+
+        if not stats or int(stats.get("total_queries") or 0) < 10:
+            return {}  # Not enough data to adjust
+
+        adjustments: dict = {}
+        total = int(stats["total_queries"])
+        abstention_rate = int(stats.get("abstention_count") or 0) / max(total, 1)
+        avg_latency = float(stats.get("avg_latency") or 0)
+        avg_anchors_found = float(stats.get("avg_anchors_found") or 1)
+        anchor_utilization = float(stats.get("avg_anchors_used") or 0) / max(avg_anchors_found, 1)
+
+        # High abstention -> widen beam
+        if abstention_rate > 0.3:
+            adjustments["beam_width"] = 10
+
+        # High latency -> reduce depth
+        if avg_latency > 2000:
+            adjustments["max_depth"] = -1
+
+        # Low anchor utilization -> adjust semantic weight
+        if anchor_utilization < 0.3:
+            adjustments["lambda_semantic"] = 0.1
+
+        return adjustments
+
+    except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("ALMA telemetry analysis failed: %s", exc)
+        return {}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -647,6 +849,8 @@ async def magma_retrieve(
     caller (get_relevant_learnings) falls through to the flat stack.
     This avoids mutual recursion between magma_retrieve ↔ get_relevant_learnings.
     """
+    t0_total = time.perf_counter()
+
     driver = _get_driver()
     if not driver:
         return ""
@@ -654,12 +858,34 @@ async def magma_retrieve(
     # Resolve ALMA meta-learned params for this query type
     params = await meta_search_params(query_type)
 
+    # Phase 1: Decompose query
+    t0_decompose = time.perf_counter()
     decomp = await _decompose_query(query, client_id=client_id)
+    decompose_ms = int((time.perf_counter() - t0_decompose) * 1000)
     intent = decomp["intent"]
+
+    # Phase 2: Find anchors
+    t0_anchor = time.perf_counter()
     anchors = await _find_anchors_linked(query, intent, decomp, limit=limit, params=params)
+    anchor_ms = int((time.perf_counter() - t0_anchor) * 1000)
 
     if not anchors:
+        # Record stats even for empty retrieval
+        _telemetry_anchors_found = 0
+        latency_ms = int((time.perf_counter() - t0_total) * 1000)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_record_retrieval_stats(
+                query=query, intent=intent.value if hasattr(intent, "value") else str(intent),
+                anchors_found=0, anchors_used=0, confidence_avg=0.0,
+                latency_ms=latency_ms, decompose_ms=decompose_ms,
+                anchor_ms=anchor_ms, beam_ms=0, linearize_ms=0, abstained=False,
+            ))
+        except RuntimeError:
+            pass  # No event loop — skip telemetry
         return ""
+
+    anchors_found = len(anchors)
 
     # Confidence-aware abstention (MMA paper)
     if CONFIDENCE_SCORING_ENABLED and anchors:
@@ -669,17 +895,109 @@ async def magma_retrieve(
         if max_confidence < CONFIDENCE_ABSTENTION_THRESHOLD:
             # All memories are low-confidence — signal caller to use flat stack
             logger.info(f"MAGMA abstaining: max_confidence={max_confidence:.2f} < {CONFIDENCE_ABSTENTION_THRESHOLD}")
+            latency_ms = int((time.perf_counter() - t0_total) * 1000)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_record_retrieval_stats(
+                    query=query, intent=intent.value if hasattr(intent, "value") else str(intent),
+                    anchors_found=anchors_found, anchors_used=0,
+                    confidence_avg=_avg_confidence,
+                    latency_ms=latency_ms, decompose_ms=decompose_ms,
+                    anchor_ms=anchor_ms, beam_ms=0, linearize_ms=0, abstained=True,
+                ))
+            except RuntimeError:
+                pass
             return f"[LOW CONFIDENCE — all retrieved memories scored below {CONFIDENCE_ABSTENTION_THRESHOLD:.1f}. Treat with caution.]"
 
+    # Staleness warnings — check each anchor for temporal decay below threshold
+    staleness_warnings: list[str] = []
+    for anchor in anchors:
+        warning = check_staleness(anchor)
+        if warning:
+            staleness_warnings.append(warning)
+            anchor["stale"] = True
+        else:
+            anchor["stale"] = False
+
+    if staleness_warnings:
+        logger.warning(
+            f"MAGMA staleness: {len(staleness_warnings)}/{len(anchors)} anchors are stale — "
+            + "; ".join(staleness_warnings[:3])
+            + ("..." if len(staleness_warnings) > 3 else "")
+        )
+
+    # Phase 3: Beam search
+    t0_beam = time.perf_counter()
     subgraph = await _scored_beam_search(driver, anchors, intent, query, decomp, params=params)
+    beam_ms = int((time.perf_counter() - t0_beam) * 1000)
+
+    # Phase 4: Linearize
+    t0_linearize = time.perf_counter()
     result = _linearize_with_provenance(subgraph, intent)
+    linearize_ms = int((time.perf_counter() - t0_linearize) * 1000)
+
+    anchors_used = len(subgraph)
 
     # Add confidence summary header if scoring enabled
     if CONFIDENCE_SCORING_ENABLED and anchors:
         avg_conf = sum(a.get("confidence", 0) for a in anchors) / len(anchors)
         result = f"[Memory confidence: {avg_conf:.2f} avg, {len(anchors)} sources]\n{result}"
+    else:
+        avg_conf = 0.0
+
+    # Add staleness warnings to result metadata
+    if staleness_warnings:
+        stale_header = f"[STALE MEMORIES: {len(staleness_warnings)}/{len(anchors)} anchors exceeded staleness threshold]\n"
+        result = stale_header + result
+
+    # Fire-and-forget telemetry (Phase 19-02)
+    latency_ms = int((time.perf_counter() - t0_total) * 1000)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_record_retrieval_stats(
+            query=query,
+            intent=intent.value if hasattr(intent, "value") else str(intent),
+            anchors_found=anchors_found,
+            anchors_used=anchors_used,
+            confidence_avg=avg_conf,
+            latency_ms=latency_ms,
+            decompose_ms=decompose_ms,
+            anchor_ms=anchor_ms,
+            beam_ms=beam_ms,
+            linearize_ms=linearize_ms,
+            abstained=False,
+        ))
+    except RuntimeError:
+        pass  # No event loop — skip telemetry
 
     return result
+
+
+def prefetch_retrieve(
+    query: str, limit: int = 10, client_id: int | None = None, query_type: str = "",
+) -> asyncio.Task | None:
+    """Task 27-04: Async prefetch for memory retrieval — hide latency.
+
+    Fires ``magma_retrieve`` as an ``asyncio.create_task()`` so callers can
+    start retrieval early and ``await`` the result when assembling the LLM prompt.
+
+    Gate: ANATOMY_MEMORY_INDEX feature flag.
+
+    Returns:
+        asyncio.Task wrapping the retrieval, or None if the feature flag is off
+        or no event loop is running.
+    """
+    if os.environ.get("ANATOMY_MEMORY_INDEX", "").lower() not in ("true", "1"):
+        return None
+    try:
+        return asyncio.create_task(
+            magma_retrieve(query, limit=limit, client_id=client_id, query_type=query_type),
+            name=f"prefetch_retrieve:{query[:40]}",
+        )
+    except RuntimeError:
+        # No running event loop
+        logger.debug("prefetch_retrieve: no event loop, skipping")
+        return None
 
 
 async def _decompose_query(query: str, client_id: int | None = None) -> dict:
@@ -725,8 +1043,9 @@ async def _decompose_query(query: str, client_id: int | None = None) -> dict:
                 "causal_direction": parsed.get("causal_direction"),
                 "_metadata": {"client_id": client_id},
             }
-        except Exception:
-            pass
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            # IGUS-FIX: Narrow exception type for LLM query decomposition (CWE-755)
+            logger.debug("MAGMA LLM query decomposition failed: %s", e)
 
     if causal_score > max(temporal_score, entity_score):
         intent = Intent.CAUSAL
@@ -812,8 +1131,9 @@ async def _find_anchors_linked(
                     "semantic_score": sr.get("score", 0.0),
                     "source": "qdrant", "provenance": "qdrant",
                 }
-    except Exception:
-        pass
+    except (ConnectionError, OSError, TimeoutError, ValueError, KeyError) as e:
+        # IGUS-FIX: Narrow exception type for Qdrant retrieval path (CWE-755)
+        logger.warning("MAGMA Qdrant anchor search failed: %s", e)
 
     # Source 2: Neo4j keyword + entity + time-filtered search
     if driver:
@@ -864,7 +1184,7 @@ async def _find_anchors_linked(
                                 "semantic_score": 0.0,
                                 "source": "graph", "provenance": "neo4j",
                             }
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             logger.debug(f"MAGMA anchor search failed: {e}")
 
     # Source 3: Zep temporal facts WITH magma_node_id (client-scoped)
@@ -886,8 +1206,8 @@ async def _find_anchors_linked(
                     "semantic_score": 0.0,
                     "source": "zep", "provenance": "zep",
                 }
-    except Exception:
-        pass
+    except (ImportError, httpx.HTTPError, OSError, TimeoutError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("MAGMA anchor search failed: %s", exc)
 
     # Apply confidence scoring if enabled (MMA paper)
     for anchor in anchors_by_id.values():
@@ -1034,7 +1354,7 @@ async def _scored_beam_search(
                         seen_ids.add(c["node_id"])
                         expanded.append(c)
 
-    except Exception as e:
+    except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"MAGMA beam search failed: {e}")
 
     expanded.sort(key=lambda x: x.get("score", 0), reverse=True)
@@ -1072,8 +1392,8 @@ async def _traverse_similar(driver, anchors: list[dict]) -> list[dict]:
                             "source": "traversal", "provenance": "neo4j:SIMILAR_TO",
                             "score": record.get("score", 0.5),
                         })
-    except Exception:
-        pass
+    except (RuntimeError, OSError, ConnectionError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("MAGMA beam search expansion failed: %s", exc)
 
     return expanded
 
@@ -1325,8 +1645,8 @@ async def evolve_memory() -> dict:
                         "confidences": [record["c1"], record["c2"]],
                     }))
                     stats["escalated"] += 1
-                except Exception:
-                    pass
+                except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                    logger.debug("MAGMA contradiction escalation emit failed: %s", exc)
 
             # 4. Semantic node merging (near-duplicates by embedding similarity)
             # Find nodes with same category, check embedding similarity
@@ -1358,7 +1678,7 @@ async def evolve_memory() -> dict:
                     _merge_graph_nodes(session, record["keep_id"], dupe_id)
                     stats["merged"] += 1
 
-    except Exception as e:
+    except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error(f"MAGMA evolution failed: {e}")
         stats["error"] = str(e)
 
@@ -1384,7 +1704,8 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
                ORDER BY created_at ASC LIMIT %s""",
             (batch_size,),
         )
-    except Exception:
+    except (ImportError, psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.warning("MAGMA consolidation queue fetch failed: %s", exc)
         return 0
 
     consolidated = 0
@@ -1398,8 +1719,8 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
                 logger.warning(f"MAGMA consolidation event {event['id']} has unparseable payload, discarding")
                 try:
                     await execute("UPDATE events SET acknowledged = TRUE WHERE id = %s", (event["id"],))
-                except Exception:
-                    pass
+                except (psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                    logger.debug("MAGMA ack failed for discarded event %s: %s", event["id"], exc)
                 continue
 
         node_id = payload.get("node_id", "")
@@ -1407,13 +1728,13 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
             # No node_id — nothing to consolidate, acknowledge
             try:
                 await execute("UPDATE events SET acknowledged = TRUE WHERE id = %s", (event["id"],))
-            except Exception:
-                pass
+            except (psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.debug("MAGMA ack failed for empty-node event %s: %s", event["id"], exc)
             continue
 
         try:
             success = await magma_consolidate(node_id)
-        except Exception as e:
+        except (RuntimeError, OSError, ConnectionError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
             # Transient failure — leave unacknowledged for retry.
             # But if the event is older than 24h, dead-letter it to prevent
             # a single broken node from blocking the queue forever.
@@ -1425,15 +1746,15 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
                     if isinstance(created, str):
                         created = _dt.fromisoformat(created)
                     event_age_hours = (datetime.now(tz=created.tzinfo) - created).total_seconds() / 3600
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                logger.debug("MAGMA event age calc failed: %s", exc)
 
             if event_age_hours > 24:
                 logger.error(f"MAGMA consolidation for {node_id} failed after 24h, dead-lettering: {e}")
                 try:
                     await execute("UPDATE events SET acknowledged = TRUE WHERE id = %s", (event["id"],))
-                except Exception:
-                    pass
+                except (psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+                    logger.debug("MAGMA dead-letter ack failed for %s: %s", event["id"], exc)
             else:
                 logger.warning(f"MAGMA consolidation failed for {node_id} (will retry): {e}")
             continue
@@ -1445,8 +1766,8 @@ async def process_consolidation_queue(batch_size: int = 10) -> int:
         # no longer exists, which magma_consolidate signals by returning False)
         try:
             await execute("UPDATE events SET acknowledged = TRUE WHERE id = %s", (event["id"],))
-        except Exception:
-            pass
+        except (psycopg.Error, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+            logger.debug("MAGMA event ack failed for %s: %s", event["id"], exc)
 
     if consolidated:
         logger.info(f"MAGMA consolidated {consolidated}/{len(pending)} nodes")
@@ -1490,7 +1811,7 @@ async def backfill_from_existing_data() -> dict:
                 {"source": "backfill", "outcome": o.get("outcome", ""), "training_id": o.get("id")},
                 entities)
             stats["training"] += 1
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.error(f"MAGMA backfill failed: {e}")
         stats["error"] = str(e)
 
@@ -1540,8 +1861,8 @@ async def meta_search_params(query_type: str = "") -> dict:
             params = dict(_DEFAULT_META_PARAMS)
             params.update(stored)
             return params
-    except Exception:
-        pass
+    except (ImportError, psycopg.Error, json.JSONDecodeError, OSError) as exc:  # IGUS-FIX: Narrowed exception type (CWE-755)
+        logger.debug("ALMA meta-param load failed, using defaults: %s", exc)
 
     # Fall back to static per-type params
     if query_type in _QUERY_TYPE_PARAMS:
@@ -1572,5 +1893,5 @@ async def update_meta_params(query_type: str, adjustments: dict) -> None:
 
         await set_config(f"magma_meta_params:{query_type}", json.dumps(current))
         logger.info(f"ALMA meta-params updated for {query_type}: {adjustments}")
-    except Exception as e:
+    except (ImportError, psycopg.Error, OSError) as e:  # IGUS-FIX: Narrowed exception type (CWE-755)
         logger.debug(f"ALMA meta-param update failed: {e}")
