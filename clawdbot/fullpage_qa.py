@@ -25,13 +25,13 @@ except ImportError:
 
 try:
     from clawdbot.site_quality import analyze_site_markup
-except ImportError:
+except (ImportError, TypeError):
     def analyze_site_markup(html: str, **kwargs: Any) -> dict[str, Any]:  # type: ignore[misc]
         return {"score": 0.7, "issues": [], "passed": True}
 
 try:
     from shared.anti_slop import AntiSlopScorer
-except ImportError:
+except (ImportError, TypeError):
     AntiSlopScorer = None  # type: ignore[assignment]
 
 logger = logging.getLogger("perseus.clawdbot.fullpage_qa")
