@@ -134,3 +134,57 @@ All listed in PLAN.md mega-plan. Recap:
 - Rejected C (R3F wrapping ForceGraph3D, double-buffer footguns)
 
 ## Quality gate self-score: 9.0/10 ✅ PASSED
+
+## Execution Log
+
+### Sub-phase 1 — Foundation & POC
+- **Status**: ✅ COMPLETE
+- **Commit**: 5419d71
+- **Files**: components/olympus/Memory3DGraph.tsx (646 lines), components/olympus/Graph3DPanel.tsx (74 lines, NEW)
+- **Date**: 2026-04-06
+- **Notes**: Birth animation rAF loop, composer pass logging, outputColorSpace, debugFakeData prop, framer-motion fade. Auto-installed @types/three and react-force-graph-3d (were missing from package.json).
+
+### Sub-phase 2 — Cinematics
+- **Status**: ✅ MERGED INTO SUB-PHASE 1 (cinematics already in Memory3DGraph from prior draft)
+- **Notes**: Verified during sub-phase 1 — all cinematics present (starfield, brain icosahedron, ACES tone mapping, UnrealBloom, particle flow, auto-orbit).
+
+### Sub-phase 3 — Hub integration
+- **Status**: 🔄 IN PROGRESS (Wave 1 parallel)
+- **Owner agent**: spawned
+- **Files**: app/hub/page.tsx
+
+### Sub-phase 4 — Real-time + birth animations
+- **Status**: ✅ MERGED INTO SUB-PHASE 1 (real-time polling + birth animation loop already in Memory3DGraph)
+- **Notes**: Verified — knownIdsRef diff, document.hidden polling skip, birth animation rAF with mesh disposal all present.
+
+### Sub-phase 5 — Polish
+- **Status**: 🔄 IN PROGRESS (Wave 1 parallel)
+- **Sub-phase 5a (MemoryDetailDrawer)**: spawned
+- **Sub-phase 5b (Graph3DPanel polish)**: spawned
+
+### Sub-phase 6 — Deferred
+- **Status**: ⏸ NOT IN V1
+- **Owner**: deferred-items.md tracks this
+
+## Validation Gates
+
+| Gate | Status | Notes |
+|---|---|---|
+| TS clean (sub-phase 1 files) | ✅ PASS | 0 errors in Memory3DGraph.tsx + Graph3DPanel.tsx |
+| TS pre-existing baseline | ⚠ 37 errors | OlympusGame.tsx + scenes/OlympusScene.ts (Phase 40 phaser missing) — OUT OF SCOPE |
+| Dev server boots | TBD | external server, will verify after Wave 1 merge |
+| /hub → Oracle Pool → graph opens | TBD | Sub-phase 3 deliverable |
+| Birth animation pulses gold for 3s | TBD | Sub-phase 4 verified in component, needs runtime test |
+| Memory detail drawer opens on click | TBD | Sub-phase 5a deliverable |
+
+## Final Quality Score (running)
+
+| Dimension | Sub-phase 1 | Wave 1 target | Final |
+|---|---|---|---|
+| Specificity | 9.0 | 9.0 | TBD |
+| Completeness | 8.0 | 9.5 | TBD |
+| Feasibility | 9.0 | 9.0 | TBD |
+| Coherence | 9.0 | 9.0 | TBD |
+| Testability | 8.5 | 9.0 | TBD |
+| **Overall** | **8.7** | **9.1** | **TBD** |
+
