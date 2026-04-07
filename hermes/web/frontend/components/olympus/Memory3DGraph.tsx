@@ -37,6 +37,33 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { MemoryDetailDrawer } from './MemoryDetailDrawer'
 
+// ─── Phase 43 — Anatomical brain modules ────────────────────────────────────
+import { loadBrainMesh, type BrainMeshHandle } from './brain/BrainMesh'
+import {
+  createInstancedNeurons,
+  type InstancedNeuronsHandle,
+  type NeuronInput,
+} from './brain/InstancedNeurons'
+import {
+  createInstancedSynapses,
+  type InstancedSynapsesHandle,
+  type SynapseInput,
+} from './brain/InstancedSynapses'
+import {
+  createAmbientParticles,
+  type AmbientParticlesHandle,
+} from './brain/AmbientParticles'
+import {
+  createAmbientNeurons,
+  type AmbientNeuronsHandle,
+} from './brain/AmbientNeurons'
+import {
+  createActionPotentialEngine,
+  type ActionPotentialEngine,
+} from './brain/ActionPotential'
+import { createCinematics, type CinematicsHandle } from './brain/Cinematics'
+import { regionForDaemon, allRegions, sampleInRegion } from './brain/BrainRegions'
+
 const ForceGraph3D = dynamic(
   () => import('react-force-graph-3d').then((m) => m.default),
   { ssr: false, loading: () => <Memory3DGraphLoading /> },
@@ -179,9 +206,19 @@ export function Memory3DGraph({
   const fgRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneEnhancedRef = useRef(false)
-  const brainRef = useRef<THREE.Mesh | null>(null)
   const rotatingObjectsRef = useRef<THREE.Object3D[]>([])
   const birthAnimationRafRef = useRef<number>(0)
+
+  // ─── Phase 43 brain module handles ─────────────────────────────────────────
+  const brainMeshRef = useRef<BrainMeshHandle | null>(null)
+  const neuronsRef = useRef<InstancedNeuronsHandle | null>(null)
+  const synapsesRef = useRef<InstancedSynapsesHandle | null>(null)
+  const ambientNeuronsRef = useRef<AmbientNeuronsHandle | null>(null)
+  const ambientParticlesRef = useRef<AmbientParticlesHandle | null>(null)
+  const actionPotentialRef = useRef<ActionPotentialEngine | null>(null)
+  const cinematicsRef = useRef<CinematicsHandle | null>(null)
+  const brainTickRafRef = useRef<number>(0)
+  const lastTickTimeRef = useRef<number>(0)
 
   const [data, setData] = useState<GraphState>({ nodes: [], links: [] })
   const [stats, setStats] = useState({ nodes: 0, edges: 0, lastUpdate: 0, newInLast: 0 })
@@ -248,31 +285,113 @@ export function Memory3DGraph({
       lastUpdate: now,
       newInLast: newCount,
     })
+
+    // ─── Phase 43: feed brain modules ────────────────────────────────────
+    const neurons = neuronsRef.current
+    const synapses = synapsesRef.current
+    const actionPotential = actionPotentialRef.current
+
+    if (neurons) {
+      // Sample anatomical positions per daemon, deterministic per node ID
+      // Build a per-daemon counter so each node gets a unique slot in its region
+      const daemonCounts: Record<string, number> = {}
+      const positionMap = new Map<string, THREE.Vector3>()
+
+      // Group nodes by daemon
+      const nodesByDaemon: Record<string, GraphNode[]> = {}
+      for (const n of nextNodes) {
+        if (!nodesByDaemon[n.daemon]) nodesByDaemon[n.daemon] = []
+        nodesByDaemon[n.daemon].push(n)
+      }
+
+      // For each daemon, sample N positions in its anatomical region
+      for (const [daemon, nodes] of Object.entries(nodesByDaemon)) {
+        const region = regionForDaemon(daemon)
+        const samples = sampleInRegion(region, nodes.length, 200)
+        for (let i = 0; i < nodes.length; i++) {
+          positionMap.set(nodes[i].id, samples[i])
+          daemonCounts[daemon] = (daemonCounts[daemon] ?? 0) + 1
+        }
+      }
+
+      const neuronInputs: NeuronInput[] = nextNodes.map((n) => ({
+        id: n.id,
+        position: positionMap.get(n.id) ?? new THREE.Vector3(0, 0, 0),
+        color: n.color,
+        size: 2 + n.confidence * 3,
+        intensity: n.isNew ? 1.6 : 1.1,
+      }))
+      neurons.setNodes(neuronInputs)
+
+      // Build synapse inputs from links — need source and target positions
+      if (synapses) {
+        const synapseInputs: SynapseInput[] = []
+        const adjacencyMap = new Map<string, number[]>()
+        nextLinks.forEach((link, edgeIndex) => {
+          const fromPos = positionMap.get(link.source)
+          const toPos = positionMap.get(link.target)
+          if (!fromPos || !toPos) return
+          synapseInputs.push({
+            from: fromPos,
+            to: toPos,
+            color: '#88c8ff',
+            intensity: 0.8,
+          })
+          // Track adjacency for action potential cascades
+          const list = adjacencyMap.get(link.source) ?? []
+          list.push(edgeIndex)
+          adjacencyMap.set(link.source, list)
+        })
+        synapses.setEdges(synapseInputs)
+        actionPotential?.registerSynapses(adjacencyMap)
+      }
+
+      // Fire action potentials from any newly-arrived nodes
+      if (actionPotential) {
+        const newNodeIds = nextNodes.filter((n) => n.isNew).map((n) => n.id)
+        if (newNodeIds.length > 0) {
+          actionPotential.fireBurst(newNodeIds)
+        }
+      }
+    }
   }, [])
+
+  // Auto-fallback flag — set when /api/memory/graph is unreachable or empty.
+  // Renders the demo graph instead so the visualization isn't a black void.
+  const [fallbackActive, setFallbackActive] = useState(false)
+
+  const loadDemoGraph = useCallback(() => {
+    ingestGraphData(makeFakeData())
+    setFallbackActive(true)
+    setError(null)
+  }, [ingestGraphData])
 
   const fetchGraph = useCallback(async () => {
     if (debugFakeData) {
-      ingestGraphData(makeFakeData())
-      setError(null)
+      loadDemoGraph()
       return
     }
     try {
       const res = await fetch('/api/memory/graph?depth=3&limit=500', { cache: 'no-store' })
       if (!res.ok) {
-        setError(`API ${res.status}`)
+        // API down (Hermes FastAPI not running, 401 auth, etc.) → demo fallback
+        loadDemoGraph()
         return
       }
       const incoming = (await res.json()) as ServerGraphData
-      if (!incoming?.nodes) {
-        setError('No memory data')
+      if (!incoming?.nodes || incoming.nodes.length === 0) {
+        // API up but no real memories yet → demo fallback so the brain isn't empty
+        loadDemoGraph()
         return
       }
+      setFallbackActive(false)
       setError(null)
       ingestGraphData(incoming)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Network error')
+    } catch {
+      // Network error → demo fallback
+      loadDemoGraph()
     }
-  }, [debugFakeData, ingestGraphData])
+  }, [debugFakeData, ingestGraphData, loadDemoGraph])
 
   useEffect(() => {
     fetchGraph()
@@ -323,12 +442,10 @@ export function Memory3DGraph({
 
       // ── 1. HDR tone mapping — unlocks bloom for colors > 1.0 ─────────────
       renderer.toneMapping = THREE.ACESFilmicToneMapping
-      renderer.toneMappingExposure = 1.4
+      renderer.toneMappingExposure = 1.0
       renderer.outputColorSpace = THREE.SRGBColorSpace
 
-      // ── 2. Unreal Bloom — the glow that makes neurons look alive ─────────
-      // First verify the composer's current pass list so we insert bloom
-      // in the right spot (after the RenderPass, before any OutputPass).
+      // ── 2. Unreal Bloom — subtle, only the brightest pixels glow ─────────
       if (process.env.NODE_ENV === 'development') {
         // eslint-disable-next-line no-console
         console.debug(
@@ -340,9 +457,9 @@ export function Memory3DGraph({
 
       const bloom = new UnrealBloomPass(
         new THREE.Vector2(size.w, size.h),
-        1.6, // strength
-        0.85, // radius
-        0.0, // threshold — pick up EVERYTHING bright
+        0.55, // strength — much lower than 1.6
+        0.4, // radius — tighter falloff
+        0.5, // threshold — only pixels brighter than 0.5 bloom (not everything)
       )
       composer.addPass(bloom)
       composer.addPass(new OutputPass())
@@ -377,55 +494,74 @@ export function Memory3DGraph({
       }
       starGeom.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3))
       const starMat = new THREE.PointsMaterial({
-        color: new THREE.Color(0x88aaff).multiplyScalar(2.5),
-        size: 2.5,
+        color: new THREE.Color(0x6688aa),
+        size: 1.8,
         sizeAttenuation: true,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.45,
         fog: false,
-        toneMapped: false,
+        toneMapped: true,
       })
       const stars = new THREE.Points(starGeom, starMat)
       stars.name = 'starfield'
       stars.frustumCulled = false
       scene.add(stars)
 
-      // ── 5. Wireframe brain-shape backdrop ────────────────────────────────
-      const brainGeom = new THREE.IcosahedronGeometry(450, 3)
-      const posAttr = brainGeom.getAttribute('position') as THREE.BufferAttribute
-      for (let i = 0; i < posAttr.count; i++) {
-        const x = posAttr.getX(i)
-        const y = posAttr.getY(i)
-        const z = posAttr.getZ(i)
-        const noise =
-          Math.sin(x * 0.02) * Math.cos(y * 0.02) * Math.sin(z * 0.02) * 40 +
-          Math.sin(y * 0.05) * 20
-        const len = Math.sqrt(x * x + y * y + z * z)
-        const scale = 1 + noise / len
-        posAttr.setXYZ(i, x * scale, y * scale, z * scale)
-      }
-      posAttr.needsUpdate = true
-      brainGeom.computeVertexNormals()
+      // ── 5. Anatomical brain mesh (Phase 43 module) ───────────────────────
+      // Loads /olympus/brain/cortex.glb if present, else procedural fallback
+      loadBrainMesh()
+        .then((handle) => {
+          brainMeshRef.current = handle
+          // Scale the unit-radius brain to ~200 world units to match neuron scale
+          handle.mesh.scale.setScalar(200)
+          scene.add(handle.mesh)
+          rotatingObjectsRef.current.push(handle.mesh)
+        })
+        .catch(() => {
+          /* loadBrainMesh always resolves; never reached */
+        })
 
-      const brainMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0x4466aa).multiplyScalar(0.9),
-        wireframe: true,
-        transparent: true,
-        opacity: 0.09,
-        depthWrite: false,
-        toneMapped: false,
+      // ── 6. Phase 43 instanced neuron + synapse + ambient layers ──────────
+      const neurons = createInstancedNeurons(50000)
+      neuronsRef.current = neurons
+      scene.add(neurons.group)
+
+      const synapses = createInstancedSynapses(50000)
+      synapsesRef.current = synapses
+      scene.add(synapses.group)
+
+      const ambientNeurons = createAmbientNeurons(8000)
+      ambientNeurons.setRegions(allRegions())
+      ambientNeuronsRef.current = ambientNeurons
+      scene.add(ambientNeurons.group)
+
+      const ambientParticles = createAmbientParticles(15000)
+      ambientParticles.setBounds(
+        new THREE.Box3(
+          new THREE.Vector3(-220, -220, -220),
+          new THREE.Vector3(220, 220, 220),
+        ),
+      )
+      ambientParticlesRef.current = ambientParticles
+      scene.add(ambientParticles.points)
+
+      const actionPotential = createActionPotentialEngine()
+      // Wire pulse callback so action potentials trigger synapse glows
+      actionPotential.registerCallback((edgeIndex) => {
+        synapsesRef.current?.firePulse(edgeIndex)
       })
-      const brain = new THREE.Mesh(brainGeom, brainMat)
-      brain.name = 'brain-backdrop'
-      brain.frustumCulled = false
-      // Block raycasting so clicks pass through to nodes
-      brain.raycast = () => {}
-      scene.add(brain)
-      brainRef.current = brain
-      rotatingObjectsRef.current.push(brain)
+      actionPotentialRef.current = actionPotential
 
-      // ── 6. Subtle rim light via a point light ────────────────────────────
-      const rimLight = new THREE.PointLight(0x88c8ff, 2, 2000, 1)
+      const cinematics = createCinematics(
+        // The library's controls.object is the camera
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (controls as any).object as THREE.Camera,
+      )
+      cinematics.startCorticalWaves()
+      cinematicsRef.current = cinematics
+
+      // ── 7. Subtle rim light via a point light (very low intensity) ───────
+      const rimLight = new THREE.PointLight(0x88c8ff, 0.4, 2000, 1)
       rimLight.position.set(500, 300, 400)
       scene.add(rimLight)
 
@@ -492,64 +628,44 @@ export function Memory3DGraph({
     return () => cancelAnimationFrame(birthAnimationRafRef.current)
   }, [])
 
-  // ─── Custom neuron rendering ─────────────────────────────────────────────
-  const nodeThreeObject = useCallback((nodeAny: object) => {
-    const node = nodeAny as GraphNode
+  // ─── Phase 43 brain tick loop ────────────────────────────────────────────
+  // Drives all brain modules every frame (synapse pulses, ambient neuron
+  // phase modulation, particle physics, action potential cascades, cortical
+  // wave phase, fly-to camera tweens). Separate from the birth-animation rAF
+  // so they can run independently and one can be paused without stopping the
+  // other.
+  useEffect(() => {
+    const tickBrain = () => {
+      const now = performance.now()
+      const lastTick = lastTickTimeRef.current || now
+      const dt = Math.min(1 / 15, (now - lastTick) / 1000) // cap at 67ms
+      lastTickTimeRef.current = now
 
-    const group = new THREE.Group()
-    const radius = node.val
-    const baseColor = new THREE.Color(node.color)
+      synapsesRef.current?.tick(dt)
+      ambientNeuronsRef.current?.tick(dt)
+      ambientParticlesRef.current?.tick(
+        dt,
+        // The particles handle accepts an optional renderer arg for future GPGPU upgrade
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (fgRef.current as any)?.renderer?.() ?? (undefined as unknown as THREE.WebGLRenderer),
+      )
+      actionPotentialRef.current?.tick(dt)
+      cinematicsRef.current?.tick(dt)
 
-    // Outer halo — soft daemon-colored glow (slightly HDR)
-    const haloGeom = new THREE.SphereGeometry(radius * 1.8, 16, 16)
-    const haloColor = baseColor.clone().multiplyScalar(1.2)
-    const haloMat = new THREE.MeshBasicMaterial({
-      color: haloColor,
-      transparent: true,
-      opacity: 0.25,
-      depthWrite: false,
-      toneMapped: false,
-    })
-    group.add(new THREE.Mesh(haloGeom, haloMat))
-
-    // Core sphere — HDR emissive, what bloom picks up
-    const coreGeom = new THREE.SphereGeometry(radius, 20, 20)
-    const coreColor = baseColor.clone().multiplyScalar(3.5)
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: coreColor,
-      toneMapped: false,
-    })
-    group.add(new THREE.Mesh(coreGeom, coreMat))
-
-    // Inner white pulse — pure HDR emission
-    const innerGeom = new THREE.SphereGeometry(radius * 0.45, 14, 14)
-    const innerColor = new THREE.Color(0xffffff).multiplyScalar(5)
-    const innerMat = new THREE.MeshBasicMaterial({
-      color: innerColor,
-      toneMapped: false,
-    })
-    group.add(new THREE.Mesh(innerGeom, innerMat))
-
-    // Birth burst — only for newly-seen nodes; animated by the rAF loop above
-    if (node.isNew) {
-      const burstRadius = radius * 2.5
-      const burstGeom = new THREE.SphereGeometry(burstRadius, 16, 16)
-      const burstColor = new THREE.Color(0xffd700).multiplyScalar(8)
-      const burstMat = new THREE.MeshBasicMaterial({
-        color: burstColor,
-        transparent: true,
-        opacity: 0.55,
-        toneMapped: false,
-        depthWrite: false,
-      })
-      const burstMesh = new THREE.Mesh(burstGeom, burstMat)
-      group.add(burstMesh)
-      node.__burstMesh = burstMesh
-      node.__burstEnd = Date.now() + BIRTH_WINDOW_MS
-      activeBirthsRef.current.set(node.id, node)
+      brainTickRafRef.current = requestAnimationFrame(tickBrain)
     }
+    brainTickRafRef.current = requestAnimationFrame(tickBrain)
+    return () => cancelAnimationFrame(brainTickRafRef.current)
+  }, [])
 
-    return group
+  // ─── Custom neuron rendering ─────────────────────────────────────────────
+  // Phase 43: We render neurons via InstancedNeurons (50k capacity, single
+  // draw call). The library's per-node Object3D pipeline is now disabled —
+  // we return an empty Group so the library still tracks node positions
+  // for the force simulation, but doesn't render anything visible at the
+  // node positions. The visible neurons come from neuronsRef.current.
+  const nodeThreeObject = useCallback(() => {
+    return new THREE.Group() // empty — InstancedNeurons handles rendering
   }, [])
 
   const handleNodeClick = useCallback(
@@ -557,11 +673,13 @@ export function Memory3DGraph({
       const n = node as GraphNode
       onSelect?.(n.id)
       setSelectedMemoryId(n.id)
+      // Phase 43: also fire an action potential cascade from this node
+      actionPotentialRef.current?.fireFromNode(n.id, 1)
     },
     [onSelect],
   )
 
-  const linkColor = useCallback(() => '#88ddff', [])
+  const linkColor = useCallback(() => 'rgba(0,0,0,0)', []) // hide library links — InstancedSynapses renders them
   const particleColor = useCallback(() => '#ccf0ff', [])
 
   const graphData = useMemo(
@@ -582,13 +700,13 @@ export function Memory3DGraph({
         nodeLabel="name"
         nodeAutoColorBy="daemon"
         nodeThreeObject={nodeThreeObject}
-        nodeOpacity={1}
+        nodeOpacity={0}
         linkColor={linkColor}
-        linkOpacity={0.4}
-        linkWidth={0.8}
-        linkDirectionalParticles={4}
-        linkDirectionalParticleSpeed={0.006}
-        linkDirectionalParticleWidth={2}
+        linkOpacity={0}
+        linkWidth={0}
+        linkDirectionalParticles={0}
+        linkDirectionalParticleSpeed={0}
+        linkDirectionalParticleWidth={0}
         linkDirectionalParticleColor={particleColor}
         cooldownTicks={Infinity}
         warmupTicks={30}
@@ -620,9 +738,14 @@ export function Memory3DGraph({
             <span className="text-amber-300 font-bold">{stats.newInLast}</span>
           </div>
         )}
-        {debugFakeData && (
+        {(debugFakeData || fallbackActive) && (
           <div className="pt-1 border-t border-cyan-400/20 mt-1 text-amber-200/70 text-[9px] tracking-widest">
-            DEBUG MODE
+            {debugFakeData ? 'DEBUG MODE' : 'DEMO MODE'}
+          </div>
+        )}
+        {fallbackActive && !debugFakeData && (
+          <div className="text-amber-200/40 text-[8px] mt-0.5">
+            magma offline · synthetic graph
           </div>
         )}
       </div>
