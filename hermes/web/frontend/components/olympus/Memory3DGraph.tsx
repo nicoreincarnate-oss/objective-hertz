@@ -659,13 +659,38 @@ export function Memory3DGraph({
   }, [])
 
   // ─── Custom neuron rendering ─────────────────────────────────────────────
-  // Phase 43: We render neurons via InstancedNeurons (50k capacity, single
-  // draw call). The library's per-node Object3D pipeline is now disabled —
-  // we return an empty Group so the library still tracks node positions
-  // for the force simulation, but doesn't render anything visible at the
-  // node positions. The visible neurons come from neuronsRef.current.
-  const nodeThreeObject = useCallback(() => {
-    return new THREE.Group() // empty — InstancedNeurons handles rendering
+  // Phase 43: We render neurons via InstancedNeurons. But the library uses
+  // each node's THREE.Object3D for click raycasting — so we return a tiny
+  // invisible-but-pickable sphere as the hit target. The visible glow
+  // comes from the InstancedMesh; the click target is this sphere.
+  // (The library positions our returned object at the node's simulation
+  // position automatically each frame, so this doubles as the live position
+  // for InstancedNeurons updates via fgRef.scene().traverse.)
+  const nodeThreeObject = useCallback((nodeAny: object) => {
+    const node = nodeAny as GraphNode
+    const group = new THREE.Group()
+    // Tiny visible glowing core — bright enough that you can SEE where to click
+    const radius = Math.max(2, node.val ?? 4)
+    const baseColor = new THREE.Color(node.color)
+    const sphereGeom = new THREE.SphereGeometry(radius, 12, 12)
+    const sphereMat = new THREE.MeshBasicMaterial({
+      color: baseColor.clone().multiplyScalar(1.4),
+      transparent: true,
+      opacity: 0.9,
+      toneMapped: false,
+    })
+    group.add(new THREE.Mesh(sphereGeom, sphereMat))
+    // Soft halo
+    const haloGeom = new THREE.SphereGeometry(radius * 1.8, 12, 12)
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: baseColor,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      toneMapped: true,
+    })
+    group.add(new THREE.Mesh(haloGeom, haloMat))
+    return group
   }, [])
 
   const handleNodeClick = useCallback(
@@ -679,7 +704,7 @@ export function Memory3DGraph({
     [onSelect],
   )
 
-  const linkColor = useCallback(() => 'rgba(0,0,0,0)', []) // hide library links — InstancedSynapses renders them
+  const linkColor = useCallback(() => 'rgba(140, 200, 255, 0.4)', [])
   const particleColor = useCallback(() => '#ccf0ff', [])
 
   const graphData = useMemo(
@@ -700,13 +725,13 @@ export function Memory3DGraph({
         nodeLabel="name"
         nodeAutoColorBy="daemon"
         nodeThreeObject={nodeThreeObject}
-        nodeOpacity={0}
+        nodeOpacity={1}
         linkColor={linkColor}
-        linkOpacity={0}
-        linkWidth={0}
-        linkDirectionalParticles={0}
-        linkDirectionalParticleSpeed={0}
-        linkDirectionalParticleWidth={0}
+        linkOpacity={0.25}
+        linkWidth={0.6}
+        linkDirectionalParticles={2}
+        linkDirectionalParticleSpeed={0.005}
+        linkDirectionalParticleWidth={1.5}
         linkDirectionalParticleColor={particleColor}
         cooldownTicks={Infinity}
         warmupTicks={30}
