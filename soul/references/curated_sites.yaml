@@ -1,0 +1,162 @@
+# Curated reference sites for ClawdBot v2 visual pipeline.
+#
+# These are the 30 reference sites whose screenshots seed the reference
+# library. ReferenceManager captures each with Playwright, then VLM
+# decomposes them into per-section crops stored under
+# soul/references/{section_type}/{direction}.png.
+#
+# Edit this file to add/remove sites, then run:
+#     python -m scripts.capture_references
+version: 1
+viewport:
+  width: 1440
+  height: 900
+
+sites:
+  # -------------------------------------------------------------------------
+  # cosmos-dark-curation (8 sites) — dark canvas, premium SaaS, dense grids
+  # -------------------------------------------------------------------------
+  - url: https://cosmos.so
+    direction: cosmos-dark-curation
+    industry: design
+    notable: "masonry grid, dark canvas, color-coded tags"
+  - url: https://linear.app
+    direction: cosmos-dark-curation
+    industry: saas
+    notable: "premium dark SaaS, smooth scroll, keyboard-first"
+  - url: https://vercel.com
+    direction: cosmos-dark-curation
+    industry: devtools
+    notable: "developer platform, animated gradients, clean grid"
+  - url: https://stripe.com
+    direction: cosmos-dark-curation
+    industry: fintech
+    notable: "subtle gradients, typographic hierarchy, generous whitespace"
+  - url: https://notion.so
+    direction: cosmos-dark-curation
+    industry: saas
+    notable: "minimal illustration, friendly serif, clear hierarchy"
+  - url: https://raycast.com
+    direction: cosmos-dark-curation
+    industry: devtools
+    notable: "hero video loop, dark UI showcase"
+  - url: https://arc.net
+    direction: cosmos-dark-curation
+    industry: consumer
+    notable: "bold claims, large product photography"
+  - url: https://midjourney.com
+    direction: cosmos-dark-curation
+    industry: ai
+    notable: "dark dense gallery, image-forward"
+
+  # -------------------------------------------------------------------------
+  # arena-monastic-grid (5 sites) — utilitarian grids, low chrome
+  # -------------------------------------------------------------------------
+  - url: https://are.na
+    direction: arena-monastic-grid
+    industry: community
+    notable: "monastic grid, low chrome, content-forward"
+  - url: https://cargo.site
+    direction: arena-monastic-grid
+    industry: portfolio
+    notable: "editorial portfolio builder, typographic"
+  - url: https://read.cv
+    direction: arena-monastic-grid
+    industry: professional
+    notable: "minimal resume layouts, serif hierarchy"
+  - url: https://mmm.page
+    direction: arena-monastic-grid
+    industry: personal
+    notable: "messy/personal grid, draggable elements"
+  - url: https://tldraw.dev
+    direction: arena-monastic-grid
+    industry: devtools
+    notable: "sketchy minimalism, playful geometry"
+
+  # -------------------------------------------------------------------------
+  # bold-editorial (4 sites) — magazine grids, strong type
+  # -------------------------------------------------------------------------
+  - url: https://bloomberg.com
+    direction: bold-editorial
+    industry: news
+    notable: "dense editorial grid, strong serif, market tickers"
+  - url: https://medium.com
+    direction: bold-editorial
+    industry: publishing
+    notable: "reading-first typography, long-form editorial"
+  - url: https://substack.com
+    direction: bold-editorial
+    industry: publishing
+    notable: "newsletter-first, big headlines, warm palette"
+  - url: https://every.to
+    direction: bold-editorial
+    industry: publishing
+    notable: "modern editorial, strong serif + sans pairing"
+
+  # -------------------------------------------------------------------------
+  # minimal-geometric (4 sites) — product-forward, white space, geometry
+  # -------------------------------------------------------------------------
+  - url: https://apple.com
+    direction: minimal-geometric
+    industry: consumer
+    notable: "huge product imagery, whitespace, refined type"
+  - url: https://nothing.tech
+    direction: minimal-geometric
+    industry: consumer
+    notable: "dotted grid system, raw industrial type"
+  - url: https://teenage.engineering
+    direction: minimal-geometric
+    industry: consumer
+    notable: "Swiss grid, product showcase, clean captions"
+  - url: https://bang-olufsen.com
+    direction: minimal-geometric
+    industry: consumer
+    notable: "luxury minimalism, premium product photography"
+
+  # -------------------------------------------------------------------------
+  # local-business-premium (5 sites) — best-in-class local exemplars
+  # -------------------------------------------------------------------------
+  - url: https://www.parkavedental.com
+    direction: local-business-premium
+    industry: dentist
+    notable: "warm premium dental, clear booking CTA"
+  - url: https://www.elevenmadisonpark.com
+    direction: local-business-premium
+    industry: restaurant
+    notable: "editorial restaurant site, bold imagery"
+  - url: https://www.wlrk.com
+    direction: local-business-premium
+    industry: legal
+    notable: "top-tier law firm, serif authority"
+  - url: https://www.mrhandyman.com
+    direction: local-business-premium
+    industry: home-services
+    notable: "friendly home services, trust badges"
+  - url: https://www.bellacollina.com
+    direction: local-business-premium
+    industry: real-estate
+    notable: "luxury real estate, cinematic hero"
+
+  # -------------------------------------------------------------------------
+  # local-business-standard (5 sites) — good baseline exemplars
+  # -------------------------------------------------------------------------
+  - url: https://www.smilesny.com
+    direction: local-business-standard
+    industry: dentist
+    notable: "solid modern dentist template"
+  - url: https://www.sweetgreen.com
+    direction: local-business-standard
+    industry: restaurant
+    notable: "approachable chain restaurant"
+  - url: https://www.legalzoom.com
+    direction: local-business-standard
+    industry: legal
+    notable: "accessible legal services landing"
+  - url: https://www.roto-rooter.com
+    direction: local-business-standard
+    industry: home-services
+    notable: "standard plumber/home services"
+  - url: https://www.redfin.com
+    direction: local-business-standard
+    industry: real-estate
+    notable: "mainstream real estate, search-forward"

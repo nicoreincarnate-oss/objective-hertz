@@ -1,0 +1,14 @@
+# Reference screenshot metadata for footer section type.
+#
+# Populated by scripts/capture_references.py. Each direction key maps
+# to a PNG crop in this directory used by ReferenceManager.
+version: 1
+section_type: footer
+references: {}
+expected_variants:
+  - cosmos-dark-curation
+  - arena-monastic-grid
+  - bold-editorial
+  - minimal-geometric
+  - local-business-premium
+  - local-business-standard
