@@ -35,6 +35,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import * as THREE from 'three'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { MemoryDetailDrawer } from './MemoryDetailDrawer'
 
 const ForceGraph3D = dynamic(
   () => import('react-force-graph-3d').then((m) => m.default),
@@ -186,6 +187,7 @@ export function Memory3DGraph({
   const [stats, setStats] = useState({ nodes: 0, edges: 0, lastUpdate: 0, newInLast: 0 })
   const [error, setError] = useState<string | null>(null)
   const [size, setSize] = useState({ w: 600, h: 600 })
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null)
 
   const knownIdsRef = useRef<Set<string>>(new Set())
   // All currently active birth-animating nodes (fades controlled by rAF loop)
@@ -554,6 +556,7 @@ export function Memory3DGraph({
     (node: object) => {
       const n = node as GraphNode
       onSelect?.(n.id)
+      setSelectedMemoryId(n.id)
     },
     [onSelect],
   )
@@ -641,6 +644,11 @@ export function Memory3DGraph({
       <div className="absolute bottom-3 right-3 text-[9px] text-cyan-300/30 font-mono tracking-widest pointer-events-none">
         DRAG · ORBIT · CLICK A NEURON
       </div>
+
+      <MemoryDetailDrawer
+        memoryId={selectedMemoryId}
+        onClose={() => setSelectedMemoryId(null)}
+      />
     </div>
   )
 }
