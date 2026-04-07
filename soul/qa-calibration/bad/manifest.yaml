@@ -1,0 +1,91 @@
+# Calibration dataset — BAD examples.
+#
+# Each entry references a PNG file (sibling to this manifest) of a
+# known-low-quality section screenshot. Expected scores are 1-5 on
+# the SectionScore 1-10 scale. Generate these by running the section
+# engine with deliberately bad design tokens, overflow layouts, or
+# placeholder-laden prompts.
+version: 1
+tier: bad
+expected_score_range: [1.0, 5.0]
+examples:
+  - file: bad_hero_01.png
+    section_type: hero
+    expected_score: 3.0
+    notes: "Placeholder Lorem Ipsum, wrong contrast, no hierarchy"
+  - file: bad_hero_02.png
+    section_type: hero
+    expected_score: 2.5
+    notes: "Layout overflow, text cut off at viewport edge"
+  - file: bad_features_01.png
+    section_type: features
+    expected_score: 3.5
+    notes: "Uneven column heights, inconsistent icons"
+  - file: bad_features_02.png
+    section_type: features
+    expected_score: 2.0
+    notes: "Broken grid, overlapping cards"
+  - file: bad_testimonials_01.png
+    section_type: testimonials
+    expected_score: 3.0
+    notes: "Default avatar placeholders, Lorem quotes"
+  - file: bad_pricing_01.png
+    section_type: pricing
+    expected_score: 4.0
+    notes: "Misaligned pricing rows, weak typography"
+  - file: bad_pricing_02.png
+    section_type: pricing
+    expected_score: 2.5
+    notes: "Missing CTA, broken spacing"
+  - file: bad_cta_01.png
+    section_type: cta
+    expected_score: 3.0
+    notes: "Weak contrast CTA, buried action"
+  - file: bad_cta_02.png
+    section_type: cta
+    expected_score: 2.0
+    notes: "Two competing CTAs, confusing hierarchy"
+  - file: bad_contact_01.png
+    section_type: contact
+    expected_score: 3.5
+    notes: "Form without labels, unclear errors"
+  - file: bad_contact_02.png
+    section_type: contact
+    expected_score: 2.5
+    notes: "Contact info overflowing, broken wrapping"
+  - file: bad_faq_01.png
+    section_type: faq
+    expected_score: 3.0
+    notes: "Unstyled FAQ, no accordion, wall of text"
+  - file: bad_faq_02.png
+    section_type: faq
+    expected_score: 2.5
+    notes: "Inconsistent question styling"
+  - file: bad_navbar_01.png
+    section_type: navbar
+    expected_score: 3.5
+    notes: "Logo + nav misaligned, no responsive fallback"
+  - file: bad_navbar_02.png
+    section_type: navbar
+    expected_score: 2.5
+    notes: "Wrong contrast, nav items wrap oddly"
+  - file: bad_footer_01.png
+    section_type: footer
+    expected_score: 3.0
+    notes: "Footer with placeholder columns and Lorem"
+  - file: bad_footer_02.png
+    section_type: footer
+    expected_score: 2.0
+    notes: "Footer missing most links, weak typography"
+  - file: bad_hero_03.png
+    section_type: hero
+    expected_score: 1.5
+    notes: "Total layout collapse, unstyled"
+  - file: bad_features_03.png
+    section_type: features
+    expected_score: 3.0
+    notes: "Feature cards with placeholder images"
+  - file: bad_testimonials_02.png
+    section_type: testimonials
+    expected_score: 4.5
+    notes: "Mediocre testimonials — borderline passing"

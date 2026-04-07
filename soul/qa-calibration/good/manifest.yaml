@@ -1,0 +1,90 @@
+# Calibration dataset — GOOD examples.
+#
+# Each entry references a PNG file (sibling to this manifest) of a
+# known-high-quality section screenshot. Expected scores are 8-10 on
+# the SectionScore 1-10 scale. Populate the PNG files by running the
+# reference capture script or hand-curating crops from references.
+version: 1
+tier: good
+expected_score_range: [8.0, 10.0]
+examples:
+  - file: good_hero_01.png
+    section_type: hero
+    expected_score: 9.0
+    notes: "Clean split layout with clear hierarchy"
+  - file: good_hero_02.png
+    section_type: hero
+    expected_score: 8.5
+    notes: "Dark cosmos direction, strong type"
+  - file: good_features_01.png
+    section_type: features
+    expected_score: 9.0
+    notes: "3-column grid, consistent icons, balanced whitespace"
+  - file: good_features_02.png
+    section_type: features
+    expected_score: 8.5
+    notes: "Alternating image/text rows, clear hierarchy"
+  - file: good_testimonials_01.png
+    section_type: testimonials
+    expected_score: 9.0
+    notes: "Large quote, author avatar, trust-building"
+  - file: good_pricing_01.png
+    section_type: pricing
+    expected_score: 9.0
+    notes: "3-tier plan with highlighted middle, clear CTAs"
+  - file: good_pricing_02.png
+    section_type: pricing
+    expected_score: 8.5
+    notes: "Minimal pricing table, strong typography"
+  - file: good_cta_01.png
+    section_type: cta
+    expected_score: 9.0
+    notes: "Full-width contrast CTA, single clear action"
+  - file: good_cta_02.png
+    section_type: cta
+    expected_score: 8.5
+    notes: "Editorial CTA with supporting copy"
+  - file: good_contact_01.png
+    section_type: contact
+    expected_score: 9.0
+    notes: "Clean form + map, balanced layout"
+  - file: good_contact_02.png
+    section_type: contact
+    expected_score: 8.5
+    notes: "Minimal contact block with phone/email/address"
+  - file: good_faq_01.png
+    section_type: faq
+    expected_score: 9.0
+    notes: "Accordion FAQ, clear typography hierarchy"
+  - file: good_faq_02.png
+    section_type: faq
+    expected_score: 8.5
+    notes: "Two-column FAQ with category grouping"
+  - file: good_navbar_01.png
+    section_type: navbar
+    expected_score: 9.0
+    notes: "Clean navbar with logo + nav + CTA"
+  - file: good_navbar_02.png
+    section_type: navbar
+    expected_score: 8.5
+    notes: "Sticky dark navbar, clear active state"
+  - file: good_footer_01.png
+    section_type: footer
+    expected_score: 9.0
+    notes: "Comprehensive footer with columns + social"
+  - file: good_footer_02.png
+    section_type: footer
+    expected_score: 8.5
+    notes: "Minimal footer, strong brand"
+  - file: good_hero_03.png
+    section_type: hero
+    expected_score: 10.0
+    notes: "Aspirational reference — Apple-tier hero"
+  - file: good_features_03.png
+    section_type: features
+    expected_score: 9.5
+    notes: "Premium feature grid with animations"
+  - file: good_testimonials_02.png
+    section_type: testimonials
+    expected_score: 8.5
+    notes: "Grid of logo + quote cards"
