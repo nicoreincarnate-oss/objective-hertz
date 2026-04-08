@@ -11,28 +11,31 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Protocol
 
 logger = logging.getLogger("perseus.llm.unified")
 
 
-class ModelTier(str, Enum):
-    """Logical model tiers used by all callers."""
+# PORT-PLAN Phase 2 Wave 2 (02-02): TierName and ModelTier are now ONE class.
+# `shared.tiers.TierName` is the canonical 13-tier enum (11 generative + LOCAL_SMALL + EMBED).
+# `ModelTier` here is a re-export so legacy `from shared.llm_unified import ModelTier`
+# call sites keep working unchanged. They are literally `is` the same class.
+from shared.tiers import TierName as ModelTier  # noqa: E402
 
-    GENIUS = "genius"  # Opus-class
-    SMART = "smart"  # Sonnet-class
-    FAST = "fast"  # Haiku-class
-    LOCAL = "local"  # Ollama primary
-    LOCAL_SMALL = "local-small"  # Ollama secondary
-    LOCAL_HEAVY = "local-heavy"  # AirLLM / oLLM
-    EMBED = "embed"  # Embedding model
-
-
-# Mapping from legacy string aliases to ModelTier
+# Decision #1 from PORT-PLAN §9: `auto` resolves to SMART (Sonnet 4.6),
+# NOT FAST (Haiku). This is the operator-locked default — quality > cost on
+# the routing default. Per-call explicit tier still wins.
 _TIER_ALIASES: dict[str, ModelTier] = {
-    "auto": ModelTier.FAST,
+    "auto": ModelTier.SMART,
     "primary": ModelTier.SMART,
+    "default": ModelTier.SMART,
+    "claude": ModelTier.SMART,
+    "claude-sonnet": ModelTier.SMART,
+    "sonnet": ModelTier.SMART,
+    "opus": ModelTier.GENIUS,
+    "claude-opus": ModelTier.GENIUS,
+    "haiku": ModelTier.FAST,
+    "ollama": ModelTier.LOCAL,
     "airllm": ModelTier.LOCAL_HEAVY,
     "research-local": ModelTier.LOCAL_HEAVY,
     "ollm": ModelTier.LOCAL_HEAVY,
@@ -41,14 +44,17 @@ _TIER_ALIASES: dict[str, ModelTier] = {
 
 
 def resolve_tier(model: str) -> ModelTier:
-    """Resolve a model string to a ModelTier, handling aliases."""
+    """Resolve a model string to a ModelTier, handling aliases.
+
+    Unknown tiers default to SMART (Sonnet) per decision #1 — quality-first.
+    """
     if model in _TIER_ALIASES:
         return _TIER_ALIASES[model]
     try:
         return ModelTier(model)
     except ValueError:
-        logger.debug("Unknown model tier %r, defaulting to FAST", model)
-        return ModelTier.FAST
+        logger.debug("Unknown model tier %r, defaulting to SMART", model)
+        return ModelTier.SMART
 
 
 @dataclass(frozen=True)

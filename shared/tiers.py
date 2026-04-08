@@ -45,8 +45,10 @@ class TierName(str, Enum):
     FAST         = "fast"          # Claude Haiku 4.5 — fanout, tool calls
     CHEAP        = "cheap"         # DeepSeek V4 — bulk classify, scheduled jobs
     LOCAL        = "local"         # Qwen3-30B-A3B MLX — local fast (Mac Studio)
+    LOCAL_SMALL  = "local-small"   # Ollama secondary (llama3.2:3b) — classification only
     LOCAL_HEAVY  = "local-heavy"   # Llama 3.3 70B / Qwen 72B via AirLLM (disk-streamed)
     VISION       = "vision"        # Kimi K2.5 — best OCR + vision-language
+    EMBED        = "embed"         # nomic-embed-text — embedding model (not generative)
 
     @classmethod
     def from_string(cls, value: str) -> TierName:
@@ -353,6 +355,54 @@ TIERS: dict[TierName, TierConfig] = {
         supports_tool_calls=False,  # AirLLM doesn't support tool-calling format reliably
     ),
 
+    TierName.LOCAL_SMALL: TierConfig(
+        name=TierName.LOCAL_SMALL,
+        description="Ollama secondary (llama3.2:3b) — classification, tag extraction, tiny lookups",
+        primary_model="ollama/llama3.2:3b",
+        cost_per_m_input=0.0,
+        cost_per_m_output=0.0,
+        context_window=8_000,
+        max_output_tokens=2_000,
+        swe_bench_verified=0.0,
+        fallback_chain=[TierName.LOCAL, TierName.CHEAP],
+        typical_latency_s=2.0,
+        use_when=[
+            "binary/multiclass classification",
+            "tag extraction",
+            "very short lookups (<500 tokens out)",
+            "tone analysis",
+        ],
+        avoid_when=[
+            "any generative coding (use local or smart)",
+            "multi-step reasoning (use local or smart)",
+        ],
+        is_local=True,
+        supports_tool_calls=False,
+    ),
+
+    TierName.EMBED: TierConfig(
+        name=TierName.EMBED,
+        description="nomic-embed-text — embedding model only, NOT generative",
+        primary_model="ollama/nomic-embed-text",
+        cost_per_m_input=0.0,
+        cost_per_m_output=0.0,
+        context_window=8_192,
+        max_output_tokens=1,
+        swe_bench_verified=0.0,
+        fallback_chain=[TierName.LOCAL_SMALL],
+        typical_latency_s=0.5,
+        use_when=[
+            "vector embeddings for memory graph",
+            "semantic search indexing",
+            "similarity scoring",
+        ],
+        avoid_when=[
+            "any generative call — embed tier returns vectors, not text",
+        ],
+        is_local=True,
+        supports_tool_calls=False,
+    ),
+
     TierName.VISION: TierConfig(
         name=TierName.VISION,
         description="Kimi K2.5 — 92.3% OCRBench, 90.1% MathVista, BEST vision model (6x cheaper than Sonnet)",
@@ -427,9 +477,11 @@ def downgrade_tier(tier: TierName, reason: str = "") -> TierName:
         TierName.CHAT:        TierName.CHEAP,
         TierName.FAST:        TierName.CHEAP,
         TierName.CHEAP:       TierName.LOCAL,
-        TierName.LOCAL:       TierName.LOCAL_HEAVY,
+        TierName.LOCAL:       TierName.LOCAL_SMALL,
+        TierName.LOCAL_SMALL: TierName.LOCAL_SMALL,  # terminal (already smallest)
         TierName.LOCAL_HEAVY: TierName.LOCAL,
         TierName.VISION:      TierName.SMART,
+        TierName.EMBED:       TierName.EMBED,  # embed has no downgrade
     }
     new_tier = downgrade_map.get(tier, tier)
     if new_tier != tier:
@@ -445,7 +497,9 @@ def upgrade_tier(tier: TierName, reason: str = "") -> TierName:
     """
     upgrade_map = {
         TierName.LOCAL:       TierName.SMART,
+        TierName.LOCAL_SMALL: TierName.LOCAL,
         TierName.LOCAL_HEAVY: TierName.SMART,
+        TierName.EMBED:       TierName.EMBED,
         TierName.CHEAP:       TierName.SMART,
         TierName.FAST:        TierName.SMART,
         TierName.CHAT:        TierName.SMART,

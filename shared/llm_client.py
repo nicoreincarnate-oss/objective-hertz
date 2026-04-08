@@ -427,8 +427,10 @@ class LLMClient:
         - use_dna=True + ENABLE_DNA_PROFILES env var truthy → prepend DNA to system
         - Circuit breaker auto-disables DNA if LLM error rates spike
         """
+        # PORT-PLAN decision #1 (02-02): `auto` resolves to SMART (Sonnet 4.6),
+        # NOT FAST (Haiku). Quality > cost on the routing default.
         if model == "auto":
-            model = "fast"
+            model = "smart"
 
         # Task 17-03: Output slot optimization — use stage-specific max_tokens when
         # the caller left the default value and a pipeline_stage is provided.
@@ -682,8 +684,10 @@ class LLMClient:
             yield StreamChunk(text=result, chunk_type="text_delta", is_final=True)
             return
 
+        # PORT-PLAN decision #1 (02-02): `auto` resolves to SMART (Sonnet 4.6),
+        # NOT FAST (Haiku). Quality > cost on the routing default.
         if model == "auto":
-            model = "fast"
+            model = "smart"
 
         # Check prerequisites for streaming
         if not config.claude.api_key or model in ("local", "local-small", "local-heavy", "airllm"):
@@ -1546,8 +1550,10 @@ class _CloudEngineWrapper:
         **kwargs: Any,
     ) -> str:
         """Generate text via CloudEngine with LLMClient cross-cutting concerns."""
+        # PORT-PLAN decision #1 (02-02): `auto` resolves to SMART (Sonnet 4.6),
+        # NOT FAST (Haiku). Quality > cost on the routing default.
         if model == "auto":
-            model = "fast"
+            model = "smart"
 
         # Death spiral guard
         if self._spiral_guard.is_tripped:

@@ -39,7 +39,10 @@ class TestModelTier:
         assert ModelTier.GENIUS == "genius"
 
     def test_all_tiers_counted(self):
-        assert len(ModelTier) == 7
+        # PORT-PLAN Phase 2 Wave 2 (02-02): ModelTier merged with TierName.
+        # 13 tiers total: 11 generative (genius/smart/codex/agentic/longctx/chat/
+        # fast/cheap/local/local-heavy/vision) + LOCAL_SMALL + EMBED.
+        assert len(ModelTier) == 13
 
 
 class TestResolveTier:
@@ -51,13 +54,16 @@ class TestResolveTier:
         assert resolve_tier("fast") == ModelTier.FAST
 
     def test_aliases(self):
-        assert resolve_tier("auto") == ModelTier.FAST
+        # PORT-PLAN decision #1 (02-02): auto → SMART, not FAST. Quality > cost.
+        assert resolve_tier("auto") == ModelTier.SMART
         assert resolve_tier("primary") == ModelTier.SMART
         assert resolve_tier("airllm") == ModelTier.LOCAL_HEAVY
         assert resolve_tier("research-local") == ModelTier.LOCAL_HEAVY
 
-    def test_unknown_defaults_to_fast(self):
-        assert resolve_tier("nonexistent") == ModelTier.FAST
+    def test_unknown_defaults_to_smart(self):
+        # PORT-PLAN decision #1 (02-02): unknown tiers default to SMART (Sonnet),
+        # not FAST (Haiku). Quality > cost on the fallback default.
+        assert resolve_tier("nonexistent") == ModelTier.SMART
 
 
 class TestFallbackStep:
