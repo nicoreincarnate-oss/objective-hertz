@@ -17,6 +17,7 @@ shared/aider/ruflo_loop.py and shared/aider/clawdbot_loop.py.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from dataclasses import dataclass, field
@@ -117,7 +118,8 @@ class LeadWorkerLoop:
         # Step 1 — Lead creates initial plan
         logger.info("LeadWorker: planning goal %r with %s", goal[:80], self.config.lead_tier.value)
         try:
-            plan = await self.plan_fn(goal, context, [])
+            # deepcopy: workers must not see each other's mutations — P1-7
+            plan = await self.plan_fn(goal, copy.deepcopy(context), [])
         except Exception as exc:
             return LeadWorkerResult(
                 success=False, final_output="", steps_executed=0,
@@ -143,7 +145,8 @@ class LeadWorkerLoop:
             logger.debug("LeadWorker: executing step %s/%d: %s", step.id, len(plan), step.description[:60])
 
             try:
-                result = await self.execute_fn(step, context)
+                # deepcopy: workers must not see each other's mutations — P1-7
+                result = await self.execute_fn(step, copy.deepcopy(context))
             except Exception as exc:
                 result = StepResult(
                     step_id=step.id,
@@ -162,7 +165,8 @@ class LeadWorkerLoop:
                 if self.config.architect_revisits_on_failure and self.config.revisable:
                     logger.info("LeadWorker: step %s failed, asking Lead to revise", step.id)
                     try:
-                        new_plan = await self.plan_fn(goal, context, all_step_results)
+                        # deepcopy: workers must not see each other's mutations — P1-7
+                        new_plan = await self.plan_fn(goal, copy.deepcopy(context), all_step_results)
                         plan_revisions += 1
                         if new_plan:
                             plan = plan[: i + 1] + new_plan[: self.config.max_steps - i - 1]
@@ -177,10 +181,11 @@ class LeadWorkerLoop:
                 and i < len(plan) - 1
             ):
                 try:
-                    review = await self.review_fn(plan, all_step_results, context)
+                    # deepcopy: workers must not see each other's mutations — P1-7
+                    review = await self.review_fn(plan, all_step_results, copy.deepcopy(context))
                     if review.get("revise", False):
                         plan_revisions += 1
-                        new_plan = await self.plan_fn(goal, context, all_step_results)
+                        new_plan = await self.plan_fn(goal, copy.deepcopy(context), all_step_results)
                         if new_plan:
                             plan = plan[: i + 1] + new_plan[: self.config.max_steps - i - 1]
                 except Exception as exc:
