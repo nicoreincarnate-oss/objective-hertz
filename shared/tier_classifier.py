@@ -286,13 +286,18 @@ class RuleBasedClassifier(TierClassifier):
     ) -> tuple[bool, list[str]]:
         signals: list[str] = []
 
-        if rule.operation_matches:
+        # PORT-PLAN 02-02 fix: filters only apply when their input is provided.
+        # Empty operation/daemon should NOT block a rule that also has keyword
+        # patterns — otherwise keyword-only matches (e.g. "design the
+        # architecture" with no operation context) silently fall through to
+        # the default rule.
+        if rule.operation_matches and operation:
             if operation in rule.operation_matches:
                 signals.append(f"operation:{operation}")
             else:
                 return False, []
 
-        if rule.daemon_matches:
+        if rule.daemon_matches and daemon:
             if daemon in rule.daemon_matches:
                 signals.append(f"daemon:{daemon}")
             else:

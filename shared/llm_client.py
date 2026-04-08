@@ -406,6 +406,7 @@ class LLMClient:
         pipeline_stage: str = "",
         use_dna: bool = False,
         daemon_name: str = "",
+        auto_tier: bool = False,
     ) -> str:
         """
         Generate text. Model choices:
@@ -427,6 +428,29 @@ class LLMClient:
         - use_dna=True + ENABLE_DNA_PROFILES env var truthy → prepend DNA to system
         - Circuit breaker auto-disables DNA if LLM error rates spike
         """
+        # PORT-PLAN Phase 2 Wave 2 (02-02) auto_tier hook: when caller opts in
+        # AND passes model="auto", route the call through the rule-based tier
+        # classifier. The classifier inspects prompt + operation + daemon and
+        # picks the best tier. Default behavior (auto_tier=False) is unchanged.
+        if auto_tier and model == "auto":
+            try:
+                from shared.tier_classifier import RuleBasedClassifier
+                _classifier = RuleBasedClassifier()
+                _result = await _classifier.classify(
+                    prompt,
+                    operation=pipeline_stage or "",
+                    daemon=daemon_name or "",
+                    max_output_tokens=max_tokens,
+                )
+                model = _result.tier.value
+                logger.debug(
+                    "auto_tier classifier picked %s (conf=%.2f, reason=%s)",
+                    model, _result.confidence, _result.reasoning,
+                )
+            except Exception as exc:  # IGUS-FIX: classifier must never block calls
+                logger.warning("auto_tier classifier failed (%s), falling back to smart", exc)
+                model = "smart"
+
         # PORT-PLAN decision #1 (02-02): `auto` resolves to SMART (Sonnet 4.6),
         # NOT FAST (Haiku). Quality > cost on the routing default.
         if model == "auto":
