@@ -97,7 +97,7 @@ async def propose_change(bottleneck: dict) -> dict | None:
             f"}}"
         )
 
-        result = await llm.generate(prompt, model="smart", temperature=0.2)
+        result = await llm.generate(prompt, model="smart", temperature=0.2, operation="fix_proposal", daemon_name="ruflo")
         start = result.find("{")
         end = result.rfind("}") + 1
         proposal = json.loads(result[start:end])
