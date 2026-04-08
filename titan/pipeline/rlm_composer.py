@@ -320,7 +320,7 @@ Return JSON:
     lead_score = float(lead.get("lead_score", 0) or 0)
     model = "smart" if lead_score >= 80 else "fast"
 
-    result = await llm.generate(prompt, model=model, temperature=0.8)
+    result = await llm.generate(prompt, model=model, temperature=0.8, operation="titan._generate_draft", daemon_name="titan")
     elapsed = time.perf_counter() - start
 
     # Estimate cost: ~$0.003 per 1K tokens for Haiku, ~$0.015 for Sonnet

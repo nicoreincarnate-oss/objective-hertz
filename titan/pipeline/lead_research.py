@@ -323,7 +323,7 @@ async def _generate_research_data(prompt: str, lead: dict) -> dict:
 
 
 async def _run_research_prompt(prompt: str, *, model: str, lead: dict) -> dict:
-    result = await llm.generate(prompt, model=model, temperature=0.5)
+    result = await llm.generate(prompt, model=model, temperature=0.5, operation="research_synthesis", daemon_name="titan")
 
     try:
         start = result.find("{")

@@ -318,7 +318,7 @@ RULES:
 """
 
     try:
-        result = await llm.generate(prompt, model=model, temperature=0.7, use_dna=True, daemon_name="titan")
+        result = await llm.generate(prompt, model=model, temperature=0.7, use_dna=True, daemon_name="titan", operation="titan._redraft_with_neural_guidance")
         result = result.strip()
         if len(result) < 30:
             return ""
@@ -565,7 +565,7 @@ Return JSON:
     "personalization_note": "why this email is unique to them"
 }}"""
 
-    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan")
+    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan", operation="email_compose")
 
     try:
         start = result.find("{")
@@ -857,7 +857,7 @@ Return JSON:
     "personalization_note": "why this email is unique to them"
 }}"""
 
-    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan")
+    result = await llm.generate(prompt, model=model, temperature=0.8, use_dna=True, daemon_name="titan", operation="email_compose")
 
     try:
         start = result.find("{")

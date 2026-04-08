@@ -341,7 +341,7 @@ Return JSON:
   "reasoning": "why this order"
 }}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.3)
+    result = await llm.generate(prompt, model="fast", temperature=0.3, operation="titan._choose_discovery_sources", daemon_name="titan")
 
     try:
         start = result.find("{")
@@ -418,7 +418,7 @@ Return JSON:
     "reasoning": "why these targets"
 }}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.8)
+    result = await llm.generate(prompt, model="fast", temperature=0.8, operation="titan._get_discovery_strategy", daemon_name="titan")
     try:
         # Extract JSON from response
         start = result.find("{")

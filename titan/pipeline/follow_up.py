@@ -323,7 +323,7 @@ Industry: {lead.get('research_summary', 'unknown')[:200]}
 
 Answer YES or NO with one sentence reasoning."""
 
-    result = await llm.generate(prompt, model="fast", max_tokens=50, temperature=0.3)
+    result = await llm.generate(prompt, model="fast", max_tokens=50, temperature=0.3, operation="titan._should_follow_up", daemon_name="titan")
     return "yes" in result.lower()
 
 
@@ -366,7 +366,7 @@ Key rules:
 
 Return JSON: {{"subject": "...", "body": "..."}}"""
 
-    result = await llm.generate(prompt, model="fast", temperature=0.8)
+    result = await llm.generate(prompt, model="fast", temperature=0.8, operation="email_compose", daemon_name="titan")
     try:
         start = result.find("{")
         end = result.rfind("}") + 1

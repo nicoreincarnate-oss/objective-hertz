@@ -235,7 +235,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict | None = 
         f"Answer concisely and factually."
     )
 
-    answer = await llm.generate(prompt, model="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300, operation="titan._ask", daemon_name="titan")
     return {"answer": answer, "from": "titan"}
 
 
@@ -268,7 +268,7 @@ async def _review_finding(finding: dict | None = None, code_snippet: str = "", *
         f"or defer (not in your domain). Include your reasoning."
     )
 
-    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1, operation="titan._review_finding", daemon_name="titan")
     # Parse structured vote from the response
     lower = answer.lower()
     if "reject" in lower[:100] or "false positive" in lower[:200]:

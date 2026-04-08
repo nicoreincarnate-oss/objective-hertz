@@ -448,7 +448,7 @@ Extract 3-5 actionable insights. Be specific:
 Return JSON list:
 [{{"category": "email_performance|targeting|timing|copywriting|industry", "insight": "specific actionable finding", "confidence": 0.0-1.0}}]"""
 
-    result = await llm.generate(prompt, model="smart", temperature=0.4)
+    result = await llm.generate(prompt, model="smart", temperature=0.4, operation="titan.daily_reflection", daemon_name="titan")
     try:
         start = result.find("[")
         end = result.rfind("]") + 1
@@ -588,7 +588,7 @@ Return JSON:
   "email_notes": "...", "ready_for_training": true/false,
   "training_recommendation": "..."}}"""
 
-    result = await llm.generate(prompt, model="smart", temperature=0.3)
+    result = await llm.generate(prompt, model="smart", temperature=0.3, operation="titan.weekly_strategy_review", daemon_name="titan")
     try:
         start = result.find("{")
         end = result.rfind("}") + 1
@@ -812,7 +812,7 @@ The rule must be specific enough to enforce in a prompt (e.g. "Subject lines mus
 
 Return JSON: {{"rule_text": "...", "confidence": 0.0-1.0}}"""
 
-            result = await llm.generate(prompt, model="fast", temperature=0.2)
+            result = await llm.generate(prompt, model="fast", temperature=0.2, operation="titan.extract_rules_from_reflection", daemon_name="titan")
             try:
                 start = result.find("{")
                 end = result.rfind("}") + 1
@@ -1412,7 +1412,7 @@ async def attribute_reply_cause(original_email: str, reply_body: str, outcome: s
         return
 
     try:
-        result = await llm.generate(prompt, model="fast", temperature=0.2)
+        result = await llm.generate(prompt, model="fast", temperature=0.2, operation="titan.attribute_reply_cause", daemon_name="titan")
         start = result.find("{")
         end = result.rfind("}") + 1
         attribution = json.loads(result[start:end])
