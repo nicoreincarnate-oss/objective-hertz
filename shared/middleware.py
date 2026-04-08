@@ -594,11 +594,22 @@ async def budget_check_middleware(ctx: dict[str, Any], next_fn: NextFn) -> Stage
 # ---------------------------------------------------------------------------
 
 
-async def check_budget_for_llm_call(requested_model: str) -> str:
+async def check_budget_for_llm_call(
+    requested_model: str,
+    daemon_name: str | None = None,
+) -> str:
     """Standalone budget check for LLM calls (used by LLMClient when consolidated flag is ON).
 
     Returns the resolved model — either the requested model or "local" for Ollama fallback.
     Fails CLOSED: DB errors return "local".
+
+    Phase 2 wave-1 add-on: when ``daemon_name`` is provided AND the
+    ``SPEND_ALERTS_ENABLED`` flag is on, this function ALSO consults
+    ``shared.spend_alerts`` after the global budget check passes. Any alert
+    that crosses the 50/75/90/100% ladder is dispatched through Hermes
+    (Telegram + War Room) and ``BLOCK``-level alerts force Ollama fallback
+    even if the global budget still has headroom. This gives per-daemon caps
+    teeth without changing the global fail-closed contract.
     """
     # NOTE: ENABLE_CONSOLIDATED_BUDGET flag check removed — function always executes.
     # The flag is deprecated; this is now the sole budget authority.
@@ -622,6 +633,37 @@ async def check_budget_for_llm_call(requested_model: str) -> str:
         if percent_used >= _ALERT_THRESHOLD and requested_model == "fast":
             logger.info("Budget at %.0f%% — downgrading fast to Ollama", percent_used * 100)
             return "local"
+
+        # Phase 2 add-on: per-daemon spend alerts (50/75/90/100% ladder).
+        if daemon_name and _flag("SPEND_ALERTS_ENABLED"):
+            try:
+                from shared.db import get_pool
+                from shared.spend_alerts import (
+                    AlertLevel,
+                    check_daemon_spend,
+                    dispatch_alert,
+                )
+
+                pool = get_pool()
+                alerts = await check_daemon_spend(daemon_name, pool)
+                forced_local = False
+                for alert in alerts:
+                    await dispatch_alert(alert)
+                    if alert.level == AlertLevel.BLOCK:
+                        forced_local = True
+                if forced_local:
+                    logger.warning(
+                        "Daemon %s hit BLOCK threshold — forcing Ollama",
+                        daemon_name,
+                    )
+                    return "local"
+            except (ImportError, OSError, RuntimeError) as exc:
+                # Spend alerts are best-effort — never break the LLM path.
+                logger.warning(
+                    "spend_alerts non-fatal failure for %s: %s",
+                    daemon_name,
+                    exc,
+                )
 
         return requested_model
 

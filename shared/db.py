@@ -65,6 +65,19 @@ async def close_pool():
             logger.info("Postgres pool closed")
 
 
+def get_pool() -> "AsyncConnectionPool":
+    """Return the live connection pool.
+
+    Used by modules (e.g. ``shared.spend_alerts``) that take a pool handle
+    directly instead of borrowing one connection at a time. Raises
+    ``RuntimeError`` if ``init_pool()`` was never called — fail-closed so
+    callers can't accidentally pass ``None`` into psycopg.
+    """
+    if _pool is None:
+        raise RuntimeError("DB pool not initialized — call init_pool() first")
+    return _pool
+
+
 @asynccontextmanager
 async def get_conn():
     """Get a connection from the pool."""
