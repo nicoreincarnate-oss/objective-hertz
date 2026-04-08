@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-last_updated: "2026-04-08T17:37:48.913Z"
+last_updated: "2026-04-08T00:00:00.000Z"
 progress:
   total_phases: 29
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 30
-  completed_plans: 36
+  completed_plans: 41
 ---
 
 # Project State
@@ -21,9 +21,9 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Phase
 
-**Phase:** 04
-**Status:** Ready to plan
-**Next action:** Convert the approved Scales/Hermes plan into file-level implementation tasks for the buddy and autopilot surfaces
+**Phase:** 03 — Daemon Wiring
+**Status:** ✅ Complete (2026-04-08)
+**Next action:** Phase 4 — libcst multi-line call migration (67 deferred sites) + live cutover verification. Operator: set `OPENROUTER_API_KEY`, `ollama pull arcee-ai/Trinity-Mini-GGUF:q4_k_m`, flip `ENABLE_AIDER_LOOPS=true` on Studio to verify wiring before Phase 4 begins.
 
 ## Milestone: Intel Integration (Full Scope)
 
@@ -259,3 +259,6 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 | Phase 14 P01 | 29min | 13 tasks | 23 files |
 | Phase 15 P01 | 23min | 4 tasks | 11 files |
 | Phase 16 P01 | 42min | 8 tasks | 9 files |
+| Phase 3 (Daemon Wiring) | 22 commits, 5 waves | Wave1×9+Wave2×4+Wave3×3+Wave4×3+Wave5×3 | 40 call sites migrated + 4 new modules wired |
+
+*State updated: 2026-04-08 -- Phase 3 (Daemon Wiring) complete — all 5 waves SHIP — metadata plumbing (40 llm.generate() call sites across 7 daemons), Ruflo Aider wiring (ENABLE_AIDER_LOOPS), Clawdbot Aider wiring (ENABLE_AIDER_LOOPS), Hermes voice loop wiring (ENABLE_VOICE_LOOP, dead-path), Clawdbot Draw Things wiring (ENABLE_DRAW_THINGS, dead-path) — 86 passed / 6 pre-existing failures / 18 new Phase 3 tests — zero regressions*

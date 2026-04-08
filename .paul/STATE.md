@@ -3,15 +3,15 @@
 ## Current Position
 
 Milestone: v0.42.5 Local Tier Hardening
-Phase: 42.5 of 44 (Local Tier Hardening) — Planning
-Plan: 42-5-01 created, awaiting approval
-Status: PLAN created, ready for APPLY
-Last activity: 2026-04-07 — Created `.paul/phases/42-5-local-tier-hardening/42-5-01-PLAN.md`
+Phase: 42.5 of 44 (Local Tier Hardening) — GSD Phase 3 complete, Phase 4 pending
+Plan: 42-5-01 created, awaiting approval (Plan 42-5-04 scope executed via GSD Phase 3)
+Status: GSD Phase 3 (Daemon Wiring) SHIP — all 5 waves committed, 86 passed / 6 pre-existing / 18 new tests green
+Last activity: 2026-04-08 — Phase 3 Daemon Wiring complete (22 commits on claude/charming-elion)
 
 Progress:
-- Milestone v0.42.5: [░░░░░░░░░░] 0%
-- Phase 42.5: [░░░░░░░░░░] 0%
-- Plan 42-5-01 of 6: created, awaiting approval
+- Milestone v0.42.5: [██░░░░░░░░] 20% (daemon wiring done; spikes, provisioning, cutover pending)
+- Phase 42.5 Plan 42-5-04 scope: [██████████] 100% (via GSD Phase 3)
+- Plan 42-5-01 of 6: created, awaiting approval (spikes + license memo + metadata plumbing AC-1/AC-2 still unexecuted)
 
 ## Loop Position
 
@@ -42,7 +42,10 @@ PLAN ──▶ APPLY ──▶ UNIFY
 
 ## Session Continuity
 
-Last session: 2026-04-07
-Stopped at: Plan 42-5-01 created
-Next action: Review and approve plan 42-5-01, then run /paul:apply .paul/phases/42-5-local-tier-hardening/42-5-01-PLAN.md
+Last session: 2026-04-08
+Stopped at: GSD Phase 3 (Daemon Wiring) complete — all 5 waves SHIP — branch claude/charming-elion pushed
+Next action (two parallel tracks):
+  1. **Operator Studio actions** (unblocks Layer B + C live): set `OPENROUTER_API_KEY`, `ollama pull arcee-ai/Trinity-Mini-GGUF:q4_k_m`, flip `ENABLE_AIDER_LOOPS=true`, start Parakeet+Kokoro, start Draw Things
+  2. **GSD Phase 4** (libcst multi-line migration): 67 deferred `llm.generate()` call sites at `/tmp/migrate_to_litellm_manual_review.json` need a libcst pass
+  3. **PAUL Plan 42-5-01 approval**: spikes (GBNF×mlx_vlm, LiteLLM pre_call_hook), license memo, metadata plumbing integration tests still unexecuted — requires Studio hardware
 Resume file: .paul/phases/42-5-local-tier-hardening/42-5-01-PLAN.md

@@ -362,10 +362,10 @@ Plans:
 - Layer C (voice + imagegen) wires code paths but they stay DEAD until operator starts Parakeet/Kokoro/Draw Things services
 
 **Plans:**
-- [ ] 03-01-PLAN.md — Metadata plumbing via migrate_to_litellm --apply across 8 daemons + spend_alerts import wiring (Layer A, low-risk)
-- [ ] 03-02-PLAN.md — Ruflo Aider loop runtime wiring (Layer B medium-risk)
-- [ ] 03-03-PLAN.md — Clawdbot Aider loop runtime wiring (Layer B medium-risk, customer-facing)
-- [ ] 03-04-PLAN.md — Hermes voice loop wiring (Layer C, dead-path until services alive)
-- [ ] 03-05-PLAN.md — Clawdbot image gen wiring (Layer C, dead-path until Draw Things alive)
+- [x] 03-01-PLAN.md — Metadata plumbing via migrate_to_litellm --apply across 8 daemons + spend_alerts import wiring (Layer A, low-risk)
+- [x] 03-02-PLAN.md — Ruflo Aider loop runtime wiring (Layer B medium-risk)
+- [x] 03-03-PLAN.md — Clawdbot Aider loop runtime wiring (Layer B medium-risk, customer-facing)
+- [x] 03-04-PLAN.md — Hermes voice loop wiring (Layer C, dead-path until services alive)
+- [x] 03-05-PLAN.md — Clawdbot image gen wiring (Layer C, dead-path until Draw Things alive)
 
-**Status:** 🟡 In Progress (2026-04-08 autonomous full implementation run)
+**Status:** ✅ Complete (2026-04-08) — all 5 waves SHIP, 22 commits, 86 passed / 6 pre-existing failures / 18 new Phase 3 tests green, zero regressions
