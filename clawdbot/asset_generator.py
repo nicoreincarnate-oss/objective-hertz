@@ -159,7 +159,48 @@ async def generate_hero_image(prompt: str, style: str = "editorial") -> bytes:
     Returns:
         Image bytes (PNG/JPEG).
     """
-    # Placeholder: wire to Flux/fal.ai when API key available
+    # Phase 3 Wave 5: Draw Things opt-in local fallback (dead until operator
+    # installs Draw Things at 127.0.0.1:7860 AND sets ENABLE_DRAW_THINGS=true).
+    # Recraft/fal.ai remain the production default per CARL decision 2026-03-30.
+    if os.environ.get("ENABLE_DRAW_THINGS", "false").lower() == "true":
+        try:
+            from shared.imagegen.draw_things_client import DrawThingsClient
+
+            dt = DrawThingsClient()
+            if await dt.health_check():
+                # Map style hint to a Draw Things preset; "editorial" → hero_quality
+                preset = "hero_quality" if style == "editorial" else "hero_fast"
+                try:
+                    result = await dt.generate(prompt=prompt, preset=preset)
+                except Exception as gen_exc:
+                    logger.warning(
+                        "Draw Things generate() failed, falling through to Recraft/fal.ai: %s",
+                        gen_exc,
+                    )
+                else:
+                    if result.image_bytes:
+                        logger.info(
+                            "asset_generator: served hero via Draw Things local fallback (model=%s)",
+                            result.model,
+                        )
+                        return result.image_bytes
+                    logger.warning(
+                        "Draw Things returned empty image_bytes, falling through to Recraft/fal.ai"
+                    )
+            else:
+                logger.debug(
+                    "Draw Things health_check failed (service unreachable) — falling through"
+                )
+        except ImportError:
+            logger.debug(
+                "Draw Things client import failed — Phase 3 dead path (expected)"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Draw Things branch errored, falling through to Recraft/fal.ai: %s", exc
+            )
+
+    # Existing fal.ai/Flux production path (unchanged)
     api_key = os.environ.get("FAL_KEY", "")
     if not api_key:
         logger.info("FAL_KEY not set, hero image generation unavailable")
