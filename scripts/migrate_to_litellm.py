@@ -332,10 +332,42 @@ def apply_patch(
             deferred_count += 1
             continue
 
-        # Insert after first ( in the call
-        idx = line.index("generate(") + len("generate(")
-        injection = ", ".join(new_args) + ", "
-        source_lines[line_idx] = line[:idx] + injection + line[idx:]
+        # Find the matching closing paren for the generate( call so we can
+        # APPEND kwargs at the end (kwargs cannot precede positional args).
+        open_idx = line.index("generate(") + len("generate(") - 1  # index of '('
+        depth = 0
+        close_idx = -1
+        in_str: str | None = None
+        i = open_idx
+        while i < len(line):
+            ch = line[i]
+            if in_str:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == in_str:
+                    in_str = None
+            elif ch in ("'", '"'):
+                in_str = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close_idx = i
+                    break
+            i += 1
+
+        if close_idx < 0:
+            # Couldn't find matching paren on this line — defer.
+            deferred_count += 1
+            continue
+
+        # Determine if we need a leading comma (existing call has at least one arg).
+        between = line[open_idx + 1:close_idx].strip()
+        sep = ", " if between else ""
+        injection = sep + ", ".join(new_args)
+        source_lines[line_idx] = line[:close_idx] + injection + line[close_idx:]
         edits += 1
 
     if edits > 0:
