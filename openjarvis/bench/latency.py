@@ -45,7 +45,7 @@ class LatencyBenchmark(BaseBenchmark):
             prompt = _CANNED_PROMPTS[i % len(_CANNED_PROMPTS)]
             messages = [Message(role=Role.USER, content=prompt)]
             try:
-                engine.generate(messages, model=model)
+                engine.generate(messages, model=model, operation="openjarvis.run", daemon_name="openjarvis")
             except Exception as exc:
                 logger.debug("Warmup request failed: %s", exc)
 
@@ -57,7 +57,7 @@ class LatencyBenchmark(BaseBenchmark):
             messages = [Message(role=Role.USER, content=prompt)]
             t0 = time.time()
             try:
-                engine.generate(messages, model=model)
+                engine.generate(messages, model=model, operation="openjarvis.run", daemon_name="openjarvis")
                 latencies.append(time.time() - t0)
             except Exception as exc:
                 logger.debug("Measurement request failed: %s", exc)

@@ -26,7 +26,7 @@ def generate_keypair() -> KeyPair:
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-        private_key = Ed25519PrivateKey.generate()
+        private_key = Ed25519PrivateKey.generate(operation="openjarvis.generate_keypair", daemon_name="openjarvis")
         private_bytes = private_key.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,

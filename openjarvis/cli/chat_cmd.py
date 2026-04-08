@@ -200,7 +200,7 @@ def chat(
                     else str(response)
                 )
             else:
-                result = engine.generate(history, model=model)
+                result = engine.generate(history, model=model, operation="openjarvis.chat", daemon_name="openjarvis")
                 content = (
                     result.get("content", "")
                     if isinstance(result, dict)

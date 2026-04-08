@@ -494,7 +494,7 @@ async def websocket_chat_stream(websocket: WebSocket):
                     except TypeError:
                         # stream() didn't return an iterable; fall back to
                         # generate()
-                        result = engine.generate(messages, model=model)
+                        result = engine.generate(messages, model=model, operation="openjarvis.websocket_chat_stream", daemon_name="openjarvis")
                         content = result.get("content", "") if isinstance(
                             result, dict,
                         ) else str(result)
@@ -507,7 +507,7 @@ async def websocket_chat_stream(websocket: WebSocket):
                     )
                 else:
                     # No stream method — single-shot generate
-                    result = engine.generate(messages, model=model)
+                    result = engine.generate(messages, model=model, operation="openjarvis.websocket_chat_stream", daemon_name="openjarvis")
                     content = result.get("content", "") if isinstance(
                         result, dict,
                     ) else str(result)

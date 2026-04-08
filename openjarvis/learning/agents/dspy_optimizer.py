@@ -118,7 +118,7 @@ class DSPyAgentOptimizer:
                 )
 
             def forward(self_inner: Any, question: str) -> Any:
-                return self_inner.generate(question=question)
+                return self_inner.generate(question=question, operation="openjarvis.forward", daemon_name="openjarvis")
 
         program = AgentModule()
 

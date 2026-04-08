@@ -99,7 +99,7 @@ async def chat_completions(
     if req.stream:
         async def generate():
             cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-            for token in llm.generate(prompt, max_tokens=req.max_tokens):
+            for token in llm.generate(prompt, max_tokens=req.max_tokens, operation="openjarvis.generate", daemon_name="openjarvis"):
                 chunk = {
                     "id": cid,
                     "object": "chat.completion.chunk",
@@ -130,7 +130,7 @@ async def chat_completions(
             generate(), media_type="text/event-stream",
         )
 
-    text = llm.generate(prompt, max_tokens=req.max_tokens)
+    text = llm.generate(prompt, max_tokens=req.max_tokens, operation="openjarvis.chat_completions", daemon_name="openjarvis")
     if isinstance(text, list):
         text = "".join(text)
     cid = f"chatcmpl-{uuid.uuid4().hex[:12]}"

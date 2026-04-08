@@ -41,7 +41,7 @@ class ThroughputBenchmark(BaseBenchmark):
 
         for _ in range(warmup_samples):
             try:
-                engine.generate(messages, model=model)
+                engine.generate(messages, model=model, operation="openjarvis.run", daemon_name="openjarvis")
             except Exception as exc:
                 logger.debug("Warmup request failed: %s", exc)
 
@@ -53,7 +53,7 @@ class ThroughputBenchmark(BaseBenchmark):
         for _ in range(num_samples):
             t0 = time.time()
             try:
-                result = engine.generate(messages, model=model)
+                result = engine.generate(messages, model=model, operation="openjarvis.run", daemon_name="openjarvis")
                 elapsed = time.time() - t0
                 usage = result.get("usage", {})
                 tokens = usage.get("completion_tokens", 0)
