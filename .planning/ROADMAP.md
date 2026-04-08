@@ -335,3 +335,37 @@ Plans:
 *Roadmap created: 2026-03-29 via mega-plan pipeline (full scope, Approach A with Beta corrections)*
 *Phase 10 planned: 2026-03-30 — 2 plans in 2 waves*
 *Phases 11-16 planned: 2026-03-30 — Paperclip infrastructure integration (mega-plan Approach B, quality 8.9/10)*
+
+## Phase 3: Daemon Wiring (Full Implementation)
+**Goal:** Wire the new Phase 42.5 v2 modules into all 8 daemons so they actually get imported + called at runtime. P0-2 ghost integration fix — the modules exist on disk but no daemon currently imports them. Close the gap between "built" and "running."
+**Requirements:** P0-2 execution (full daemon wiring), metadata plumbing across 151 call sites, Ruflo Aider runtime wiring, Clawdbot Aider runtime wiring, Hermes voice loop runtime wiring, Clawdbot image gen runtime wiring
+**Feature flag:** AUTO_TIER_ENABLED + ENABLE_AIDER_LOOPS + ENABLE_VOICE_LOOP + ENABLE_DRAW_THINGS (all default OFF until operator confirms post-cutover)
+**Dependencies:** Phase 1 + Phase 2 complete. PORT-PLAN locked (7 decisions). Trinity swap committed. llm_client.py canonical at 1711 lines.
+**Success criteria:**
+- All 151 llm.generate() call sites in 8 daemons pass daemon_name + operation metadata
+- auto_tier=True hook accessible across all daemons (no errors importing)
+- Ruflo bug-fix path invokes run_ruflo_aider_loop with SandboxRunner default
+- Clawdbot site-builder can invoke run_clawdbot_aider_loop for architect+editor workflows
+- Hermes voice loop (Parakeet + Kokoro + intent_router) wired into hermes/jarvis/ (dead path until operator starts the daemons)
+- Clawdbot image gen wired to draw_things_client (dead path until operator starts Draw Things)
+- pytest full suite passes with zero regressions vs Phase 2 baseline (33 passed / 6 pre-existing failed)
+- All existing daemon tests still pass
+- Phase 3 marked complete in STATE.md
+
+**Constraints:**
+- ABSOLUTE paths everywhere
+- Atomic commits per wave (1 commit per daemon for Wave 1, 1 per daemon for Waves 2-5)
+- NEVER modify .env
+- NEVER install brew/pip/ollama
+- NEVER start daemons
+- NEVER touch main repo directly
+- Layer C (voice + imagegen) wires code paths but they stay DEAD until operator starts Parakeet/Kokoro/Draw Things services
+
+**Plans:**
+- [ ] 03-01-PLAN.md — Metadata plumbing via migrate_to_litellm --apply across 8 daemons + spend_alerts import wiring (Layer A, low-risk)
+- [ ] 03-02-PLAN.md — Ruflo Aider loop runtime wiring (Layer B medium-risk)
+- [ ] 03-03-PLAN.md — Clawdbot Aider loop runtime wiring (Layer B medium-risk, customer-facing)
+- [ ] 03-04-PLAN.md — Hermes voice loop wiring (Layer C, dead-path until services alive)
+- [ ] 03-05-PLAN.md — Clawdbot image gen wiring (Layer C, dead-path until Draw Things alive)
+
+**Status:** 🟡 In Progress (2026-04-08 autonomous full implementation run)

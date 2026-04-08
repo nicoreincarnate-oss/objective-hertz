@@ -224,7 +224,14 @@ def scan_repo(root: Path, subset: str = "") -> list[CallSite]:
     base = root / subset if subset else root
     sites: list[CallSite] = []
     for py in base.rglob("*.py"):
-        if any(part.startswith(".") for part in py.parts):
+        # Only filter on parts RELATIVE to the scan base — otherwise a worktree
+        # like .claude/worktrees/charming-elion would filter every file because
+        # the absolute path contains a `.`-prefixed component.
+        try:
+            rel_parts = py.relative_to(base).parts
+        except ValueError:
+            rel_parts = py.parts
+        if any(part.startswith(".") for part in rel_parts):
             continue
         if "tests/" in str(py) or "/tools/" in str(py):
             continue
