@@ -27,6 +27,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from ruflo.aider_handler import handle_aider_fix_task, aider_loops_enabled
+
 logger = logging.getLogger("perseus.ruflo")
 
 def _ruflo_enabled() -> bool:
@@ -307,7 +309,34 @@ def _get_project_root() -> str:
 
 
 async def _handle_code_fix(payload: dict) -> dict:
-    """Fix a specific code issue."""
+    """Fix a specific code issue.
+
+    Phase 3 Wave 2: When ENABLE_AIDER_LOOPS=true, route through the
+    Architect→Editor→Verifier loop first. Fall back to the legacy
+    single-shot propose+shadow_test path if the Aider loop is skipped,
+    fails, or escalates so behavior is never regressed.
+    """
+    if aider_loops_enabled():
+        try:
+            from shared.llm_client import llm
+            aider_result = await handle_aider_fix_task(
+                payload,
+                llm_client=llm,
+                repo_root=Path(_get_project_root()),
+            )
+        except Exception as exc:
+            logger.exception("Ruflo aider_handler crashed, falling back: %s", exc)
+            aider_result = {"status": "failed", "error": str(exc)}
+
+        status = aider_result.get("status", "")
+        if status == "complete":
+            return {"status": "applied", "via": "aider", "result": aider_result}
+        # status in {"skipped", "failed", "escalated"} → fall through to legacy path
+        logger.info(
+            "Ruflo Aider path returned status=%s, falling back to legacy dispatch",
+            status,
+        )
+
     proposal = await propose_change(payload)
     if not proposal:
         return {"status": "no_viable_fix", "message": "Could not generate a safe fix"}
