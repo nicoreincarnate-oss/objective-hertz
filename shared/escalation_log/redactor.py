@@ -14,8 +14,19 @@ Three layers of safety:
   3. CANARY TEST — every write inserts known synthetic secrets, then verifies
      they were stripped. Any leak fires a critical Hermes alert.
 
-Encryption: AES-256-GCM with key from CONWAY_KEYSTORE_PASSWORD env var (already
-exists for Conway wallets). Rotation: 90 days.
+Encryption (FAIL-CLOSED, per audit P0-5 + P0-6):
+
+  - AES-256-GCM with AAD binding (b"perseus-escalation-log-v1") to prevent
+    silent ciphertext swap.
+  - Key derived via scrypt (N=2**14, r=8, p=1) from CONWAY_KEYSTORE_PASSWORD
+    env var + a random 16-byte salt persisted at ``<log_dir>/escalation_log.salt``.
+  - Output format: 1-byte key version prefix (0x01) || base64(nonce || ciphertext).
+  - Hard requirements:
+      * `cryptography` package MUST be importable at module import time.
+      * CONWAY_KEYSTORE_PASSWORD MUST be set at EscalationLogger construction.
+      * Salt file MUST be readable/writable by the process.
+    Any violation raises RuntimeError — the log will NEVER write unencrypted.
+  - Rotation: 90 days; bump the key version byte when rotating.
 """
 
 from __future__ import annotations
@@ -25,12 +36,33 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# P0-6: fail closed on missing crypto — raise at import time, never at write time.
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+except ImportError as _crypto_import_exc:  # pragma: no cover
+    raise RuntimeError(
+        "cryptography package is required for escalation log encryption — "
+        "escalation log will not write unencrypted. "
+        "Install via: pip install cryptography"
+    ) from _crypto_import_exc
+
 logger = logging.getLogger("perseus.escalation_log")
+
+# Key derivation + format constants
+_SCRYPT_N = 2 ** 14
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_KEY_LEN = 32  # AES-256
+_SALT_LEN = 16
+_KEY_VERSION = 0x01
+_AAD = b"perseus-escalation-log-v1"
 
 
 # ============================================================================
@@ -141,8 +173,103 @@ class Redactor:
 # Logger with encryption-at-rest
 # ============================================================================
 
+def _salt_path_for(log_path: Path) -> Path:
+    """Derive the salt file path from the log path."""
+    return log_path.parent / "escalation_log.salt"
+
+
+def _load_or_create_salt(salt_path: Path) -> bytes:
+    """Load existing salt or generate + persist a new one. Fail closed."""
+    if salt_path.exists():
+        data = salt_path.read_bytes()
+        if len(data) != _SALT_LEN:
+            raise RuntimeError(
+                f"Escalation log salt file {salt_path} is corrupt "
+                f"(expected {_SALT_LEN} bytes, got {len(data)}) — refusing to write"
+            )
+        return data
+    # First-write: generate + persist
+    salt_path.parent.mkdir(parents=True, exist_ok=True)
+    salt = secrets.token_bytes(_SALT_LEN)
+    # Write with restrictive permissions (owner read/write only)
+    fd = os.open(str(salt_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, salt)
+    finally:
+        os.close(fd)
+    return salt
+
+
+def _derive_key(password: str, salt: bytes) -> bytes:
+    """scrypt KDF: password + salt -> 32-byte AES-256 key."""
+    kdf = Scrypt(
+        salt=salt,
+        length=_SCRYPT_KEY_LEN,
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+    )
+    return kdf.derive(password.encode("utf-8"))
+
+
+def verify_encryption_ready(log_path: Path) -> None:
+    """Startup preflight: fail LOUDLY if encryption can't work.
+
+    Checks:
+      1. `cryptography` is importable (already enforced at module import).
+      2. CONWAY_KEYSTORE_PASSWORD env var is set and non-empty.
+      3. Log directory is creatable.
+      4. Salt file is readable (if exists) or writable (if not).
+    """
+    password = os.environ.get("CONWAY_KEYSTORE_PASSWORD", "")
+    if not password:
+        raise RuntimeError(
+            "CONWAY_KEYSTORE_PASSWORD must be set — "
+            "escalation log will not write unencrypted (audit P0-6)"
+        )
+
+    # AESGCM + Scrypt already imported at module top; re-check for clarity.
+    if AESGCM is None or Scrypt is None:  # pragma: no cover
+        raise RuntimeError(
+            "cryptography primitives unavailable — escalation log will not write"
+        )
+
+    # Ensure log dir exists / is creatable
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Escalation log directory {log_path.parent} is not writable: {exc}"
+        ) from exc
+
+    salt_path = _salt_path_for(log_path)
+    if salt_path.exists():
+        if not os.access(salt_path, os.R_OK):
+            raise RuntimeError(
+                f"Escalation log salt {salt_path} exists but is not readable"
+            )
+        data = salt_path.read_bytes()
+        if len(data) != _SALT_LEN:
+            raise RuntimeError(
+                f"Escalation log salt {salt_path} is corrupt "
+                f"(expected {_SALT_LEN} bytes, got {len(data)})"
+            )
+    else:
+        if not os.access(salt_path.parent, os.W_OK):
+            raise RuntimeError(
+                f"Escalation log salt parent {salt_path.parent} is not writable"
+            )
+
+
 class EscalationLogger:
-    """Append-only encrypted JSONL log of escalation events."""
+    """Append-only encrypted JSONL log of escalation events.
+
+    FAIL-CLOSED per audit P0-5 + P0-6:
+      - Raises RuntimeError from __init__ if CONWAY_KEYSTORE_PASSWORD unset.
+      - Uses scrypt KDF with persistent random 16-byte salt.
+      - AES-256-GCM with AAD binding; output has 1-byte key version prefix.
+      - Will NEVER silently degrade to unencrypted writes.
+    """
 
     def __init__(
         self,
@@ -152,11 +279,23 @@ class EscalationLogger:
     ):
         self.log_path = log_path or Path("/opt/perseus/data/escalation_log.jsonl.enc")
         self.redactor = redactor or Redactor()
-        self.encryption_key = encryption_key
-        if self.encryption_key is None:
-            password = os.environ.get("CONWAY_KEYSTORE_PASSWORD", "")
-            if password:
-                self.encryption_key = hashlib.sha256(password.encode()).digest()
+
+        # P0-6: fail closed — startup preflight raises on any misconfiguration.
+        verify_encryption_ready(self.log_path)
+
+        if encryption_key is not None:
+            # Explicit injection path (tests / key rotation). Must be exactly 32 bytes.
+            if len(encryption_key) != _SCRYPT_KEY_LEN:
+                raise RuntimeError(
+                    f"encryption_key must be {_SCRYPT_KEY_LEN} bytes "
+                    f"(got {len(encryption_key)})"
+                )
+            self.encryption_key = encryption_key
+        else:
+            # P0-5: scrypt KDF with persistent random salt (not unsalted SHA-256).
+            password = os.environ["CONWAY_KEYSTORE_PASSWORD"]
+            salt = _load_or_create_salt(_salt_path_for(self.log_path))
+            self.encryption_key = _derive_key(password, salt)
 
     async def log(
         self,
@@ -202,11 +341,14 @@ class EscalationLogger:
         }
 
         line_plain = json.dumps(event, separators=(",", ":")).encode()
-        if self.encryption_key:
-            line = self._encrypt(line_plain)
-        else:
-            line = line_plain
-            logger.warning("Escalation log writing UNENCRYPTED — set CONWAY_KEYSTORE_PASSWORD")
+        # P0-6: no fallback path. If encryption_key is missing, __init__ would
+        # have raised. This is a belt-and-suspenders invariant check.
+        if not self.encryption_key:  # pragma: no cover
+            raise RuntimeError(
+                "EscalationLogger.encryption_key missing at write time — "
+                "refusing to write unencrypted"
+            )
+        line = self._encrypt(line_plain)
 
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,24 +358,34 @@ class EscalationLogger:
             logger.error("Failed to write escalation log: %s", exc)
 
     def _encrypt(self, plaintext: bytes) -> bytes:
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            import secrets
-            nonce = secrets.token_bytes(12)
-            aesgcm = AESGCM(self.encryption_key)
-            ciphertext = aesgcm.encrypt(nonce, plaintext, None)
-            import base64
-            return base64.b64encode(nonce + ciphertext)
-        except ImportError:
-            logger.warning("cryptography not installed, escalation log unencrypted")
-            return plaintext
+        """AES-256-GCM encrypt with AAD binding and 1-byte key version prefix.
+
+        Output format (base64-encoded body, prefixed by raw version byte):
+            bytes([_KEY_VERSION]) || base64(nonce || ciphertext_with_tag)
+        """
+        import base64
+        nonce = secrets.token_bytes(12)
+        aesgcm = AESGCM(self.encryption_key)
+        # AAD binding (P0-5 bonus): prevents silent ciphertext swap between
+        # different log streams or schema versions.
+        ciphertext = aesgcm.encrypt(nonce, plaintext, _AAD)
+        body = base64.b64encode(nonce + ciphertext)
+        return bytes([_KEY_VERSION]) + body
 
 
-_default_logger = EscalationLogger()
+_default_logger: EscalationLogger | None = None
+
+
+def _get_default_logger() -> EscalationLogger:
+    """Lazy singleton — defers the P0-6 preflight until first actual use."""
+    global _default_logger
+    if _default_logger is None:
+        _default_logger = EscalationLogger()
+    return _default_logger
 
 
 async def log_escalation(**kwargs: Any) -> None:
-    await _default_logger.log(**kwargs)
+    await _get_default_logger().log(**kwargs)
 
 
 __all__ = [
@@ -243,4 +395,5 @@ __all__ = [
     "REDACTION_PATTERNS",
     "CANARY_SECRETS",
     "log_escalation",
+    "verify_encryption_ready",
 ]
