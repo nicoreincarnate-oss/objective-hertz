@@ -77,9 +77,16 @@ REDACTION_PATTERNS: list[tuple[str, str]] = [
     (r"AKIA[0-9A-Z]{16}",                                    "[REDACTED:aws-access-key]"),
     (r"ASIA[0-9A-Z]{16}",                                    "[REDACTED:aws-temp-key]"),
     (r"ghp_[A-Za-z0-9]{36,}",                                "[REDACTED:github-token]"),
+    (r"gho_[A-Za-z0-9]{36,}",                                "[REDACTED:github-oauth]"),
     (r"github_pat_[A-Za-z0-9_]{60,}",                        "[REDACTED:github-pat]"),
     (r"sk_live_[A-Za-z0-9]{24,}",                            "[REDACTED:stripe-live]"),
     (r"sk_test_[A-Za-z0-9]{24,}",                            "[REDACTED:stripe-test]"),
+    (r"pk_live_[A-Za-z0-9]{24,}",                            "[REDACTED:stripe-publishable]"),
+    (r"rk_live_[A-Za-z0-9]{24,}",                            "[REDACTED:stripe-restricted]"),
+    # P2-port: ported from openjarvis.security.credential_stripper
+    (r"xoxb-[0-9A-Za-z\-]+",                                 "[REDACTED:slack-bot-token]"),
+    (r"nfp_[A-Za-z0-9]{40,}",                                "[REDACTED:netlify-token]"),
+    (r"inst_[A-Za-z0-9]{32,}",                               "[REDACTED:instantly-key]"),
 
     # JWT
     (r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",
