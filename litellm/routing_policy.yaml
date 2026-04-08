@@ -1,0 +1,19 @@
+# LiteLLM routing policy — P1-1 stub
+#
+# Placeholder created by audit recovery plan 01-02 (P1-1).
+# Real routing rules will be authored alongside the local-path guard hook
+# (see docs/spikes/litellm-pre-call-hook-spike.md).
+#
+# Example (commented out so this file parses as valid empty YAML):
+#
+# rules:
+#   - match:
+#       task_class: "code_fix"
+#     prefer:
+#       - qwen2.5-coder-14b-local
+#       - claude-sonnet-4.6
+#     fallback:
+#       - gpt-4o-mini
+---
+stub: true
+note: "P1-1 placeholder — see docs/spikes/litellm-pre-call-hook-spike.md"
