@@ -1,3 +1,51 @@
+## 🚫 PRE-LAUNCH AUDIT COMPLETE — 2026-04-07 (read this FIRST)
+
+**Verdict**: BLOCK LAUNCH
+**Critical findings (P0)**: 12 (4 confirmed by 5+ independent audits)
+**Major findings (P1)**: 16
+**Read first**: `docs/audits/pre-launch/SUMMARY.md`
+
+### The big finding (you would not have caught this without the audit)
+
+Main's `shared/llm_client.py` is **1711 lines** and ALREADY HAS tier routing, fallback chains, StickyLatch caching, budget gating with downgrade, watchdog timeouts per tier, and AirLLM heavy local integration. The worktree branched off a 257-line stale version and built a parallel tier system as if main didn't already have one.
+
+**Phase 42.5 v2 is largely a duplicate of work that already exists in main**, structured differently. The 50 new files I wrote are partially redundant. They are also completely disconnected from production — `grep -r "from shared.tiers" perseus/ titan/ hermes/ clawdbot/ conway/ deerflow_research/ ruflo/ openjarvis/` returns ZERO matches.
+
+The cutover playbook's "FLIP" step has nothing to flip. Setting `LITELLM_PROXY_ENABLED=true` and restarting daemons would do literally nothing.
+
+### Other top P0s
+
+1. **Verifier sandbox is decorative** — tilde paths don't expand on macOS sandbox-exec, no Python wrapper invokes sandbox-exec, Ruflo Aider has `sandbox_runner=None` default. Prompt-injected fix → arbitrary code in host process → SSH/wallet/env exfiltration.
+2. **Unsalted SHA-256 KDF** in escalation log encryption — GPU-crackable in hours.
+3. **Crypto fail-OPEN** — escalation log writes plaintext when env var unset.
+4. **Self-consistency vote launders failures into successes** — when both retry samples fail, `1/1 = 1.0 ≥ 2/3` evaluates True.
+5. **Grammar compiler silently degrades to "string"** for `$ref`, `$defs`, `anyOf`, `allOf` — the "grammar-constrained" guarantee is vacuous on real schemas.
+6. **15 env vars missing from `.env.example`**, 4 launchd plists missing, 6 of 8 daemons have no individual healthcheck, 140+ outstanding UAT items across 10 phases.
+
+### What's good
+
+- Code quality: 8.83/10 average, zero LLM slop, 26/26 files AST-clean (`/quality-gate`)
+- Spec adherence: 98% (`/misalignment-detector`)
+- All locked operator decisions correctly reflected (Qwen3-30B-A3B, no licensing, voice replaces ElevenLabs, native services Option B, AirLLM defer, etc.)
+- Documentation is operator-grade (6 runbooks, all cross-referenced)
+- Strong primitives (`shared/tiers.py`, redactor, semantic cache safety, GBNF spike script) that can be ported to main
+
+### Recommended next action
+
+**Tomorrow morning (or whenever you wake up):**
+
+1. Read `docs/audits/pre-launch/SUMMARY.md` (15 min)
+2. Read `docs/audits/pre-launch/07-paul-audit.md` (most thorough — 10 min)
+3. Read `docs/audits/pre-launch/15-gsd-review.md` (most surprising new findings — 5 min)
+4. Decide: rebase + port modules to main (~7 days with two engineers, ~14 days solo) OR rewrite Phase 42.5 from a fresh branch off main (~3 weeks). Recovery plan in SUMMARY.md.
+5. When ready: tell me to start "Day 1 quick wins" — I'll clear the 8 quick-win P0s in parallel (~7-8 hours of work).
+
+### Recovery is bounded
+
+~14 working days solo, ~7 with two engineers. Fits in your 6-8 week launch window. The audit pass paid for itself in the first hour.
+
+---
+
 # Phase 42.5 Autonomous Build — Handoff (UPDATED 2026-04-07 evening)
 
 **Date**: 2026-04-07
