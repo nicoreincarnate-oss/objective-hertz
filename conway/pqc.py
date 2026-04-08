@@ -135,7 +135,7 @@ class QuantumSafeSigner:
                 PKCS8-encoded key. If None, generates a new keypair.
         """
         if private_key_bytes is None:
-            self._private_key = Ed25519PrivateKey.generate()
+            self._private_key = Ed25519PrivateKey.generate(operation="conway.__init__", daemon_name="conway")
         elif len(private_key_bytes) == 32:
             self._private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
         else:
