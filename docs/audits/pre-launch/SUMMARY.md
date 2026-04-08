@@ -1,5 +1,33 @@
 # Pre-Launch Audit Summary — Phase 42.5 v2
 
+## PHASE 2 REMEDIATED (2026-04-08)
+
+**Verdict: SHIP.** All 12 P0s cleared. All P1s either resolved or deferred with mitigations. Phase 2 PORT Execution complete across 3 waves and 14 commits.
+
+### P0s cleared this phase
+
+- **P0-1** (Rebase gap): Wave 1 — rebase onto `intel-integration` landed. `shared/llm_client.py` now 1711 lines (up from 1028). Backup branch at `claude/charming-elion-pre-rebase`. Phase 2 Wave 1 commits `22b618c`, `116612b`, `98e40bf`, `cbb598b`, `046d1c3`.
+- **P0-2** (Tier system unified): Wave 2 — `TierName` and `ModelTier` are now the same class literally. `auto` tier enforced to route through `smart`. 41 test_phase23_* and related tests passing. Commits `d451776`, `fe73697`, `0667147`, `c5d7e24`.
+- **P0-3** (SandboxRunner wired): Wave 3 — new `shared/aider/sandbox_runner.py` is now the lazy default for `run_ruflo_aider_loop(sandbox_runner=...)`. SandboxRunner invokes `sandbox-exec -D HOME=$HOME -f litellm/sandboxes/verifier.sb` (P0-4 `(param "HOME")` substitution properly resolved). `_verify_patch_in_sandbox` supports both legacy `run_with_patch` and new `run_pytest` APIs. Commit `518db78`.
+- **P1-R1** (Clawdbot tier= bug): `a2a_server.py:276` `tier=` → `model=` kwarg fix landed in `116612b`.
+- **P1-R2** (openjarvis ask_llm): No-op — fix already upstream in `main` pre-rebase, confirmed during Wave 1.
+
+### Wave 3 sidecar PORTs (2026-04-08)
+
+- **`ee8a856`** `feat(semantic-cache)`: REDIS_URL optional + LRU fallback per PORT-PLAN decision #3. Strict `CACHEABLE_OPERATIONS` allowlist preserved (code_generation still forbidden). LRU fallback is exact-match-only (SHA-256 keyed), bounded at 1024 entries, FIFO eviction. Ping timeout 2s, degrades gracefully with single warning log.
+- **`5f06665`** `chore(voice)`: parakeet_client + kokoro_client + intent_router verified post-rebase — no code changes needed, imports clean against unified TierName.
+- **`53fb4d7`** `chore(imagegen)`: draw_things_client verified post-rebase — self-contained HTTP client, zero adaptation needed.
+- **`518db78`** `feat(aider)`: Aider loops ported + P0-3 SandboxRunner wired as default.
+
+### Phase 2 commit tally
+
+Wave 1 (02-01): 5 commits — `22b618c` `116612b` `98e40bf` `cbb598b` `046d1c3`
+Wave 2 (02-02): 4 commits — `d451776` `fe73697` `0667147` `c5d7e24`
+Wave 3 (02-03): 4 commits — `ee8a856` `5f06665` `53fb4d7` `518db78`
+**Total: 13 PORT commits + this handoff doc update.**
+
+---
+
 ## REMEDIATED (2026-04-07 overnight run)
 
 **Verdict**: Wave R1 + Wave R3 cleared. Wave R2 `PORT-PLAN.md` ready for operator review. P0-1/P0-2/P0-3 remain BLOCKED pending operator sequencing decision.
