@@ -113,6 +113,7 @@ def infer_operation(func_name: str, daemon: str, pipeline_stage: str = "") -> st
 class CallSite:
     file_path: Path
     line: int
+    end_line: int         # AST end_lineno — used to detect multi-line calls
     col: int
     func_name: str        # Surrounding function name
     daemon: str
@@ -123,6 +124,11 @@ class CallSite:
     has_pipeline_stage: bool
     inferred_operation: str
     proposed_changes: list[str]
+
+    @property
+    def is_multiline(self) -> bool:
+        """True if the call spans multiple source lines (can't safely text-patch)."""
+        return self.end_line > self.line
 
 
 class LLMCallVisitor(ast.NodeVisitor):
@@ -188,6 +194,7 @@ class LLMCallVisitor(ast.NodeVisitor):
         self.call_sites.append(CallSite(
             file_path=self.file_path,
             line=node.lineno,
+            end_line=node.end_lineno or node.lineno,
             col=node.col_offset,
             func_name=func_name,
             daemon=self.daemon,
@@ -229,43 +236,104 @@ def scan_repo(root: Path, subset: str = "") -> list[CallSite]:
 # Patcher (text-based, conservative)
 # ============================================================================
 
-def apply_patch(file_path: Path, sites: list[CallSite]) -> int:
-    """Apply migrations to a file. Returns count of edits made.
+MANUAL_REVIEW_REPORT = Path("/tmp/migrate_to_litellm_manual_review.json")
 
-    Strategy: text-based replacement on the call's first line. Conservative —
-    skips multi-line calls that can't be safely patched without breaking style.
+
+def _needs_migration(site: CallSite) -> bool:
+    """True if the site is missing tier/operation/daemon_name kwargs."""
+    if site.has_operation_arg and site.has_daemon_arg and site.has_tier_arg:
+        return False
+    return True
+
+
+def _suggested_kwargs(site: CallSite) -> list[str]:
+    """Build the list of kwargs the migrator would add for this site."""
+    new_args: list[str] = []
+    if not site.has_operation_arg:
+        new_args.append(f'operation="{site.inferred_operation}"')
+    if not site.has_daemon_arg:
+        new_args.append(f'daemon_name="{site.daemon}"')
+    return new_args
+
+
+def apply_patch(
+    file_path: Path,
+    sites: list[CallSite],
+    deferred: list[dict] | None = None,
+) -> tuple[int, int]:
+    """Apply migrations to a file.
+
+    Returns (single_line_edits, multi_line_deferred).
+
+    Strategy: text-based replacement on the call's first line. The previous
+    implementation tried to skip multi-line calls with a substring check on
+    "generate(" in the opening line, but that substring is ALSO present on the
+    opening line of every multi-line call (e.g. `await llm.generate(`), so the
+    skip never triggered and kwargs were injected before the positional prompt
+    arg on the next line, producing SyntaxError at runtime.
+
+    Fix: use the AST's `end_lineno` to detect whether the call spans multiple
+    lines, and defer those to a manual review report. The operator can
+    hand-migrate them or a follow-up libcst rewrite can handle them safely.
     """
     if not sites:
-        return 0
+        return 0, 0
     source_lines = file_path.read_text().splitlines(keepends=True)
     edits = 0
+    deferred_count = 0
     for site in sites:
-        if site.has_operation_arg and site.has_daemon_arg and site.has_tier_arg:
+        if not _needs_migration(site):
             continue  # Already migrated
+
+        new_args = _suggested_kwargs(site)
+        if not new_args:
+            continue
+
         line_idx = site.line - 1
         if line_idx >= len(source_lines):
             continue
-        line = source_lines[line_idx]
-        if "llm.generate(" not in line and "llm_client.generate(" not in line:
-            continue  # Multi-line call — skip for safety, hand-migrate
-        # Build replacement: insert tier/operation/daemon kwargs after the open paren
-        new_args = []
-        if not site.has_tier_arg and site.has_model_arg:
-            pass  # model→tier: leave as-is, just add operation+daemon
-        if not site.has_operation_arg:
-            new_args.append(f'operation="{site.inferred_operation}"')
-        if not site.has_daemon_arg:
-            new_args.append(f'daemon_name="{site.daemon}"')
-        if not new_args:
+
+        # AUTHORITATIVE multi-line detection: AST end_lineno != lineno.
+        # Do NOT fall back to substring checks on "generate(".
+        if site.is_multiline:
+            if deferred is not None:
+                try:
+                    rel = str(site.file_path.relative_to(REPO_ROOT))
+                except ValueError:
+                    rel = str(site.file_path)
+                call_signature = "".join(
+                    source_lines[line_idx:site.end_line]
+                ).rstrip("\n")
+                deferred.append({
+                    "file": rel,
+                    "line": site.line,
+                    "end_line": site.end_line,
+                    "func": site.func_name,
+                    "daemon": site.daemon,
+                    "current_call": call_signature,
+                    "suggested_kwargs": new_args,
+                })
+            deferred_count += 1
             continue
+
+        line = source_lines[line_idx]
+        # Safety: make sure the opening "generate(" actually lives on this line.
+        # For a truly single-line call this should always hold — but if the AST
+        # somehow disagrees with the text (e.g. edited source), skip rather
+        # than corrupt the file.
+        if "generate(" not in line:
+            deferred_count += 1
+            continue
+
         # Insert after first ( in the call
         idx = line.index("generate(") + len("generate(")
         injection = ", ".join(new_args) + ", "
         source_lines[line_idx] = line[:idx] + injection + line[idx:]
         edits += 1
+
     if edits > 0:
         file_path.write_text("".join(source_lines))
-    return edits
+    return edits, deferred_count
 
 
 # ============================================================================
@@ -325,13 +393,23 @@ def main() -> int:
         for s in sites:
             by_file.setdefault(s.file_path, []).append(s)
         total_edits = 0
+        total_deferred = 0
+        deferred: list[dict] = []
         for file_path, fsites in by_file.items():
-            n = apply_patch(file_path, fsites)
+            n, d = apply_patch(file_path, fsites, deferred=deferred)
             if n > 0:
                 rel = file_path.relative_to(REPO_ROOT)
                 print(f"  {rel}: +{n} edits")
                 total_edits += n
-        print(f"\nTotal edits: {total_edits}")
+            total_deferred += d
+        if deferred:
+            import json
+            MANUAL_REVIEW_REPORT.write_text(json.dumps(deferred, indent=2))
+        print(
+            f"\n{total_edits} single-line calls migrated automatically, "
+            f"{total_deferred} multi-line calls deferred to manual review at "
+            f"{MANUAL_REVIEW_REPORT}"
+        )
     else:
         print("\nDry run only. Run with --apply to make changes.")
         print("\nReview before applying:")
