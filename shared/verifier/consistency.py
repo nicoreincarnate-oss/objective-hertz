@@ -36,6 +36,9 @@ class ConsistencyResult:
     canonical_hashes: list[str]
     confidence: float
     triggered: bool       # False if we skipped consistency check entirely
+    attempted_samples: int = 0   # Total samples requested (always = n_samples when triggered)
+    successful_samples: int = 0  # Samples that returned without raising an exception
+    under_sampled: bool = False  # True when successful_samples < required minimum
 
 
 CONSISTENCY_LOGPROB_THRESHOLD = 0.4
@@ -103,6 +106,9 @@ class SelfConsistencyChecker:
                 canonical_hashes=[self._canonicalize(first_response)],
                 confidence=1.0,
                 triggered=False,
+                attempted_samples=1,
+                successful_samples=1,
+                under_sampled=False,
             )
 
         logger.debug(
@@ -110,7 +116,10 @@ class SelfConsistencyChecker:
             daemon_name, logprob_margin, ambiguous_schema, force,
         )
 
-        # Sample n-1 additional responses
+        # Sample n-1 additional responses. attempted_samples always == n_samples
+        # (the first_response counts as attempt #1). successful_samples only counts
+        # responses that didn't raise — this is how we prevent silent failure laundering.
+        attempted_samples = self.n_samples
         responses = [first_response]
         for i in range(self.n_samples - 1):
             try:
@@ -126,7 +135,7 @@ class SelfConsistencyChecker:
             except Exception as exc:
                 logger.warning("Self-consistency sample %d failed: %s", i + 1, exc)
 
-        return self._vote(responses)
+        return self._vote(responses, attempted_samples=attempted_samples)
 
     def _canonicalize(self, response: str) -> str:
         """Normalize a response so semantically equal responses produce the same hash."""
@@ -141,26 +150,84 @@ class SelfConsistencyChecker:
         cleaned = re.sub(r"\s+", " ", response.strip().lower())
         return hashlib.sha256(cleaned.encode()).hexdigest()
 
-    def _vote(self, responses: list[str]) -> ConsistencyResult:
-        if not responses:
-            return ConsistencyResult(
-                consistent=False, chosen_response="", vote_count=0, total_samples=0,
-                canonical_hashes=[], confidence=0.0, triggered=True,
+    def _vote(
+        self,
+        responses: list[str],
+        *,
+        attempted_samples: int | None = None,
+    ) -> ConsistencyResult:
+        # attempted_samples reflects how many we TRIED to sample (n_samples).
+        # responses reflects how many actually came back without raising.
+        # These are distinct — conflating them was P0-9: with 1 success out of 3 attempts,
+        # 1/1 = 1.0 >= 2/3 used to evaluate True and launder the failure into a pass.
+        successful_samples = len(responses)
+        if attempted_samples is None:
+            attempted_samples = successful_samples
+
+        # Defensive guard: fewer than 2 successful samples can never constitute a
+        # meaningful consistency vote. Force escalation by returning consistent=False.
+        if successful_samples < 2:
+            logger.warning(
+                "Self-consistency under-sampled: %d/%d successful samples "
+                "(need >=2). Forcing escalation to prevent silent failure laundering.",
+                successful_samples, attempted_samples,
             )
+            return ConsistencyResult(
+                consistent=False,
+                chosen_response=responses[0] if responses else "",
+                vote_count=0,
+                total_samples=successful_samples,
+                canonical_hashes=[self._canonicalize(r) for r in responses],
+                confidence=0.0,
+                triggered=True,
+                attempted_samples=attempted_samples,
+                successful_samples=successful_samples,
+                under_sampled=True,
+            )
+
+        # Require a quorum proportional to what we asked for. For the default n=3
+        # this is max(2, 1) = 2. For n=5 this is max(2, 2) = 2. For n=7 this is
+        # max(2, 3) = 3. The goal is simply to prevent a single survivor from
+        # triggering a pass.
+        required_successes = max(2, attempted_samples // 2)
+        if successful_samples < required_successes:
+            logger.warning(
+                "Self-consistency quorum not met: %d successful < %d required "
+                "(attempted=%d). Forcing escalation.",
+                successful_samples, required_successes, attempted_samples,
+            )
+            return ConsistencyResult(
+                consistent=False,
+                chosen_response=responses[0],
+                vote_count=0,
+                total_samples=successful_samples,
+                canonical_hashes=[self._canonicalize(r) for r in responses],
+                confidence=0.0,
+                triggered=True,
+                attempted_samples=attempted_samples,
+                successful_samples=successful_samples,
+                under_sampled=True,
+            )
+
         hashes = [self._canonicalize(r) for r in responses]
         counter = Counter(hashes)
         winner_hash, winner_count = counter.most_common(1)[0]
         winner_idx = hashes.index(winner_hash)
         winner_response = responses[winner_idx]
-        majority = winner_count / len(responses)
+        # Key fix: compute majority against attempted_samples, NOT len(responses).
+        # This prevents 1/1 from being interpreted as unanimous when 2 samples crashed.
+        majority = winner_count / attempted_samples
         return ConsistencyResult(
             consistent=majority >= (2 / 3),
             chosen_response=winner_response,
             vote_count=winner_count,
-            total_samples=len(responses),
+            total_samples=successful_samples,
             canonical_hashes=hashes,
             confidence=majority,
             triggered=True,
+            attempted_samples=attempted_samples,
+            successful_samples=successful_samples,
+            under_sampled=False,
         )
 
 
