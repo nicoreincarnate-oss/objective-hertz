@@ -1,5 +1,13 @@
 # Voice Loop Guide — Hermes/Jarvis War Room
 
+**Operator decision 2026-04-07**: voice loop is FULL LOCAL. Parakeet (ASR) +
+Kokoro (TTS) replace ElevenLabs entirely. Saves ~$50-200/mo at moderate use,
+keeps audio fully private (no bytes leave the Studio), runs sub-2-seconds
+end-to-end.
+
+ElevenLabs Conversational AI integration in Hermes is REMOVED as part of
+Phase 42.5 cutover.
+
 The voice loop adds a fully-offline, sub-2-second voice interface to Perseus.
 You speak to your Mac Studio, Perseus understands intent, dispatches to the
 right daemon, and speaks back.
@@ -106,6 +114,24 @@ async def handle_voice_session(websocket):
 - The transcription text is logged to the operator's local DB only
 - Cloud APIs are NEVER called by the voice loop unless intent_router escalates
   via the verifier (which writes to escalation_log with redaction)
+
+## Voice quality trade-off vs ElevenLabs
+
+Kokoro stock voices (`af_bella`, `af_sky`, `af_sarah`, `am_adam`, `am_michael`)
+are good but not as expressive as ElevenLabs voice cloning. Reasonable for
+operator dialogue and Jarvis war room. If after 1 week of use the stock voices
+feel wrong, swap to **F5-TTS** — Apache 2.0, supports voice cloning from a
+5-10 second sample, runs natively on Mac. Added to backlog as a post-Phase 42.5
+follow-up.
+
+To preview voices before committing:
+```python
+from shared.voice import synthesize_speech
+result = await synthesize_speech("Hello, this is a voice test.", voice="af_bella")
+# Save to disk and play
+with open("/tmp/voice_test.wav", "wb") as f:
+    f.write(result.audio_bytes)
+```
 
 ## Setup commands
 

@@ -321,17 +321,23 @@ TIERS: dict[TierName, TierConfig] = {
         supports_tool_calls=True,
     ),
 
+    # NOTE 2026-04-07: LOCAL_HEAVY tier is DEFERRED until Samsung T9 2TB Thunderbolt arrives.
+    # On the interim 1000 MB/s USB-C drive, AirLLM streaming runs at ~1-2 tok/s on Llama 70B,
+    # which is too slow to be useful (~3-4 minutes per response). Until T9 lands, all heavy
+    # thinking calls escalate to cloud Opus 4.6 instead. The tier definition stays here so the
+    # routing config doesn't break — calls to LOCAL_HEAVY currently fall through to GENIUS via
+    # the fallback chain below.
     TierName.LOCAL_HEAVY: TierConfig(
         name=TierName.LOCAL_HEAVY,
-        description="Llama 3.3 70B / Qwen 2.5 72B via AirLLM disk-streamed layers (slow, free, fully local)",
+        description="Llama 3.3 70B / Qwen 2.5 72B via AirLLM (DEFERRED until T9 NVMe; cloud Opus until then)",
         primary_model="airllm/meta-llama/Llama-3.3-70B-Instruct",
         cost_per_m_input=0.0,
         cost_per_m_output=0.0,
         context_window=128_000,
         max_output_tokens=8_000,
         swe_bench_verified=72.0,
-        fallback_chain=[TierName.LOCAL, TierName.AGENTIC, TierName.SMART],
-        typical_latency_s=120.0,  # 3-8 tok/s on M4 Max → ~30-90s for typical responses
+        fallback_chain=[TierName.GENIUS, TierName.SMART],  # Until T9 arrives, route LOCAL_HEAVY to cloud Opus
+        typical_latency_s=120.0,  # 3-8 tok/s on M4 Max with T9 NVMe → ~30-90s for typical responses
         use_when=[
             "Openjarvis mega-plans (rare, latency tolerant)",
             "Ruflo Aider architect for cross-file refactors (latency tolerant)",

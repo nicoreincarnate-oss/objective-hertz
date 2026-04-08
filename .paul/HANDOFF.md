@@ -1,354 +1,195 @@
-# Phase 42.5 Autonomous Build — Handoff
+# Phase 42.5 Autonomous Build — Handoff (UPDATED 2026-04-07 evening)
 
 **Date**: 2026-04-07
 **Worktree**: `.claude/worktrees/charming-elion`
 **Branch**: `claude/charming-elion`
-**Operator decision**: "continue autonomously and save all questions for the end"
+**Latest commit**: see `git log --oneline -3`
+
+## What changed in this session (after the first autonomous run)
+
+The operator answered key questions and locked 4 more decisions:
+
+1. **Voice loop = full local** — Parakeet + Kokoro replace ElevenLabs entirely. Saves $50-200/mo.
+2. **Native macOS services (Option B)** — Postgres/Qdrant/Mem0/N8N/Redis run as launchd services, not Docker. Saves ~2 GB Docker VM overhead.
+3. **1TB USB-C drive (1000 MB/s) is the interim external storage** — operator already owns it. Samsung T9 2TB Thunderbolt deferred 1-2 weeks for budget.
+4. **AirLLM heavy tier DEFERRED until T9 arrives** — 1000 MB/s drive too slow for Llama 70B streaming (~1-2 tok/s). Until T9, all heavy thinking escalates to cloud Opus 4.6.
+5. **Cutover approach changed**: was day-by-day (12 days), now all-at-once. Operator confirmed Perseus has no production traffic, no customers, so risk-front-loaded pacing is overkill. New flow: BUILD → DRY-RUN → SHADOW (synthetic) → FLIP → ITERATE.
+6. **Clawdbot** confirmed (operator briefly typed "OpenClaw (CloudBot)" — meant Clawdbot).
+7. **OpenRouter + Recraft API keys**: operator doesn't have them yet. Will set up tomorrow or in coming days. Until then, LiteLLM proxy uses direct Anthropic + Ollama only. Clawdbot uses Draw Things only.
+8. **Conway keystore password**: doesn't exist yet. Set up during Studio provisioning (~2 min).
 
 ---
 
-## Summary
+## Memory budget — UPDATED for "everything on Studio" + native services
 
-While you were out, I wrote **40 production files** across all 6 plans of Phase 42.5 + the existing Phase 40-44 mega-plan, plus runbooks and tests. This is the writable portion of Phase 42.5 — everything that can be authored without touching the Mac Studio. The remainder (provisioning, model downloads, spike runs, shadow mode, cutover) requires you + the Studio.
+| Component | RAM |
+|---|---|
+| macOS | 4 GB |
+| Native services (Postgres + Qdrant + Mem0 + N8N + Redis as launchd, NOT Docker) | ~1.5 GB |
+| 8 Perseus daemons | ~8 GB |
+| MLX hot set (Qwen3-30B-A3B + embeddings/reranker + Parakeet + Kokoro) | ~22 GB |
+| Headroom for KV cache + cold-loaded models on demand | ~0.5 GB |
+| **Total** | **~36 GB** ✓ Just fits |
 
-**Critical reframe (backed by 8 parallel exploration agents)**: Phase 42.5 was the wrong frame. The existing `.planning/phases/40-44/` already had detailed PLAN.md files (refreshed 2026-04-07) and `shared/llm_client.py` is 880+ lines that already have ~80% of what I planned to build (AirLLM provider exists, daemon_name passes through, BATS budget enforcement, Phase 23 graduated fallback chains, sticky latch, death spiral guard). What I wrote is the **execution** of Phases 40-44 with the upgraded model loadout from your "better+cheaper than Claude → use it" decision and the new modules (Aider, voice, image gen, verifier, sandbox, redaction) that aren't in those existing plans.
+`iogpu.wired_limit_mb=22000` (down from original 28672 to fit everything colocated).
 
----
-
-## What changed in your repo (40 files added)
-
-### Phase 40-41 backbone (5 files)
-- `shared/tiers.py` — Centralized 11-tier registry (TierName enum + TierConfig + TIERS dict). Replaces hardcoded model names. Includes upgrade/downgrade helpers.
-- `config/litellm_config.yaml` — Full LiteLLM proxy config with 11 tiers, AirLLM heavy local, Kimi K2.5 vision, Langfuse callbacks, per-daemon team budgets.
-- `scripts/migrations/046-tier-spend-tracking.sql` — `tier_spend_log` table + 5 aggregation views + `daemon_budget_caps` per-daemon virtual budgets seeded for all 8 daemons.
-- `shared/spend_alerts.py` — Threshold alert ladder (50/75/90/100%) wired to Telegram.
-- `scripts/show_spend.py` — CLI: `--today --month --by-daemon --by-tier --top-models --escalations --local-share`.
-
-### Phase 42-43 (5 files)
-- `shared/semantic_cache.py` — Redis HNSW cache with **strict default-deny allowlist**. Code generation, email_compose, Aider calls — all in CACHE_FORBIDDEN_OPERATIONS. Critical safety invariant.
-- `shared/tier_classifier.py` — RuleBasedClassifier (cascading rules, ~85% accuracy) + LocalMLClassifier (Qwen2.5-0.5B fallback). Routes by operation/daemon/keywords/length.
-- `shared/lead_worker.py` — Generalized Lead/Worker loop. Daemon-agnostic (daemons provide plan_fn / execute_fn / review_fn). Aider pattern lives on top of this.
-- `config/langfuse_evals.yaml` — Nightly quality regression evals across 11 named checks (code_compiles, no_pii_leaks, brand_voice, citations, etc.).
-- `scripts/show_cache_stats.py` — Cache hit rate / cost saved CLI.
-
-### Phase 44 migration (4 files)
-- `scripts/migrate_to_litellm.py` — AST-based migration script. Scans all `llm.generate()` call sites, infers daemon name from path + operation from function name, optionally writes patches via `--apply`.
-- `scripts/rollback_litellm.py` — Emergency rollback. Disables 9 feature flags, restarts daemons, verifies, pages operator. `--soft` flag for non-restart variant.
-- `scripts/migrations/047-shadow-diffs.sql` — `llm_shadow_diffs` table + summary view for the 72h shadow mode dataset.
-- `tests/test_phase44_regression.py` — 9 golden prompts across all critical daemons. Locks length range + must_contain + JSON shape per prompt.
-
-### NEW modules (17 files)
-
-**Aider architect+editor pattern** (`shared/aider/`)
-- `__init__.py`
-- `ruflo_loop.py` — Architect → Editor → Verifier loop for Ruflo bug fixes. Sandbox-runner injectable, max 3 iterations, escalation on exhaustion.
-- `clawdbot_loop.py` — Architect → Editor → Visual Verifier loop for Clawdbot. 5-stage pipeline with section iteration and asset generation.
-
-**Voice loop** (`shared/voice/`)
-- `__init__.py`
-- `parakeet_client.py` — Parakeet v3 ASR HTTP client (Apple Neural Engine). whisper.cpp fallback.
-- `kokoro_client.py` — Kokoro 82M TTS HTTP client. macOS `say` fallback.
-- `intent_router.py` — Voice intent → daemon dispatch. Uses Qwen3-30B-A3B for intent disambiguation.
-
-**Image gen** (`shared/imagegen/`)
-- `__init__.py`
-- `draw_things_client.py` — Draw Things HTTP client with 5 model presets (hero_fast/hero_quality/logo_iteration/complex_scene/icon).
-
-**4-layer verifier** (`shared/verifier/`)
-- `__init__.py`
-- `grammar_compiler.py` — JSON Schema → GBNF compiler. Compiles tool schemas into grammar files at startup. Layer 1.
-- `consistency.py` — Conditional self-consistency checker. n=3 samples ONLY when logprob margin <0.4 or schema marked ambiguous. Layer 2. Default trigger rate target ≤15%.
-- `depth_guard.py` — Per-daemon chain depth caps (Ruflo=3, Titan=4, Openjarvis=4, Clawdbot=5, default=8). Layer 4.
-- `a2a_callback.py` — Daemon-side verifier callback contract. Proxy posts candidate back to daemon over A2A for pytest/citation/lint/schema checks. Layer 3.
-
-**Escalation log redaction** (`shared/escalation_log/`)
-- `__init__.py`
-- `redactor.py` — Regex scrubber (15 patterns: API keys, JWTs, emails, phones, credit cards, eth addresses, passwords) + canary test + AES-256-GCM encryption-at-rest + EscalationLogger that writes encrypted JSONL.
-
-**Sandbox**
-- `litellm/sandboxes/verifier.sb` — macOS sandbox-exec profile for verifier Layer 3 subprocess. Locks down filesystem (no ssh/wallet/env access), denies all network, restricts process spawning to python/pytest/git only.
-
-### Spike scripts (3 files)
-- `scripts/spikes/run_gbnf_spike.py` — 100-prompt GBNF × mlx_lm.server proof-of-life. Emits GREEN/YELLOW/RED verdict.
-- `scripts/spikes/run_airllm_spike.py` — 10 heavy-thinking prompts × Llama 3.3 70B via AirLLM. Measures tok/s, optionally judges quality with Sonnet-as-judge.
-- `scripts/spikes/run_litellm_hook_spike.py` — Tests pre_call_hook rewrite capability. GREEN if rewrite works, RED with documented FastAPI proxy workaround if not.
-
-### Tests (6 files)
-- `tests/test_phase40_litellm_backend.py` — Tier resolution, config validation, downgrade/upgrade
-- `tests/test_phase41_tiers.py` — Tier definitions complete, fallback chains terminate, no self-references, alert thresholds
-- `tests/test_phase42_semantic_cache.py` — **CRITICAL safety tests**: code_generation in forbidden, allowlist/forbidlist no overlap, default-deny behavior
-- `tests/test_phase43_classifier.py` — Rule classifier routing for all major task types
-- `tests/test_phase43_lead_worker.py` — Lead/worker loop happy path + revision on failure + max_steps cap
-- `tests/test_verifier_layers.py` — Grammar compiler, consistency vote, depth guard, redactor (with canary test)
-
-### Documentation (5 runbooks)
-- `docs/runbooks/local-tier-rollback.md` — Cold-start ≤1 hour rollback runbook with hard/soft variants and drill checklist
-- `docs/runbooks/aider-pattern-guide.md` — Architect/Editor/Verifier roles, daemon-specific patterns, tuning parameters
-- `docs/runbooks/voice-loop-guide.md` — Setup commands, voice command map, privacy guarantees, failure modes
-- `docs/runbooks/image-gen-routing.md` — Draw Things vs 21st.dev vs Recraft routing decision tree, cost projection
-- `docs/runbooks/cutover-playbook.md` — Day-by-day Phase 42.5 cutover order with pass criteria, rollback triggers, soak windows
-
-### Memory + state updates
-- `~/.claude/projects/.../memory/project_local_tier_phase_42_5_v2.md` — Locked Phase 42.5 v2 with quality-first reframe, multi-vendor loadout, AirLLM, Kimi, Aider, voice, image gen, all P0/P1 fixes
-- `~/.claude/projects/.../memory/MEMORY.md` — Permanent operator rules section added (no license worries, quality > everything, better+cheaper than Claude → use it)
-- `.paul/STATE.md` — Decisions table with all 5 locked operator decisions
-- `.paul/PROJECT.md`, `.paul/ROADMAP.md` — Quality > launch date framing
+**What's NOT in the always-resident hot set anymore** (swap-on-demand only):
+- Qwen3-8B (was always-resident in v1, now swaps in when local-mlx/cheap is needed)
+- Qwen2.5-Coder-14B (always was swap-on-demand)
+- Qwen3-VL-7B and Qwen3-VL-32B (swap-on-demand)
+- Llama 3.3 70B / Qwen 72B via AirLLM (DEFERRED entirely until T9 NVMe)
 
 ---
 
-## What's left for YOU + the Mac Studio
+## What I wrote in this session
 
-### Hardware setup (operator action — not me)
-- [ ] Order **Samsung T9 2TB Thunderbolt NVMe** (~$240) — needed by Day 11 of cutover
-- [ ] Wait for Studio to be on the network with SSH access
-- [ ] Set GPU memory cap: `sudo sysctl iogpu.wired_limit_mb=28672` and persist in `/etc/sysctl.conf`
-- [ ] Disable Spotlight indexing on `/opt/perseus/models/`
-- [ ] Disable Time Machine on the Studio (avoids RSS thrash during shadow mode)
+### NEW
+- `docs/runbooks/native-services-setup.md` — step-by-step Postgres/Qdrant/Mem0/N8N/Redis setup as native macOS launchd services. Replaces Docker. ~2 hour first-time setup.
 
-### Model downloads (operator on the Studio)
-- [ ] Qwen3-30B-A3B MLX-4bit (~17 GB) → `/opt/perseus/models/qwen3-30b-a3b-mlx-4bit/`
-- [ ] Qwen2.5-Coder-14B MLX-4bit (~8.5 GB) → `/opt/perseus/models/qwen2.5-coder-14b-mlx-4bit/`
-- [ ] Qwen3-8B MLX-4bit (~4.7 GB) → `/opt/perseus/models/qwen3-8b-mlx-4bit/`
-- [ ] Qwen3-VL-7B MLX-8bit (~6 GB) → `/opt/perseus/models/qwen3-vl-7b-mlx-8bit/`
-- [ ] Qwen3-VL-32B MLX-4bit (~18 GB) → external 2TB
-- [ ] Qwen3-Embedding-0.6B + Qwen3-Reranker-0.6B (~2.4 GB) → `/opt/perseus/models/`
-- [ ] Parakeet v3 via FluidAudio MacParakeet → `/opt/perseus/models/parakeet-v3/`
-- [ ] Kokoro 82M → `/opt/perseus/models/kokoro-82m/`
-- [ ] Llama 3.3 70B Q4 (for AirLLM, ~40 GB) → external 2TB
-- [ ] Qwen2.5-72B-Instruct Q4 (~40 GB) → external 2TB
-- [ ] Draw Things app from drawthings.ai + bundled SDXL/Flux/Qwen-Image checkpoints
+### REWRITTEN
+- `docs/runbooks/cutover-playbook.md` — leads with all-at-once 5-step flow (BUILD → DRY-RUN → SHADOW → FLIP → ITERATE), demotes day-by-day to fallback. Reflects operator's pre-launch situation.
+- `docs/runbooks/voice-loop-guide.md` — adds the "replaces ElevenLabs" header, F5-TTS upgrade path note for voice cloning later.
 
-### Spike runs (operator runs scripts on the Studio)
-- [ ] `python -m scripts.spikes.run_gbnf_spike --schema ruflo` → expects GREEN
-- [ ] `python -m scripts.spikes.run_airllm_spike` → expects GREEN or YELLOW
-- [ ] `python -m scripts.spikes.run_litellm_hook_spike` → expects GREEN
+### UPDATED
+- `shared/tiers.py` — `LOCAL_HEAVY` tier marked as DEFERRED until T9 NVMe, fallback chain updated to route LOCAL_HEAVY → GENIUS (cloud Opus) until then.
+- `~/.claude/projects/.../memory/project_local_tier_phase_42_5_v2.md` — memory budget revised, native services section added, AirLLM deferred section, voice-loop-replaces-ElevenLabs section.
+- `.paul/STATE.md` — 4 new decisions appended.
 
-### Sandbox red-team test (must pass before any Ruflo cutover)
-- [ ] Write `tests/test_verifier_sandbox_red_team.py` (the only test file I deferred — needs the actual sandbox profile to be loaded on macOS)
-- [ ] Run it against `litellm/sandboxes/verifier.sb`
-- [ ] Verify: no network egress, no `~/.ssh` access, no environment variable read, no Conway wallet access
-
-### Cutover (you on the Studio with `docs/runbooks/cutover-playbook.md` open)
-- [ ] Day 1: Perseus
-- [ ] Day 2: Hermes + voice loop activation
-- [ ] Days 3-5: Ruflo with hand-review of first 50 patches
-- [ ] Day 6: Deerflow
-- [ ] Day 7: Openjarvis
-- [ ] Day 8: Conway
-- [ ] Days 9-10: Titan stages 1-6
-- [ ] Days 11-12: Clawdbot last
+### Existing files from first session (still valid)
+- All 40 files from commit `30770c0` — `shared/tiers.py`, `shared/semantic_cache.py`, `shared/tier_classifier.py`, `shared/lead_worker.py`, `shared/aider/*`, `shared/voice/*`, `shared/imagegen/*`, `shared/verifier/*`, `shared/escalation_log/*`, `shared/spend_alerts.py`, `config/litellm_config.yaml`, `config/langfuse_evals.yaml`, all migrations, all spike scripts, all tests, all 5 runbooks.
 
 ---
 
-## Questions for you (saved for the end as instructed)
+## Studio provisioning — Day 1 plan
 
-These are the things I genuinely don't know and need your input on. Most are
-config tuning. Answer when you're back at the keyboard — none are blockers
-for landing the code I just wrote.
+Tomorrow, when you're on the Studio:
 
-### Critical (block cutover)
+```bash
+# 1. macOS hardening (5 min)
+sudo sysctl iogpu.wired_limit_mb=22000
+echo "iogpu.wired_limit_mb=22000" | sudo tee -a /etc/sysctl.conf
+# Disable Spotlight on /Volumes/perseus-models and /opt/perseus/models
 
-1. **What's the actual Recraft API endpoint URL + key location?** The CARL decision
-   says "Recraft API key now set" — is it `RECRAFT_API_KEY` env var or stored
-   somewhere else? `clawdbot/asset_generator.py` references `tools.recraft_client`
-   but I didn't read that file.
+# 2. Plug in + format the 1TB USB-C drive (5 min)
+# Disk Utility → Erase → APFS, name "perseus-models"
 
-2. **What's the OpenRouter API key in production?** I left `OPENROUTER_API_KEY`
-   as the env var name in `litellm_config.yaml`. If the existing key is named
-   differently, the proxy won't pick it up.
+# 3. Native services setup (~2 hours, follow native-services-setup.md)
+# - Disable Docker Desktop
+# - brew install postgresql@16 + start
+# - createdb perseus + run all migrations
+# - brew install qdrant + start
+# - brew install redis + start
+# - pip install mem0ai + launchd plist
+# - npm install -g n8n + launchd plist
 
-3. **Is the Mac Studio reachable on the same network as the docker-compose
-   stack?** The litellm_config.yaml uses `host.docker.internal` to reach Ollama
-   on the host. Confirm this is correct for your setup.
+# 4. Conway setup (~5 min)
+openssl rand -base64 32 > ~/.perseus_secrets/conway_password
+echo "CONWAY_KEYSTORE_PASSWORD=$(cat ~/.perseus_secrets/conway_password)" >> .env
 
-4. **AirLLM model path vs HuggingFace ID**: AirLLM can either pull from HF on
-   first use or read from a local path. Which do you prefer? I assumed HF pull
-   in `run_airllm_spike.py`. For production we should download once and pin
-   the path.
+# 5. Install Ollama + pull hot models (~30 min)
+brew install ollama
+brew services start ollama
+ollama pull qwen3:30b-a3b-mlx-4bit  # ~17 GB
+ollama pull dengcao/Qwen3-Embedding-0.6B:f16
+ollama pull dengcao/Qwen3-Reranker-0.6B:f16
+# Cold models go to /Volumes/perseus-models
 
-### Important (blocks specific daemons)
+# 6. Install voice daemons (~15 min)
+brew install macparakeet  # or FluidAudio install method
+sudo launchctl load /Library/LaunchDaemons/com.perseus.parakeet.plist
+pip install kokoro-onnx
+sudo launchctl load /Library/LaunchDaemons/com.perseus.kokoro.plist
 
-5. **Does Hermes already run on the Studio or on a separate machine?** The voice
-   loop assumes Parakeet + Kokoro daemons are reachable from Hermes via
-   `127.0.0.1:11440/11441`. If Hermes is remote, those need to be `host.docker.internal`
-   or a Tailscale endpoint.
+# 7. Run spikes (~30 min)
+python -m scripts.spikes.run_gbnf_spike --schema ruflo --num-prompts 100
+python -m scripts.spikes.run_litellm_hook_spike
+# (Skip AirLLM spike — deferred until T9)
 
-6. **What's the existing 21st.dev MCP integration in clawdbot?** I didn't dig
-   into `clawdbot/design_sources.py:resolve_design_sources_with_components`.
-   The Aider clawdbot loop assumes it's still callable as-is. Confirm the API
-   shape if I'm wrong.
+# 8. Run sandbox red-team test (~10 min)
+# (Test file needs to be written tomorrow — see deferred items)
 
-7. **Conway wallet keystore password**: The escalation log redactor uses
-   `CONWAY_KEYSTORE_PASSWORD` to derive the AES-256 key. Confirm this env var
-   exists in production. If not, escalation log writes UNENCRYPTED with a warning
-   (the code logs `"Escalation log writing UNENCRYPTED — set CONWAY_KEYSTORE_PASSWORD"`).
+# 9. Run regression tests against the new stack
+REGRESSION_BACKEND=litellm pytest tests/test_phase44_regression.py -v
+```
 
-8. **Ruflo sandbox runner**: The Aider loop expects a `sandbox_runner` injectable
-   that has `.run_with_patch()` method. The sandbox profile is at
-   `litellm/sandboxes/verifier.sb` but the actual subprocess wrapper isn't written.
-   I need to know if you want this as a Python subprocess wrapper or a separate
-   daemon process.
+Total Day 1 time: ~4-5 hours of focused work.
 
-### Nice-to-know (post-cutover tuning)
-
-9. **Per-daemon depth caps**: I set them theoretically (Ruflo=3, Titan=4,
-   Openjarvis=4, Clawdbot=5). Plan 42-5-05 shadow mode is supposed to tune
-   these from real data. After 72h of shadow, should I tune them automatically
-   or wait for your approval?
-
-10. **Telegram alert channel ID**: `shared/spend_alerts.py` calls `send_telegram_alert()`
-    from `shared.comms`. I assume this routes to your existing Telegram chat.
-    Confirm that's the right channel for spend alerts (vs a separate ops channel).
-
-11. **What's the default voice for Kokoro?** I set `af_bella` (Kokoro's default
-    female English voice). If you want a different default, change it in
-    `shared/voice/kokoro_client.py:KokoroClient.__init__`.
-
-12. **Phase 43 contamination block**: PAUL audit said "block Phase 43 classifier
-    training until 42.5_stable + 30 days". I didn't enforce this in code yet —
-    it's a process gate. Want me to add a startup check that refuses to run the
-    classifier training until a `42_5_stable_since` config row exists?
-
-13. **Eval frequency**: `config/langfuse_evals.yaml` schedules nightly at 3am
-    local. If you're on a non-PT timezone or want a different cadence, change
-    the cron in that file.
-
-### Things I'm uncertain about (need verification later)
-
-14. **GBNF × mlx_vlm production stability**: Plan 42-5-01 spike will tell us.
-    My GBNF compiler in `shared/verifier/grammar_compiler.py` handles the JSON
-    Schema subset I expect daemon tools to use, but if a daemon has a recursive
-    schema or a complex `oneOf`, the compiler might emit incomplete grammar. I
-    only added basic test coverage — needs a real run on real schemas.
-
-15. **AirLLM speedup on M4 Max specifically**: Apple's ReDrafter benchmark is
-    on dense models. AirLLM with disk streaming on a 70B should work but I
-    don't have a measurement. The spike script will give us this number.
-
-16. **outlines GBNF integration with mlx_lm.server**: This was rough as of late
-    2025 per my research. If it doesn't work in production, the fallback is
-    JSON-mode + post-hoc Pydantic validation, which Plan 42-5-01 spike will
-    surface as a YELLOW or RED verdict.
-
-17. **EJellerson tool-call parser patch**: I dropped this entirely because Qwen
-    has native MLX tool calls. If you ever switch the local generalist back to
-    Gemma 4 26B A4B, you'll need that patch. For now, not relevant.
-
-18. **Per-daemon RSS measurements**: The 8 GB cap I assumed for Perseus daemons
-    is theoretical. Should be measured on the Studio with all daemons running
-    under load before locking the budget.
-
-19. **Memory pressure breaker thresholds**: I went with `critical` OR
-    `warn`-sustained-30s with hysteresis. macOS sometimes flaps `warn` under
-    routine load (Spotlight, photo indexing). May need tuning based on
-    real-world flap rate.
-
-20. **Whether to wire Hermes voice loop into the existing ElevenLabs path**:
-    Hermes already has ElevenLabs Conversational AI integrated. The new
-    Parakeet + Kokoro voice loop is ADDITIVE — should it replace ElevenLabs
-    or run alongside? My recommendation: run alongside. ElevenLabs for cloud-based
-    "talk to Jarvis from anywhere" via web interface. Local Parakeet+Kokoro for
-    "I'm at the Mac Studio and I want sub-second offline voice."
+If everything is green at the end of Day 1, you can run the FLIP step (Step 4 of cutover playbook) on Day 1 evening or Day 2.
 
 ---
 
-## What I deferred
+## Things still on the operator action list
 
-These were in the original plan but I didn't write them because they
-either need the Studio or need a decision from you:
+### When you have budget (next 1-2 weeks)
+- [ ] Order **Samsung T9 2TB Thunderbolt NVMe** (~$240)
+- [ ] Set up **Recraft API key** (Clawdbot production assets)
+- [ ] Set up **OpenRouter API key** (Kimi K2.5, MiMo-V2-Pro, DeepSeek V4, Gemini 3.1 Pro routing)
 
-1. **`tests/test_verifier_sandbox_red_team.py`** — needs the macOS sandbox to
-   be active to test it. Test design is documented in the rollback runbook.
-2. **Ruflo sandbox subprocess wrapper** — needs your call on subprocess vs
-   separate daemon (question 8 above).
-3. **Daemon-side L3 verifier registrations** — each daemon (Ruflo, Titan, Conway,
-   Deerflow, Clawdbot) needs to call `register_verifier()` at startup with its
-   own task-specific check function. The framework is there (`shared/verifier/a2a_callback.py`)
-   but the daemon-side wiring needs to happen in each daemon's init.
-4. **Updating existing daemon code** to use the new `tier=` parameter — Plan 44
-   migration script will do this in bulk via `python -m scripts.migrate_to_litellm --apply`
-   but I left it as a dry-run-first operation so you can review the diff.
-5. **Writing the LiteLLMBackend class in `shared/llm_client.py`** — the existing
-   `shared/llm_client.py` is 880+ lines and complex. Adding the LiteLLMBackend as
-   a new class without breaking anything is best done in a single focused session
-   with you reviewing the diff. The PLAN says it should slot in as a new path
-   alongside the existing direct-Anthropic path with `LITELLM_PROXY_ENABLED` flag.
+When all 3 are done, we can:
+1. Enable AirLLM heavy tier for Llama 70B / Qwen 72B local heavy thinking
+2. Switch Clawdbot production assets from Draw Things → Recraft
+3. Enable cloud tier escalation through OpenRouter (currently direct Anthropic only)
+
+### Tonight (operator: pick one)
+
+I keep offering A/B/C and you keep answering questions instead (totally fine). Tonight I'm going to:
+
+1. **Save state and stop** — everything is committed. You sleep, wake up, do Studio Day 1.
+
+That's the only sensible thing left at this hour. Anything else (writing the Ruflo sandbox subprocess wrapper, testing the spike scripts) needs the Studio physically present, and that's tomorrow.
 
 ---
 
-## How to resume cold (if conversation is lost)
+## Resume instructions for tomorrow
 
-1. Read this file (`.paul/HANDOFF.md`)
-2. Read `~/.claude/projects/-Users-majovega-Desktop-Projects-objective-hertz/memory/project_local_tier_phase_42_5_v2.md`
-3. Read `.paul/STATE.md` for the locked decisions
-4. `git log --oneline charming-elion` to see what was committed
-5. Run `python -m pytest tests/test_phase40_*.py tests/test_phase41_*.py tests/test_phase42_*.py tests/test_phase43_*.py tests/test_verifier_*.py -v` to confirm tests still pass
-6. Pick up from "What's left for YOU" above
-
----
-
-## Files NOT in the worktree (because they live in `~/.claude/`)
-
-- `~/.claude/projects/-Users-majovega-Desktop-Projects-objective-hertz/memory/project_local_tier_phase_42_5_v2.md` (locked Phase 42.5 design)
-- `~/.claude/projects/-Users-majovega-Desktop-Projects-objective-hertz/memory/MEMORY.md` (updated index + permanent rules)
-- `~/.claude/projects/-Users-majovega-Desktop-Projects-objective-hertz/memory/project_local_tier_phase_42_5.md` (v1 historical, kept for Beta debate context)
+1. SSH or sit at the Mac Studio
+2. `git pull` on the main branch (after I push the worktree)
+3. `cat .paul/HANDOFF.md` (this file)
+4. `cat docs/runbooks/native-services-setup.md` and follow it (~2 hours)
+5. `cat docs/runbooks/cutover-playbook.md` Step 1 (BUILD) and follow it (~6 hours)
+6. Spike runs after Step 1 complete (~30 min)
+7. SHADOW + FLIP whenever you're ready (could be Day 1 evening or Day 2)
 
 ---
 
-## Cost projection check-in
+## Cost projection — UPDATED for AirLLM defer + missing keys
 
-Phase 42.5 cost target was $200-350/mo production + $100/mo shadow.
+Without AirLLM heavy tier and without OpenRouter (so all cloud routing goes direct to Anthropic):
 
-Based on the daemon routing in `docs/runbooks/cutover-playbook.md`:
-- Perseus + Hermes + Deerflow + Conway + Openjarvis (light): mostly local, ~$30/mo cloud
-- Titan stages 1-6 local + 7-10 cloud: ~$120/mo cloud
-- Clawdbot Aider with Sonnet Architect: ~$80/mo cloud
-- Ruflo Aider with Sonnet Architect: ~$30/mo cloud
-- Misc escalations + Opus calls: ~$50/mo cloud
-- **Total estimated: ~$310/mo** ✓ within target
+| Path | Calls/day | Avg cost/call | Daily | Monthly |
+|---|---|---|---|---|
+| Local tier (Qwen3-30B-A3B + cheap + structured) | ~700 | $0.00 | $0.00 | $0.00 |
+| Smart escalation (Sonnet 4.6 direct) | ~150 | $0.04 | $6.00 | $180 |
+| Heavy escalation (Opus 4.6 direct, replaces deferred AirLLM) | ~30 | $0.50 | $15.00 | $450 |
+| Vision (Sonnet vision until OpenRouter+Kimi available) | ~20 | $0.08 | $1.60 | $48 |
+| Voice loop (Parakeet+Kokoro local) | ~50 | $0.00 | $0.00 | $0.00 |
+| Image gen (Draw Things local until Recraft) | ~10 | $0.00 | $0.00 | $0.00 |
+| **Total** | **~960** | | **~$22.60** | **~$680** |
 
-Compared to current cloud-only baseline (~$500-800/mo): **40-60% savings while gaining quality on Hermes voice + Clawdbot iteration speed + Ruflo Aider pattern.**
+That's HIGHER than the $200-350/mo target because of the AirLLM defer. Heavy thinking on cloud Opus is expensive.
 
----
+**When T9 arrives and AirLLM is enabled**: Opus calls drop ~80% (only the hardest 5% stay on cloud). New monthly: ~$680 - $360 (Opus savings) + $20 (electricity) = **~$340/mo**.
 
-## Confidence in what I wrote
+**When OpenRouter is set up and Kimi K2.5 is the vision tier**: vision savings ~$30/mo. New monthly: ~$310/mo. ✓ Within target.
 
-| Component | Confidence | Why |
-|---|---|---|
-| `shared/tiers.py` | 0.95 | Pure data + helpers, well-spec'd |
-| `config/litellm_config.yaml` | 0.85 | LiteLLM YAML is mostly mechanical, but some provider model IDs may need tweaking when actually deployed |
-| `shared/semantic_cache.py` | 0.85 | Allowlist is bulletproof, Redis HNSW search has untested edges |
-| `shared/tier_classifier.py` | 0.90 | Rule cascade is straightforward |
-| `shared/lead_worker.py` | 0.90 | Generic enough |
-| `shared/aider/ruflo_loop.py` | 0.80 | Needs the sandbox wrapper to be useful |
-| `shared/aider/clawdbot_loop.py` | 0.75 | Visual scorer integration is the wobbliest part |
-| `shared/voice/*` | 0.85 | HTTP clients are simple; the daemons themselves don't exist yet |
-| `shared/verifier/grammar_compiler.py` | 0.70 | Handles common JSON Schema, may break on weird recursive schemas |
-| `shared/verifier/consistency.py` | 0.90 | Straightforward |
-| `shared/verifier/depth_guard.py` | 0.95 | Simple cap check |
-| `shared/verifier/a2a_callback.py` | 0.85 | Framework solid, needs daemon-side registrations |
-| `shared/escalation_log/redactor.py` | 0.90 | Regex patterns + AES-GCM both well-known |
-| `litellm/sandboxes/verifier.sb` | 0.75 | macOS sandbox-exec is finicky and undocumented; needs red-team validation |
-| `scripts/migrate_to_litellm.py` | 0.80 | AST scanning works for the common case; multi-line calls are fragile |
-| `scripts/rollback_litellm.py` | 0.90 | Simple script |
-| Spike scripts | 0.85 | Can't run them here, structure is right |
-| Tests | 0.85 | Mostly unit tests on pure logic; integration tests need a real proxy |
+So the timeline looks like:
+- Week 1 (now → ~Day 14): ~$680/mo while AirLLM is deferred and OpenRouter is missing
+- Week 2-3 (T9 arrives, OpenRouter set up): ~$310/mo
+- Week 4+: target met
+
+Operator approved "quality > cost" so this is fine. Just being honest about the trajectory.
 
 ---
 
-## What I want from you when you're back
+## What I want from you tomorrow morning
 
-In rough priority order:
+1. **Read this file** (5 min)
+2. **Read `docs/runbooks/native-services-setup.md`** (5 min) — understand what's about to happen on the Studio
+3. **Read `docs/runbooks/cutover-playbook.md` Steps 1-5** (10 min) — the all-at-once flow
+4. **Start Studio Day 1** following native-services-setup → cutover Step 1
 
-1. **5 minutes** — Read this handoff and the question list
-2. **15 minutes** — Answer the 4 critical questions (Recraft key, OpenRouter key, Hermes location, AirLLM model path)
-3. **1 hour** — Skim the 5 runbooks, especially the cutover playbook
-4. **Order the Samsung T9** — that's the only physical purchase blocking Day 11 of cutover
-5. **Decide on the Ruflo sandbox wrapper shape** (subprocess vs daemon)
-6. **Approve the diff and say "go"** — then we can either start running spikes (if Studio is reachable) or land the code into main and start Phase 40 implementation work
+Total reading: ~20 minutes. Total Day 1 doing: ~5 hours.
 
-Total operator time investment when you're back: **~2 hours** to unblock everything I wrote.
-
-I worked the full session you gave me. Nothing is broken, nothing is half-done. Every file I wrote has a clear purpose, fits the existing Perseus architecture, and respects the operator decisions you locked in this conversation.
+If you hit any blocker during Studio Day 1, ping me with what's failing and I'll debug it.
 
 — Claude
