@@ -15,6 +15,7 @@ to embed every cacheable prompt without budget concerns.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -24,6 +25,77 @@ from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger("perseus.semantic_cache")
+
+
+# ============================================================================
+# PORT-PLAN decision #3: optional Redis backend + in-process LRU fallback
+# ============================================================================
+#
+# If REDIS_URL is set AND the server is reachable, _CACHE_BACKEND = "redis"
+# and the full SemanticCache (HNSW vector search) is used.
+#
+# Otherwise we fall back to an in-process LRU keyed by SHA-256(prompt+operation).
+# The LRU path is EXACT MATCH ONLY — no semantic similarity — because
+# functools.lru_cache has no vector search. That's acceptable per decision #3:
+# the semantic HNSW path only works with Redis Stack anyway, so when Redis is
+# absent we still get some wins on repeated identical prompts (FAQ, doc_qa,
+# industry_classification) without the embedding round-trip.
+
+_REDIS_URL = os.environ.get("REDIS_URL")
+_redis_client = None
+_CACHE_BACKEND = "lru"
+
+if _REDIS_URL:
+    try:
+        import redis  # type: ignore
+
+        _redis_client = redis.from_url(_REDIS_URL, socket_connect_timeout=2)
+        _redis_client.ping()
+        _CACHE_BACKEND = "redis"
+    except Exception as _exc:  # noqa: BLE001 — log once, degrade gracefully
+        logging.getLogger("shared.semantic_cache").warning(
+            "REDIS_URL set but connection failed (%s); "
+            "falling back to in-process LRU cache",
+            _exc,
+        )
+        _CACHE_BACKEND = "lru"
+        _redis_client = None
+
+
+@functools.lru_cache(maxsize=1024)
+def _lru_lookup(cache_key: str) -> str | None:
+    """In-process exact-match cache (fallback when Redis unavailable).
+
+    Keys are SHA-256(operation + '|' + prompt). Values are stored via
+    _lru_store() which mutates the lru_cache through an internal dict shim.
+    Since lru_cache doesn't support external writes, we wrap it below.
+    """
+    return None  # populated via _LRU_STORE dict; this is just the plumbing shell
+
+
+# Backing dict for the LRU fallback (bounded manually since lru_cache can't
+# be externally populated). Ring-buffer eviction at 1024 entries.
+_LRU_STORE: dict[str, str] = {}
+_LRU_MAXSIZE = 1024
+
+
+def _lru_get(cache_key: str) -> str | None:
+    return _LRU_STORE.get(cache_key)
+
+
+def _lru_set(cache_key: str, value: str) -> None:
+    if len(_LRU_STORE) >= _LRU_MAXSIZE:
+        # Evict oldest (dict preserves insertion order in Py3.7+)
+        try:
+            oldest = next(iter(_LRU_STORE))
+            del _LRU_STORE[oldest]
+        except StopIteration:
+            pass
+    _LRU_STORE[cache_key] = value
+
+
+def _make_lru_key(prompt: str, operation: str) -> str:
+    return hashlib.sha256(f"{operation}|{prompt}".encode()).hexdigest()
 
 
 # ============================================================================
@@ -125,7 +197,19 @@ class SemanticCache:
             self.stats.bypasses += 1
             logger.debug("Cache BYPASS (not in allowlist): %s", operation)
             return None
+
+        # PORT-PLAN decision #3: LRU fallback when no Redis client injected.
         if self.redis is None:
+            if _CACHE_BACKEND == "lru":
+                hit = _lru_get(_make_lru_key(prompt, operation))
+                if hit is not None:
+                    self.stats.hits += 1
+                    self.stats.estimated_cost_saved_usd += 0.05
+                    logger.info(
+                        "Cache HIT (LRU exact): op=%s daemon=%s", operation, daemon,
+                    )
+                    return hit
+                self.stats.misses += 1
             return None
 
         try:
@@ -163,7 +247,12 @@ class SemanticCache:
             return
         if operation in CACHE_FORBIDDEN_OPERATIONS:
             return
+
+        # PORT-PLAN decision #3: LRU fallback write path.
         if self.redis is None:
+            if _CACHE_BACKEND == "lru":
+                _lru_set(_make_lru_key(prompt, operation), response)
+                self.stats.bytes_used += len(response)
             return
 
         try:
