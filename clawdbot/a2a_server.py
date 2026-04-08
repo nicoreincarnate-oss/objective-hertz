@@ -273,7 +273,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict = None, *
         f"Answer concisely about your capabilities."
     )
 
-    answer = await llm.generate(prompt, tier="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300)
     return {"answer": answer, "from": "clawdbot"}
 
 
