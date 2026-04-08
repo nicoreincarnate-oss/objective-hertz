@@ -542,7 +542,7 @@ Return JSON:
 Return ONLY JSON, no explanation."""
 
     try:
-        result = await llm.generate(prompt, model="fast", max_tokens=300, temperature=0.1)
+        result = await llm.generate(prompt, model="fast", max_tokens=300, temperature=0.1, operation="perseus._create_scout_rule", daemon_name="perseus")
         start = result.find("{")
         end = result.rfind("}") + 1
         if start >= 0 and end > start:

@@ -610,7 +610,7 @@ Return JSON only:
 The old_text must be an EXACT substring of the current file. Keep changes minimal."""
 
     try:
-        result = await llm.generate(prompt, model="fast", max_tokens=1000, temperature=0.0)
+        result = await llm.generate(prompt, model="fast", max_tokens=1000, temperature=0.0, operation="perseus._safe_code_edit", daemon_name="perseus")
         start = result.find("{")
         end = result.rfind("}") + 1
         if start < 0 or end <= start:
