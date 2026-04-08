@@ -1,0 +1,126 @@
+# Langfuse Evals — Phase 42
+# Quality regression detection on production traces.
+# Runs nightly on ~100 random traces per pipeline_stage.
+# Reports regressions via Telegram (Hermes alert).
+
+evals:
+  # ─── Code generation evals ─────────────────────────────────────────────
+
+  - name: code_compiles
+    description: "Generated Python code parses without syntax errors"
+    applies_to:
+      pipeline_stages: ["site_builder", "section_agent", "ruflo_patch", "code_generation"]
+    eval_type: custom
+    script: evals/check_python_compiles.py
+    pass_threshold: 0.95
+
+  - name: no_hallucinated_imports
+    description: "Generated code only imports modules in pyproject.toml"
+    applies_to:
+      pipeline_stages: ["section_agent", "ruflo_patch", "code_generation"]
+    eval_type: custom
+    script: evals/check_imports_against_lockfile.py
+    pass_threshold: 0.98
+
+  - name: tool_call_schema_valid
+    description: "Tool call output matches the declared JSON schema"
+    applies_to:
+      pipeline_stages: ["*tool_call*"]
+    eval_type: custom
+    script: evals/check_tool_call_schema.py
+    pass_threshold: 0.97
+
+  # ─── Email / outreach evals ────────────────────────────────────────────
+
+  - name: email_under_length
+    description: "Cold outreach email body under 500 characters"
+    applies_to:
+      pipeline_stages: ["titan_email_compose", "titan_outreach_draft"]
+    eval_type: length_check
+    max_length: 500
+    pass_threshold: 0.95
+
+  - name: email_no_pii_leaks
+    description: "Outbound email contains no API keys or internal credentials"
+    applies_to:
+      pipeline_stages: ["titan_email_compose", "titan_outreach_draft", "titan_proposal"]
+    eval_type: regex
+    pattern: "(sk-[A-Za-z0-9]{20,}|api[_-]?key|password|secret|bearer)"
+    must_match: false
+    pass_threshold: 1.0
+
+  - name: email_brand_voice
+    description: "Email matches brand voice guidelines (no AI tells)"
+    applies_to:
+      pipeline_stages: ["titan_email_compose"]
+    eval_type: regex
+    pattern: "(\\bdelve\\b|\\btapestry\\b|\\bmoreover\\b|in conclusion|to summarize)"
+    must_match: false
+    pass_threshold: 0.95
+
+  # ─── Generic safety evals ──────────────────────────────────────────────
+
+  - name: no_placeholder_text
+    description: "Output contains no Lorem ipsum or TODO markers"
+    applies_to:
+      pipeline_stages: ["*"]
+    eval_type: regex
+    pattern: "(lorem ipsum|placeholder|TODO|XXX|FIXME)"
+    must_match: false
+    pass_threshold: 0.98
+
+  - name: no_apology_loops
+    description: "Output is not stuck in apology / refusal loops"
+    applies_to:
+      pipeline_stages: ["*"]
+    eval_type: regex
+    pattern: "^(I apologize|I'm sorry|I cannot|I am unable)"
+    must_match: false
+    pass_threshold: 0.95
+
+  - name: not_truncated_mid_sentence
+    description: "Output ends with a complete sentence (no mid-word cutoff)"
+    applies_to:
+      pipeline_stages: ["*"]
+    eval_type: custom
+    script: evals/check_complete_sentence.py
+    pass_threshold: 0.97
+
+  # ─── Research / brief evals ────────────────────────────────────────────
+
+  - name: brief_has_citations
+    description: "Research brief includes URL citations"
+    applies_to:
+      pipeline_stages: ["deerflow_brief", "deerflow_synthesis"]
+    eval_type: custom
+    script: evals/check_brief_citations.py
+    pass_threshold: 0.9
+
+  - name: brief_under_2000_words
+    description: "Operator-facing brief is under 2000 words"
+    applies_to:
+      pipeline_stages: ["deerflow_brief"]
+    eval_type: length_check
+    max_length: 12000  # ~2000 words
+    pass_threshold: 0.95
+
+
+# ============================================================================
+# Schedule + alerting
+# ============================================================================
+
+schedule:
+  cron: "0 3 * * *"            # 3am local — when everyone's asleep
+  sample_size_per_stage: 100   # Random sample
+  lookback_hours: 24
+
+alerting:
+  channel: telegram
+  alert_on:
+    - regression_above: 0.05   # Alert if pass rate drops by >5% vs prior week
+    - any_eval_under: 0.85     # Alert if any eval drops below 85%
+
+reporting:
+  store_raw_results: true
+  store_in_table: langfuse_eval_results
+  retention_days: 90

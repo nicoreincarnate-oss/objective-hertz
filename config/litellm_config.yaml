@@ -1,0 +1,319 @@
+# LiteLLM Proxy Configuration — Phase 40-44 Production Stack
+# Locked: 2026-04-07 — quality-first, no commercial license concerns
+#
+# Architecture: 11 tiers, OpenRouter-first for non-Anthropic providers,
+# AirLLM heavy local tier for fully-private long-form reasoning,
+# Kimi K2.5 as cloud vision tier (better+cheaper than Sonnet).
+#
+# Tier definitions match shared/tiers.py:TierName enum exactly.
+# Daemon code uses tier names; this file maps tier → provider model + fallback chain.
+
+model_list:
+
+  # ─── Tier: GENIUS ───────────────────────────────────────────────────────
+  # Architecture, mega-plans, novel problems. Opus 4.6 SOTA at 80.9% SWE.
+  - model_name: genius
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 300
+      max_retries: 2
+
+  - model_name: genius
+    litellm_params:
+      model: openrouter/anthropic/claude-opus-4.6
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+
+  - model_name: genius
+    litellm_params:
+      model: openrouter/moonshotai/kimi-k2.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+
+  # ─── Tier: SMART (DEFAULT) ──────────────────────────────────────────────
+  # Default agentic coding. Claude Sonnet 4.6 — 79.6% SWE, 1M context.
+  # Used for: customer-facing outputs, Aider architect calls, Titan stages 7-10.
+  - model_name: smart
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 180
+      max_retries: 2
+
+  - model_name: smart
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4.6
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+
+  - model_name: smart
+    litellm_params:
+      model: openrouter/moonshotai/kimi-k2.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+
+  # ─── Tier: CODEX ────────────────────────────────────────────────────────
+  # One-shot code generation. SOTA on SWE-Bench Pro.
+  - model_name: codex
+    litellm_params:
+      model: openai/gpt-5.3-codex
+      api_key: os.environ/OPENAI_API_KEY
+      timeout: 180
+
+  - model_name: codex
+    litellm_params:
+      model: openrouter/openai/gpt-5.3-codex
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+
+  - model_name: codex
+    litellm_params:
+      model: openrouter/moonshotai/kimi-k2.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+
+  # ─── Tier: AGENTIC ──────────────────────────────────────────────────────
+  # Long-horizon multi-step loops. MiMo-V2-Pro = production volume leader
+  # (4.65T tokens/week on OpenRouter — market voting with real workloads).
+  - model_name: agentic
+    litellm_params:
+      model: openrouter/xiaomi/mimo-v2-pro
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+      max_retries: 2
+
+  - model_name: agentic
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 300
+
+  # ─── Tier: LONGCTX ──────────────────────────────────────────────────────
+  # 1M+ context for research synthesis and codebase analysis.
+  - model_name: longctx
+    litellm_params:
+      model: gemini/gemini-3.1-pro
+      api_key: os.environ/GEMINI_API_KEY
+      timeout: 300
+
+  - model_name: longctx
+    litellm_params:
+      model: openrouter/google/gemini-3.1-pro
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+
+  - model_name: longctx
+    litellm_params:
+      model: openrouter/qwen/qwen-3.6-plus
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+
+  # ─── Tier: CHAT ─────────────────────────────────────────────────────────
+  # Operator chat, briefings, Jarvis voice mode. Qwen 3.6 Plus — new chat king.
+  - model_name: chat
+    litellm_params:
+      model: openrouter/qwen/qwen-3.6-plus
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 120
+
+  - model_name: chat
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 120
+
+  # ─── Tier: FAST ─────────────────────────────────────────────────────────
+  # Fanout, tool calls, simple edits. Haiku 4.5 with 90% prompt cache discount.
+  - model_name: fast
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 60
+
+  - model_name: fast
+    litellm_params:
+      model: openrouter/anthropic/claude-haiku-4.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 60
+
+  # ─── Tier: CHEAP ────────────────────────────────────────────────────────
+  # DeepSeek V4 — 1T params on Huawei Ascend silicon (no NVIDIA lock-in).
+  - model_name: cheap
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 120
+
+  - model_name: cheap
+    litellm_params:
+      model: openrouter/deepseek/deepseek-chat
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 120
+
+  # ─── Tier: LOCAL ────────────────────────────────────────────────────────
+  # Qwen3-30B-A3B MLX-4bit on Mac Studio M4 Max.
+  # 17 GB RAM, 100-130 tok/s, native MLX tool calls (no patch needed).
+  # Fallback to Gemma 4 26B A4B if Qwen unavailable.
+  - model_name: local
+    litellm_params:
+      model: ollama/qwen3:30b-a3b-mlx-4bit
+      api_base: os.environ/OLLAMA_HOST
+      timeout: 300
+
+  - model_name: local
+    litellm_params:
+      model: ollama/gemma4:26b-a4b
+      api_base: os.environ/OLLAMA_HOST
+      timeout: 300
+
+  - model_name: local
+    litellm_params:
+      model: ollama/qwen2.5-coder:32b
+      api_base: os.environ/OLLAMA_HOST
+      timeout: 300
+
+  # ─── Tier: LOCAL-HEAVY ──────────────────────────────────────────────────
+  # AirLLM disk-streamed 70B+ models on Mac Studio.
+  # Slow (3-8 tok/s) but FULLY LOCAL for heavy thinking calls where latency
+  # tolerance is high (Openjarvis mega-plans, Ruflo cross-file refactors).
+  # Replaces some Opus escalation with zero-cost private reasoning.
+  - model_name: local-heavy
+    litellm_params:
+      model: openai/airllm-llama-3.3-70b
+      api_base: http://host.docker.internal:11437/v1
+      api_key: os.environ/AIRLLM_LOCAL_KEY
+      timeout: 600
+
+  - model_name: local-heavy
+    litellm_params:
+      model: openai/airllm-qwen2.5-72b
+      api_base: http://host.docker.internal:11437/v1
+      api_key: os.environ/AIRLLM_LOCAL_KEY
+      timeout: 600
+
+  # ─── Tier: VISION ───────────────────────────────────────────────────────
+  # Kimi K2.5 — 92.3% OCRBench (BEST), 90.1% MathVista, $0.47/$2 per M.
+  # 6x cheaper than Sonnet vision and significantly better at OCR.
+  # Operator decision 2026-04-07: better+cheaper than Claude → use it.
+  - model_name: vision
+    litellm_params:
+      model: openrouter/moonshotai/kimi-k2.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+
+  - model_name: vision
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 180
+
+  - model_name: vision
+    litellm_params:
+      model: ollama/qwen2.5vl:7b
+      api_base: os.environ/OLLAMA_HOST
+      timeout: 180
+
+
+# ============================================================================
+# Router settings — fallback chains, retries, cooldowns
+# ============================================================================
+
+router_settings:
+  routing_strategy: simple-shuffle  # Round-robin within a tier across providers
+  fallbacks:
+    - genius:      ["agentic", "smart", "local-heavy", "local"]
+    - smart:       ["agentic", "codex", "local-heavy", "local"]
+    - codex:       ["smart", "local-heavy", "local"]
+    - agentic:     ["smart", "local-heavy", "local"]
+    - longctx:     ["chat", "smart", "local"]
+    - chat:        ["smart", "cheap", "local"]
+    - fast:        ["cheap", "local"]
+    - cheap:       ["fast", "local"]
+    - local:       ["local-heavy", "cheap", "smart"]    # Local can escalate UP via verifier
+    - local-heavy: ["local", "smart"]
+    - vision:      ["smart", "local"]
+  context_window_fallbacks:
+    - smart:   ["longctx"]
+    - local:   ["longctx", "smart"]
+    - agentic: ["longctx", "smart"]
+  default_fallbacks: ["smart", "cheap", "local"]
+  timeout: 300
+  num_retries: 2
+  retry_after: 5
+  allowed_fails: 3
+  cooldown_time: 60
+
+
+# ============================================================================
+# Budget controls — spend caps with auto-pause
+# ============================================================================
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: true
+  alerting: ["slack", "telegram"]
+  spend_report_frequency: "1d"
+  proxy_budget_rescheduler_min_time: 60
+  proxy_budget_rescheduler_max_time: 600
+
+
+# ============================================================================
+# Observability + caching
+# ============================================================================
+
+litellm_settings:
+  set_verbose: false
+  drop_params: true  # Drop provider-unsupported params silently
+
+  # Phase 42: Langfuse callbacks for full per-call tracing
+  success_callback: ["langfuse", "prometheus"]
+  failure_callback: ["langfuse", "prometheus"]
+
+  callbacks_settings:
+    langfuse:
+      langfuse_host: os.environ/LANGFUSE_HOST
+      langfuse_public_key: os.environ/LANGFUSE_PUBLIC_KEY
+      langfuse_secret_key: os.environ/LANGFUSE_SECRET_KEY
+
+  # Phase 42: LiteLLM-level Redis cache (separate from semantic_cache.py)
+  cache: true
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379
+    supported_call_types: ["acompletion", "completion"]
+    mode: "default_off"  # Opt-in per call via cache=True parameter
+
+
+# ============================================================================
+# Per-daemon virtual budgets — one daemon can't drain another's budget
+# Phase 41 + operator decision 2026-04-07 (quality > cost, but per-daemon caps)
+# ============================================================================
+
+team_budgets:
+  - team_id: titan
+    max_budget: 90.0   # USD/month
+    budget_duration: 30d
+  - team_id: clawdbot
+    max_budget: 80.0
+    budget_duration: 30d
+  - team_id: deerflow
+    max_budget: 40.0
+    budget_duration: 30d
+  - team_id: ruflo
+    max_budget: 60.0
+    budget_duration: 30d
+  - team_id: hermes
+    max_budget: 30.0
+    budget_duration: 30d
+  - team_id: perseus
+    max_budget: 20.0
+    budget_duration: 30d
+  - team_id: openjarvis
+    max_budget: 30.0
+    budget_duration: 30d
+  - team_id: conway
+    max_budget: 15.0
+    budget_duration: 30d
