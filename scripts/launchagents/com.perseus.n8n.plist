@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.perseus.n8n</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/opt/node@20/bin/n8n</string>
+        <string>start</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/majovega</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/n8n.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/n8n.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/opt/node@20/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>N8N_HOST</key>
+        <string>127.0.0.1</string>
+        <key>N8N_LISTEN_ADDRESS</key>
+        <string>127.0.0.1</string>
+        <key>N8N_PORT</key>
+        <string>5678</string>
+        <key>WEBHOOK_URL</key>
+        <string>http://127.0.0.1:5678</string>
+        <key>N8N_USER_FOLDER</key>
+        <string>/Users/majovega/.n8n</string>
+    </dict>
+</dict>
+</plist>

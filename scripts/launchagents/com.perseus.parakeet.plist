@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- PLACEHOLDER: Replace ProgramArguments below with the actual
+         FluidAudio MacParakeet daemon launch command after Studio Day 1 install.
+         Expected command: parakeet-server --port 11440 --bind 127.0.0.1 -->
+    <key>Label</key>
+    <string>com.perseus.parakeet</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/parakeet-server</string>
+        <string>--port</string>
+        <string>11440</string>
+        <string>--bind</string>
+        <string>127.0.0.1</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/opt/perseus</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/parakeet.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/parakeet.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>PARAKEET_PORT</key>
+        <string>11440</string>
+    </dict>
+</dict>
+</plist>

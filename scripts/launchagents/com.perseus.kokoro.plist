@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- PLACEHOLDER: Replace ProgramArguments below with the actual
+         Kokoro TTS server command after Studio Day 1 install.
+         Expected command: python -m kokoro.server --port 11441 --bind 127.0.0.1 --voice af_bella -->
+    <key>Label</key>
+    <string>com.perseus.kokoro</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3</string>
+        <string>-m</string>
+        <string>kokoro.server</string>
+        <string>--port</string>
+        <string>11441</string>
+        <string>--bind</string>
+        <string>127.0.0.1</string>
+        <string>--voice</string>
+        <string>af_bella</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/opt/perseus</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/kokoro.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/majovega/Library/Logs/perseus/kokoro.error.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>KOKORO_PORT</key>
+        <string>11441</string>
+    </dict>
+</dict>
+</plist>
