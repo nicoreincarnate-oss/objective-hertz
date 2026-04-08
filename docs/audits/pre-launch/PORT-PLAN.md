@@ -189,3 +189,23 @@ Two-engineer elapsed: **~13 hours (1.5 working days).**
 5. **Spend-alert schema:** create `daemon_budget_caps` + `tier_spend_log` tables (new) or adapt `spend_alerts.py` to use existing `budget_tracking` table (less powerful but zero migration)?
 6. **Pre-existing bug fixes:** ship the 2 latent bug fixes (clawdbot `tier=` TypeError, openjarvis `ask_llm` ImportError) as part of this recovery, or file separate P2s and ignore here?
 7. **Phase 42.5 v2 tier additions (CODEX/AGENTIC/LONGCTX/CHAT/CHEAP/VISION):** do these need corresponding provider wiring in `shared/llm_providers/` before merge, or land as enum-only and wire providers incrementally in Wave R3+?
+
+---
+
+## 9. Operator Decisions Locked (2026-04-08)
+
+All 7 §8 questions answered. Defaults chosen per operator's locked preferences: quality > cost, no licensing concerns, security fixes win, minimize rollback risk.
+
+| # | Question | Decision | Rationale |
+|---|---|---|---|
+| 1 | `auto → smart` vs `auto → fast` | **`auto → smart`** (worktree version) | Operator rule: quality > cost. Sonnet upgrade is correct per Phase 42.5 v2 intent. |
+| 2 | `TierName` vs `ModelTier` | **Keep `ModelTier`**, extend with 4 new tiers | Lower change surface in main. Worktree modules refactor to import `ModelTier`. |
+| 3 | Semantic cache Redis dep | **Optional Redis + in-process LRU fallback** | No new runtime dep overnight. Redis path active if `REDIS_URL` env set; LRU otherwise. |
+| 4 | `log_redaction.py` vs `escalation_log/redactor.py` | **Worktree's `redactor.py` wins** | Has P0-5 scrypt KDF + P0-6 fail-closed crypto. Migrate main's callers. |
+| 5 | Spend-alert schema | **New `daemon_budget_caps` + `tier_spend_log` tables** | Migration 046 already exists in worktree. Reuse. |
+| 6 | Pre-existing bug fixes | **Ship them** (clawdbot `tier=` + openjarvis `ask_llm`) | 0.5h total. Unblocks 2 daemons that are currently broken in main. |
+| 7 | Tier additions (CODEX/AGENTIC/LONGCTX/CHAT/CHEAP/VISION) | **Enum-only land; wire providers incrementally** | Additive enum values break nothing. Provider wiring is Wave R3+ work. |
+
+**Sequencing chosen: 6c (risk-front-loaded)** — security (P0-5/6) + correctness (P0-9/10) + DB schema land first, enable rapid rollback if CI breaks.
+
+**Ready to execute autonomously.**
