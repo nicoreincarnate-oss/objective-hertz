@@ -5,14 +5,23 @@ Tier-based routing replaces hardcoded model names. Every LLM call specifies a ti
 the LiteLLM gateway picks the best available provider for that tier with automatic
 fallback.
 
-Architectural decision (locked 2026-04-07):
-- Default coding: Claude Sonnet 4.6 (79.6% SWE-Verified, best agentic, 1M ctx)
-- Architecture: Claude Opus 4.6 (80.9% SWE-Verified)
+BENCHMARK-FIRST architectural decision (locked 2026-04-08):
+- Rule: always use the highest-benchmark model available. No shadow-mode purgatory.
+  If benchmarks beat the current default, swap immediately.
+- Genius/smart/reasoning: Trinity-Large-Thinking (Arcee, 400B MoE / 13B active,
+  Apache 2.0, FREE on OpenRouter). 94.7% τ²-Bench, 98.2% LiveCodeBench, 91.9%
+  PinchBench. Beats Opus on agentic, trails on SWE-Bench by 12 points. Opus and
+  Sonnet demoted to fallback only.
+- Local fast: Trinity Mini (Arcee, 26B MoE / 3B active, Apache 2.0, GGUF local).
+  Architectural twin of Qwen3-30B-A3B (both 30B MoE 3B active). Qwen3-30B-A3B
+  demoted to fallback only. Both stay hot in parallel for A/B routing.
 - Heavy local: Llama 3.3 70B / Qwen 2.5 72B via AirLLM (disk-streamed, free)
 - Vision: Kimi K2.5 (92.3% OCRBench, 6x cheaper than Sonnet)
 - Cheap bulk: DeepSeek V4 (1T params on Huawei Ascend, no NVIDIA lock-in)
-- Local fast: Qwen3-30B-A3B MLX-4bit (100-130 tok/s on M4 Max, native tool calls)
 - License: NEVER a factor in selection. Operator decision 2026-04-07.
+
+Operator rule: "better + cheaper than Claude → use it." Trinity is both better
+(higher agentic benchmarks) AND cheaper (free vs $5/$25 per M Opus). No contest.
 
 Compound system math: ~70% local + ~25% verifier-caught local with cloud retry +
 ~5% always-cloud heavy thinking ≈ 85-90% effective Claude Opus 4.6 quality.
@@ -36,17 +45,17 @@ class TierName(str, Enum):
     name matters.
     """
 
-    GENIUS       = "genius"        # Claude Opus 4.6 — architecture, mega-plans (80.9% SWE)
-    SMART        = "smart"         # Claude Sonnet 4.6 — DEFAULT agentic coding (79.6% SWE)
-    CODEX        = "codex"         # GPT-5.3-Codex — one-shot code generation
+    GENIUS       = "genius"        # Trinity-Large-Thinking (Arcee 400B MoE / 13B active, free on OpenRouter, 94.7% τ²-Bench, 98.2% LiveCodeBench) — architecture, mega-plans, agentic reasoning. Opus 4.6 is fallback only.
+    SMART        = "smart"         # Trinity-Large-Thinking (same as genius now) — DEFAULT agentic coding. Sonnet 4.6 is fallback only. Operator 2026-04-08: benchmark-first rule, free beats paid.
+    CODEX        = "codex"         # GPT-5.3-Codex — one-shot code generation (SWE-Bench Pro SOTA, still beats Trinity on pure SWE-Bench by ~12 points)
     AGENTIC      = "agentic"       # MiMo-V2-Pro 1T — long-horizon, production-validated
     LONGCTX      = "longctx"       # Gemini 3.1 Pro — 1M+ context research
     CHAT         = "chat"          # Qwen 3.6 Plus — operator chat, briefings
     FAST         = "fast"          # Claude Haiku 4.5 — fanout, tool calls
     CHEAP        = "cheap"         # DeepSeek V4 — bulk classify, scheduled jobs
-    LOCAL        = "local"         # Qwen3-30B-A3B MLX — local fast (Mac Studio)
-    LOCAL_SMALL  = "local-small"   # Ollama secondary (llama3.2:3b) — classification only
-    LOCAL_HEAVY  = "local-heavy"   # Llama 3.3 70B / Qwen 72B via AirLLM (disk-streamed)
+    LOCAL        = "local"         # Trinity Mini (Arcee 26B MoE / 3B active, Apache 2.0, native tool calls) — local fast workhorse. Qwen3-30B-A3B is fallback only. Both stay hot for A/B routing per operator 2026-04-08.
+    LOCAL_SMALL  = "local-small"   # Trinity Nano (Arcee 6B MoE / 1B active) — classification only. llama3.2:3b fallback.
+    LOCAL_HEAVY  = "local-heavy"   # Llama 3.3 70B / Qwen 72B via AirLLM (disk-streamed, 1-2 tok/s on 1000 MB/s external — emergency offline reasoning only; cloud Trinity-Large-Thinking is preferred via OpenRouter)
     VISION       = "vision"        # Kimi K2.5 — best OCR + vision-language
     EMBED        = "embed"         # nomic-embed-text — embedding model (not generative)
 

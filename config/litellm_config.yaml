@@ -1,9 +1,14 @@
 # LiteLLM Proxy Configuration — Phase 40-44 Production Stack
-# Locked: 2026-04-07 — quality-first, no commercial license concerns
+# Locked: 2026-04-08 — benchmark-first, Trinity-first, Claude fallback only
 #
-# Architecture: 11 tiers, OpenRouter-first for non-Anthropic providers,
+# Architecture: 13 tiers, OpenRouter-first for non-Anthropic providers,
 # AirLLM heavy local tier for fully-private long-form reasoning,
 # Kimi K2.5 as cloud vision tier (better+cheaper than Sonnet).
+#
+# OPERATOR RULE 2026-04-08: Always use the highest-benchmark model. No
+# shadow-mode purgatory. Trinity-Large-Thinking replaces Opus/Sonnet as
+# default for reasoning/planning/coding. Trinity Mini replaces Qwen3-30B-A3B
+# as default local workhorse. Opus/Sonnet/Qwen are fallback only.
 #
 # Tier definitions match shared/tiers.py:TierName enum exactly.
 # Daemon code uses tier names; this file maps tier → provider model + fallback chain.
@@ -11,7 +16,19 @@
 model_list:
 
   # ─── Tier: GENIUS ───────────────────────────────────────────────────────
-  # Architecture, mega-plans, novel problems. Opus 4.6 SOTA at 80.9% SWE.
+  # Architecture, mega-plans, novel problems, agentic reasoning.
+  # PRIMARY: Trinity-Large-Thinking (Arcee 400B MoE / 13B active, Apache 2.0, FREE)
+  #   94.7% τ²-Bench, 98.2% LiveCodeBench, 91.9% PinchBench — beats Opus on agentic.
+  # FALLBACK: Opus 4.6 → Sonnet 4.6 → Kimi K2.5
+  - model_name: genius
+    litellm_params:
+      model: openrouter/arcee-ai/trinity-large-thinking
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+      max_retries: 2
+      temperature: 0.15
+      top_p: 0.75
+
   - model_name: genius
     litellm_params:
       model: anthropic/claude-opus-4-6
@@ -32,8 +49,19 @@ model_list:
       timeout: 300
 
   # ─── Tier: SMART (DEFAULT) ──────────────────────────────────────────────
-  # Default agentic coding. Claude Sonnet 4.6 — 79.6% SWE, 1M context.
-  # Used for: customer-facing outputs, Aider architect calls, Titan stages 7-10.
+  # Default agentic coding, customer-facing outputs, Aider architect calls,
+  # Titan stages 7-10.
+  # PRIMARY: Trinity-Large-Thinking (same as genius — free, highest agentic benchmarks)
+  # FALLBACK: Sonnet 4.6 → OpenRouter Sonnet → Kimi K2.5
+  - model_name: smart
+    litellm_params:
+      model: openrouter/arcee-ai/trinity-large-thinking
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+      max_retries: 2
+      temperature: 0.15
+      top_p: 0.75
+
   - model_name: smart
     litellm_params:
       model: anthropic/claude-sonnet-4-6
@@ -152,9 +180,26 @@ model_list:
       timeout: 120
 
   # ─── Tier: LOCAL ────────────────────────────────────────────────────────
-  # Qwen3-30B-A3B MLX-4bit on Mac Studio M4 Max.
-  # 17 GB RAM, 100-130 tok/s, native MLX tool calls (no patch needed).
-  # Fallback to Gemma 4 26B A4B if Qwen unavailable.
+  # BENCHMARK-FIRST (2026-04-08): Trinity Mini 26B MoE (Arcee, Apache 2.0,
+  # native tool calls, GGUF on llama.cpp Metal).
+  # Architectural twin of Qwen3-30B-A3B (both 30B MoE 3B active) but with
+  # explicit reasoning post-training + 10T token curated dataset via Datology.
+  # PRIMARY: Trinity Mini GGUF Q4 (~14 GB on external drive)
+  # FALLBACK: Qwen3-30B-A3B MLX-4bit (17 GB) — proven in Phase 42.5 v2
+  # Both stay hot in parallel for A/B routing per operator 2026-04-08.
+  - model_name: local
+    litellm_params:
+      model: ollama/arcee-ai/trinity-mini:q4_k_m
+      api_base: os.environ/OLLAMA_HOST
+      timeout: 300
+
+  # Parallel hosted free path (no local install needed)
+  - model_name: local
+    litellm_params:
+      model: openrouter/arcee-ai/trinity-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 300
+
   - model_name: local
     litellm_params:
       model: ollama/qwen3:30b-a3b-mlx-4bit
