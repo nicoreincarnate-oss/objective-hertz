@@ -1,3 +1,102 @@
+## PHASE 3 COMPLETE — Daemon Wiring (2026-04-08)
+
+### Verdict
+**SHIP.** All 5 waves committed autonomously across 22 commits. Every new Phase 42.5 v2 module is now wired into the daemons it belongs to. Code paths are active for Layer A + B and dead-but-ready for Layer C (Layer C activates the moment operator starts Parakeet/Kokoro/Draw Things on the Studio — no more code changes needed).
+
+### Wave summary
+
+**Wave 1 — Metadata plumbing (9 commits, Layer A, zero-risk additive)**
+- Fixed migrator bug in pre-flight: the dot-filter was excluding every file under `.claude/worktrees/` (absolute-path parts vs relative-path parts). Plus a second fix landed (`a6dfd27`) to append kwargs AFTER the closing paren instead of before positional args — a syntax-error bug the migrator introduced on the first perseus attempt and I auto-reverted + fixed.
+- After both fixes: **40 single-line `llm.generate()` call sites migrated across 7 daemons** (perseus, titan, hermes, clawdbot, ruflo, openjarvis, conway). deerflow_research had zero call sites. orchestrator.py's single call was multi-line so deferred.
+- **67 multi-line calls deferred** to `/tmp/migrate_to_litellm_manual_review.json` for a future libcst pass.
+- Tasks 2 and 3 (spend_alerts wiring + AUTO_TIER_ENABLED flag) were already complete from prior waves — confirmed live. `shared/middleware.py:597` already dispatches `shared.spend_alerts.check_daemon_spend + dispatch_alert`.
+- Commits: `a6dfd27` (migrator fix), `d5c0a8e` (perseus), `f744ba7` (titan), `5ecc152` (hermes), `1eb6bf1` (clawdbot), `3ac0aa2` (ruflo), `2cf19d9` (openjarvis), `a1fca13` (conway), `d3c1580` (SUMMARY)
+
+**Wave 2 — Ruflo Aider wiring (4 commits, Layer B)**
+- New `ruflo/aider_handler.py` (95 LoC) wraps `shared.aider.ruflo_loop.run_ruflo_aider_loop` as an opt-in bug-fix path behind `ENABLE_AIDER_LOOPS=true`
+- Uses `TierName.GENIUS` (Trinity-Large-Thinking via routing) for architect + `TierName.LOCAL` (Trinity Mini) for editor
+- Wired into `ruflo/agent.py:_handle_code_fix` with fall-through to legacy `propose_change → shadow_test` path on `status=skipped/failed/escalated`
+- 4 unit tests for the opt-in gate (all pass)
+- P0-3 SandboxRunner default preserved, P1-7 LeadWorkerLoop deepcopy preserved
+- Commits: `2646add`, `361910a`, `531ee70`, `3c4c877`
+
+**Wave 3 — Clawdbot Aider wiring (3 commits, Layer B)**
+- New `clawdbot/aider_build.py` (117 LoC) wraps `shared.aider.clawdbot_loop.run_clawdbot_aider_loop`
+- Wired into `clawdbot/site_builder.py:_build_site` as opt-in path behind `ENABLE_AIDER_LOOPS=true` with full fall-through to the existing competitive 5-agent build on `status=skipped/failed/escalated`
+- Existing competitive build path is byte-identical — just gets tried SECOND when the flag is ON
+- `_site_spec_to_lead_profile` translator adapts the plan's `brief/brand/sections` dict to the canonical `lead_profile` shape the Phase 2 loop expects
+- 4 unit tests, all pass
+- Commits: `43d004f`, `3e93b56`, `febafb3`
+
+**Wave 4 — Hermes voice loop (3 commits, Layer C dead-path)**
+- New `hermes/jarvis/__init__.py` package + `hermes/jarvis/voice_session.py` with **strict lazy imports** of `ParakeetClient`, `KokoroClient`, `route_voice_intent`. The module imports cleanly on a machine with no Parakeet/Kokoro services running — verified by dedicated test `test_voice_session_imports_cleanly_without_services`.
+- Adapted to actual Phase 2 API (not plan placeholders): `ParakeetClient().health_check()`, `KokoroClient().synthesize()`, `route_voice_intent()` returning `VoiceIntent` dataclass with `.text`, `.audio_bytes`, `.daemon`, `.natural_response` fields
+- Status codes: `skipped` when flag OFF or services unreachable (via `ImportError` catch + `health_check() → False` catch), `complete` on full success, `failed` on intermediate error
+- Task 2 (`hermes/jarvis/vision_loop.py` opt-in hook) deferred — file does not exist in the codebase, the plan's "do not change default behavior" assumed it did. Documented in SUMMARY.
+- 6 unit tests, all pass
+- Commits: `5d2d3a1`, `6b62a7a`, `12f92ec`
+
+**Wave 5 — Clawdbot Draw Things wiring (3 commits, Layer C dead-path)**
+- Wired `DrawThingsClient` into `clawdbot/asset_generator.py:generate_hero_image` as opt-in fallback branch above the existing fal.ai/Recraft production path
+- Adapted to actual Phase 2 API (not plan placeholders): `health_check()` (async GET `/sdapi/v1/options`), `generate(prompt, *, preset=...)` returning `ImageGenResult` (raises on failure, no success field)
+- Style hint `"editorial"` maps to preset `hero_quality` (Flux.1 dev), all others to `hero_fast` (SDXL)
+- **Recraft path is byte-identical** — branch sits above it and returns early only on success. When `ENABLE_DRAW_THINGS=false` (default), `DrawThingsClient` is never instantiated (verified by `test_draw_things_disabled_by_default`)
+- 4 unit tests, all pass
+- Commits: `90f7126`, `e3399fa`, `031bc9a`
+
+### Feature flags added to .env.example
+
+All default OFF — zero behavior change until operator flips:
+- `AUTO_TIER_ENABLED=false` — auto-classifier routing (opt-in per call site via `auto_tier=True` kwarg)
+- `ENABLE_AIDER_LOOPS=false` — Ruflo + Clawdbot Aider architect+editor paths
+- `ENABLE_VOICE_LOOP=false` — Hermes Parakeet+Kokoro voice loop
+- `ENABLE_DRAW_THINGS=false` — Clawdbot local image gen fallback (Recraft stays default)
+
+### Regression verification
+
+**Full Phase 3 pytest suite: 86 passed / 6 failed.**
+
+The 6 failures are the **same pre-existing latent bugs** already documented in the Phase 1 SUMMARY.md REMEDIATED section:
+- 4 × `TestGrammarCompiler` failures — hardcoded `/opt/perseus/runtime` default output dir that doesn't exist on dev machines (latent bug in main, not introduced by any phase)
+- 2 × `TestRedactor` failures — `base64-blob` pattern matches ETH addresses before `eth-address` pattern (ordering), and `+1-555-CANARY-99` phone format not in coverage
+
+**Zero regressions from Phase 3.** All 18 new Phase 3 tests are in the passing 86 (4 Ruflo + 4 Clawdbot Aider + 6 Hermes voice + 4 Clawdbot Draw Things).
+
+### What's now wired at runtime (post-Phase-3)
+
+| Module | Imported by | Gate | Status |
+|---|---|---|---|
+| `shared/tiers.py` | tier routing plumbing across daemons (indirect via llm_client) | always | LIVE |
+| `shared/verifier/*` | daemon-side verifier framework (indirect) | always | LIVE |
+| `shared/escalation_log/redactor.py` | `shared/middleware.py` | always | LIVE |
+| `shared/spend_alerts.py` | `shared/middleware.py:check_budget_for_llm_call` | always | LIVE |
+| `shared/semantic_cache.py` | daemons via llm_client optional cache | always | LIVE |
+| `shared/aider/ruflo_loop.py` | `ruflo/aider_handler.py` → `ruflo/agent.py` | `ENABLE_AIDER_LOOPS=true` | WIRED |
+| `shared/aider/clawdbot_loop.py` | `clawdbot/aider_build.py` → `clawdbot/site_builder.py` | `ENABLE_AIDER_LOOPS=true` | WIRED |
+| `shared/voice/*` | `hermes/jarvis/voice_session.py` (lazy import) | `ENABLE_VOICE_LOOP=true` + services running | DEAD PATH READY |
+| `shared/imagegen/draw_things_client.py` | `clawdbot/asset_generator.py` | `ENABLE_DRAW_THINGS=true` + Draw Things running | DEAD PATH READY |
+
+Plus **daemon metadata plumbing** on 40 `llm.generate()` call sites across 7 daemons — every call now carries `daemon_name=` + `operation=` for spend tracking and router telemetry.
+
+### Phase 3 commit tally
+**22 commits** in Phase 3 (scaffold + 1 migrator fix + 7 daemon migrations + Wave 1 SUMMARY + Wave 2 × 4 + Wave 3 × 3 + Wave 4 × 3 + Wave 5 × 3). Branch `claude/charming-elion` ready for force-push.
+
+### Still pending (operator Studio actions)
+
+Same as before Phase 3 — no new blockers introduced:
+1. Set `OPENROUTER_API_KEY` in `.env` → Trinity-Large-Thinking activates as genius/smart default
+2. `ollama pull arcee-ai/Trinity-Mini-GGUF:q4_k_m` → Trinity Mini activates as local default
+3. Install Parakeet + Kokoro via brew → voice loop Layer C goes live (no code changes needed)
+4. Install Draw Things → Clawdbot image gen fallback Layer C goes live
+5. Set `ENABLE_AIDER_LOOPS=true` in `.env` → Ruflo and Clawdbot flip to Aider architect+editor mode
+6. 67 multi-line `llm.generate()` calls still at `/tmp/migrate_to_litellm_manual_review.json` — libcst pass for Phase 4 or hand-migration
+
+### Recommended next action
+
+Read this file → set `OPENROUTER_API_KEY` and `ollama pull arcee-ai/Trinity-Mini-GGUF:q4_k_m` when you're next at the Studio → flip `ENABLE_AIDER_LOOPS=true` to verify Aider loops work against a real test fix → then move to Phase 4 (libcst multi-line migration + full live cutover).
+
+---
+
 ## PHASE 2 COMPLETE (2026-04-08)
 
 ### Verdict

@@ -230,7 +230,7 @@ Phase 2 + Phase 4 ──→ Phase 10 (site builder pipeline)
 - Recraft generates logo + hero images with budget tracking
 - Full pipeline runs: strategy -> assets -> 5 variants -> Opus review -> synthesis -> anti-slop -> deploy
 - Built sites score higher on site_quality QA than text-reference-only builds
-**Plans:** 2/2 plans complete
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 10-01-PLAN.md -- 21st.dev REST client + design_sources enrichment (TWENTY1-01, TWENTY1-02, TWENTY1-03)
