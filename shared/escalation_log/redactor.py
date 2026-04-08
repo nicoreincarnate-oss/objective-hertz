@@ -105,6 +105,22 @@ REDACTION_PATTERNS: list[tuple[str, str]] = [
     # USDC / ETH addresses
     (r"\b0x[a-fA-F0-9]{40}\b",                               "[REDACTED:eth-address]"),
 
+    # P1-2: ETH private keys (64-hex, 0x-prefixed; must come before generic hex blobs)
+    (r"0x[a-fA-F0-9]{64}",                                   "<REDACTED:ETH_PRIVKEY>"),
+
+    # P1-2: OpenRouter API keys (sk-or-v1- prefix + >=48 chars)
+    (r"sk-or-v1-[A-Za-z0-9\-_]{48,}",                        "<REDACTED:OPENROUTER_KEY>"),
+
+    # P1-2: Telegram bot tokens (9-10 digit bot id : 35 char secret)
+    (r"\d{9,10}:[A-Za-z0-9_\-]{35}",                         "<REDACTED:TELEGRAM_TOKEN>"),
+
+    # P1-2: Slack incoming webhooks
+    (r"https://hooks\.slack\.com/services/[A-Z0-9]+/[A-Z0-9]+/[A-Za-z0-9]+",
+     "<REDACTED:SLACK_WEBHOOK>"),
+
+    # P1-2: Postgres connection strings (postgres:// or postgresql://)
+    (r"postgres(?:ql)?://[^@]+@[^/]+/\w+",                   "<REDACTED:POSTGRES_URL>"),
+
     # Bearer tokens in HTTP headers
     (r"(?i)bearer\s+[A-Za-z0-9_\-\.]{20,}",                  "[REDACTED:bearer-token]"),
 
