@@ -16,6 +16,7 @@ import re
 from datetime import date
 from typing import Any
 
+from clawdbot.aider_build import aider_build_enabled, handle_aider_site_build
 from clawdbot.design_sources import _extract_research_facts
 from clawdbot.site_quality import evaluate_site_experience
 from shared.anti_slop import (
@@ -912,13 +913,53 @@ async def build_full_site(lead: dict) -> str:
 async def _build_site(
     lead: dict, *, site_type: str, page_count: int, _v1_fallback: bool = False,
 ) -> str:
-    """Core build — routes to v1 or v2 based on feature flag.
+    """Core build — routes to Aider (opt-in) -> v2 -> v1 based on feature flags.
+
+    Phase 3 Wave 3: when ``ENABLE_AIDER_LOOPS=true`` the opt-in Aider loop runs
+    FIRST. If it returns ``skipped`` / ``escalated`` / ``failed`` we fall through
+    to the existing competitive build paths so the default behaviour is unchanged.
 
     When ``CLAWDBOT_V2_ENABLED`` is set the multi-agent visual production
     pipeline is used.  Otherwise the original 5-agent competitive process runs.
     ``_v1_fallback`` is an internal guard that prevents v2 from recursing back
     into itself when it falls back.
     """
+    if not _v1_fallback and aider_build_enabled():
+        try:
+            from pathlib import Path
+
+            site_spec = {
+                "brief": lead.get("brief") or lead.get("business_name", ""),
+                "brand": {
+                    "name": lead.get("business_name", ""),
+                    "industry": lead.get("industry", ""),
+                },
+                "sections": [],
+            }
+            aider_result = await handle_aider_site_build(
+                site_spec,
+                llm_client=llm,
+                workspace=Path("/tmp/clawdbot_aider"),
+            )
+            status = aider_result.get("status")
+            if status == "complete" and aider_result.get("html"):
+                logger.info(
+                    "Clawdbot Aider build complete (visual=%.2f, iterations=%d); "
+                    "falling through to competitive deploy path",
+                    aider_result.get("visual_score", 0.0),
+                    aider_result.get("iterations", 0),
+                )
+                # Aider returns raw HTML; existing v1/v2 paths return a deployed
+                # URL. Until a deploy adapter is wired we fall through so
+                # customers always get a deployed site.
+            else:
+                logger.info(
+                    "Clawdbot Aider path returned status=%s; falling through",
+                    status,
+                )
+        except Exception as exc:  # noqa: BLE001 -- never break the default path
+            logger.warning("Clawdbot Aider hook errored, falling through: %s", exc)
+
     if (
         not _v1_fallback
         and os.environ.get("CLAWDBOT_V2_ENABLED", "").lower() in ("true", "1", "yes")
