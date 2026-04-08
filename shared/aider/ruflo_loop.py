@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from shared.aider.sandbox_runner import SandboxRunner
 from shared.tiers import TierName
 
 logger = logging.getLogger("perseus.aider.ruflo")
@@ -151,8 +152,31 @@ async def run_ruflo_aider_loop(
     editor_tier: TierName = TierName.LOCAL,  # Qwen2.5-Coder-14B
     sandbox_runner: Any | None = None,
 ) -> RufloAiderResult:
-    """Run the Architect → Editor → Verifier loop until green or exhausted."""
+    """Run the Architect → Editor → Verifier loop until green or exhausted.
+
+    P0-3: sandbox_runner defaults to a SandboxRunner() instance that wraps
+    pytest execution in macOS sandbox-exec with the verifier.sb profile.
+    Pass sandbox_runner=False explicitly to disable (NOT recommended — any
+    prompt-injected fix will have full host access, including ~/.ssh and
+    Conway wallets).
+    """
     t0 = time.perf_counter()
+    # P0-3: instantiate the default SandboxRunner lazily. If the caller
+    # passes a custom runner (e.g. the Ruflo production scratch-worktree
+    # runner with .run_with_patch), we use that instead. If None, we build
+    # the default verifier sandbox wrapper.
+    if sandbox_runner is None:
+        try:
+            sandbox_runner = SandboxRunner()
+            logger.info("P0-3: default SandboxRunner instantiated for ruflo_loop")
+        except (FileNotFoundError, RuntimeError) as _exc:
+            logger.error(
+                "P0-3: could not instantiate default SandboxRunner (%s); "
+                "verifier will be disabled for this run. This is INSECURE — "
+                "any prompt-injected patch will have full host access.",
+                _exc,
+            )
+            sandbox_runner = None
     architect_calls = 0
     editor_calls = 0
     prior_attempts: list[str] = []
@@ -310,19 +334,41 @@ async def _verify_patch_in_sandbox(
     patch: FixPatch,
     repo_root: Path,
 ) -> VerifierResult:
-    """Apply patch in scratch worktree, run pytest, return result."""
+    """Apply patch in scratch worktree, run pytest, return result.
+
+    P0-3: supports two runner APIs:
+      1. Legacy Ruflo scratch-worktree runner: async run_with_patch(...)
+      2. Default SandboxRunner from shared.aider.sandbox_runner:
+         sync run_pytest(test_path, ...) — assumes patch was already applied
+         to repo_root by caller (or is a no-op dry-run verification).
+    """
     t0 = time.perf_counter()
     try:
-        result = await sandbox_runner.run_with_patch(
-            patch_diff=patch.diff,
-            test_command=["python", "-m", "pytest", "-x", "--tb=short", "-q"],
-            timeout_seconds=120,
+        if hasattr(sandbox_runner, "run_with_patch"):
+            # Legacy path: runner applies the patch to a scratch worktree itself
+            result = await sandbox_runner.run_with_patch(
+                patch_diff=patch.diff,
+                test_command=["python", "-m", "pytest", "-x", "--tb=short", "-q"],
+                timeout_seconds=120,
+            )
+            return VerifierResult(
+                passed=result.exit_code == 0,
+                output=result.stdout[-500:] + result.stderr[-500:],
+                duration_s=time.perf_counter() - t0,
+                pytest_exit_code=result.exit_code,
+            )
+        # Default path: use SandboxRunner.run_pytest on the full test suite
+        # inside repo_root. Caller is responsible for applying the patch to
+        # a scratch worktree before calling this function.
+        target = patch.files_modified[0] if patch.files_modified else str(repo_root)
+        result = sandbox_runner.run_pytest(
+            Path(target), cwd=repo_root, timeout_s=120,
         )
         return VerifierResult(
-            passed=result.exit_code == 0,
-            output=result.stdout[-500:] + result.stderr[-500:],
+            passed=result.returncode == 0,
+            output=(result.stdout[-500:] + result.stderr[-500:]),
             duration_s=time.perf_counter() - t0,
-            pytest_exit_code=result.exit_code,
+            pytest_exit_code=result.returncode,
         )
     except Exception as exc:
         return VerifierResult(
