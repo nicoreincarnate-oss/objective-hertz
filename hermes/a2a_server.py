@@ -402,7 +402,7 @@ async def _ask(question: str = "", from_agent: str = "", context: dict | None = 
         f"Answer based on what the operator has communicated. If no relevant context, say so."
     )
 
-    answer = await llm.generate(prompt, model="fast", max_tokens=300)
+    answer = await llm.generate(prompt, model="fast", max_tokens=300, operation="hermes._ask", daemon_name="hermes")
     result = {"answer": answer, "from": "hermes"}
 
     # Cache the response
@@ -439,7 +439,7 @@ async def _review_finding(finding: dict | None = None, code_snippet: str = "", *
         f"or defer (not in your domain). Include your reasoning."
     )
 
-    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1)
+    answer = await llm.generate(prompt, model="smart", max_tokens=400, temperature=0.1, operation="hermes._review_finding", daemon_name="hermes")
     return _parse_review_vote(answer, "hermes")
 
 
@@ -484,7 +484,7 @@ async def review_findings_batch(findings: list[dict]) -> list[dict]:
     )
 
     from shared.llm_client import llm
-    answer = await llm.generate(prompt, model="smart", max_tokens=600, temperature=0.1)
+    answer = await llm.generate(prompt, model="smart", max_tokens=600, temperature=0.1, operation="hermes.review_findings_batch", daemon_name="hermes")
 
     results = _parse_batch_review(answer, len(batch), "hermes")
 

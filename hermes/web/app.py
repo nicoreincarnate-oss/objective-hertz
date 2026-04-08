@@ -2285,7 +2285,7 @@ async def api_insights_stream(request: Request):
             )
 
             # Use streaming if available, otherwise chunk the full response
-            response = await llm.generate(prompt, model="local", max_tokens=500, temperature=0.3)
+            response = await llm.generate(prompt, model="local", max_tokens=500, temperature=0.3, operation="hermes.generate", daemon_name="hermes")
 
             # Simulate streaming by yielding chunks
             words = response.split()
