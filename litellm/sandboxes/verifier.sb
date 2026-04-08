@@ -1,3 +1,7 @@
+;; CRITICAL: callers MUST pass -D HOME=$HOME when invoking sandbox-exec
+;; or the deny rules below will silently no-op (macOS does not expand ~).
+;; See P0-4 fix in audit findings.
+;;
 ;; Perseus Verifier Layer 3 sandbox profile
 ;; macOS sandbox-exec rules for the verifier subprocess (Ruflo pytest, Clawdbot
 ;; skill tests, etc.) — runs untrusted model output, so it must be locked down.
@@ -82,17 +86,17 @@
 ;; ==========================================================================
 
 (deny file-read* file-write*
-  (subpath "~/.ssh")
-  (subpath "~/.aws")
-  (subpath "~/.config")
-  (subpath "~/.kube")
-  (subpath "~/.gnupg")
-  (subpath "~/.netrc")
-  (subpath "~/Library/Keychains")
-  (literal "~/.zshrc")
-  (literal "~/.bashrc")
-  (literal "~/.profile")
-  (literal "~/.env"))
+  (subpath (string-append (param "HOME") "/.ssh"))
+  (subpath (string-append (param "HOME") "/.aws"))
+  (subpath (string-append (param "HOME") "/.config"))
+  (subpath (string-append (param "HOME") "/.kube"))
+  (subpath (string-append (param "HOME") "/.gnupg"))
+  (subpath (string-append (param "HOME") "/.netrc"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (literal (string-append (param "HOME") "/.zshrc"))
+  (literal (string-append (param "HOME") "/.bashrc"))
+  (literal (string-append (param "HOME") "/.profile"))
+  (literal (string-append (param "HOME") "/.env")))
 
 (deny file-read* file-write*
   (subpath "/opt/perseus/data/keystores")
