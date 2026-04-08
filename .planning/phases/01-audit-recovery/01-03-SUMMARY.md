@@ -81,7 +81,11 @@ This confirms:
 
 ## Task 6: final push status
 
-See git push output in execution log — recorded below.
+**`git push origin claude/charming-elion`**: **SUCCESS** — new remote branch created at `https://github.com/nicoreincarnate-oss/objective-hertz/pull/new/claude/charming-elion`. All 4 new commits (`154b1aa`, `d224cb8`, `0feb09d`, `e08095f`) plus all earlier Wave R1/R2/R3 commits are now offsite-backed on GitHub.
+
+**Not committed (intentionally, out of scope for this plan)**:
+- `M .gitignore`, `M scripts/migrate_to_litellm.py`, `M shared/verifier/grammar_compiler.py` — linter-applied changes from P0-10 / P0-11 (already landed via linter; tree-hash already matches the prior commits but working tree shows them as modified — pre-existing noise not introduced by this plan)
+- `?? .planning/PROJECT.md`, `?? .planning/ROADMAP.md`, `?? .planning/config.json`, `?? .planning/phases/01-audit-recovery/01-0*-PLAN.md` — GSD scaffolding and plan files from earlier in the overnight run; will be swept up in Phase 2 cleanup
 
 ## Deviations from Plan
 
