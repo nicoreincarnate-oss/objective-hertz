@@ -6,12 +6,12 @@
     <string>com.perseus.openjarvis</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/opt/perseus/repo/.venv/bin/python3</string>
         <string>-m</string>
         <string>openjarvis.daemon</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/objective-hertz</string>
+    <string>/opt/perseus/repo</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -31,7 +31,7 @@
         <key>LOG_TO_STDOUT</key>
         <string>0</string>
         <key>PERSEUS_DOTENV</key>
-        <string>/Users/majovega/Desktop/objective-hertz/.env</string>
+        <string>/opt/perseus/repo/.env</string>
     </dict>
 </dict>
 </plist>

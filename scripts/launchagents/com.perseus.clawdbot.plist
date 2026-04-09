@@ -6,12 +6,12 @@
     <string>com.perseus.clawdbot</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/opt/perseus/repo/.venv/bin/python3</string>
         <string>-m</string>
         <string>clawdbot.daemon</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/objective-hertz</string>
+    <string>/opt/perseus/repo</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -19,9 +19,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/clawdbot-launchd.log</string>
+    <string>/opt/perseus/repo/logs/clawdbot-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/clawdbot-launchd-err.log</string>
+    <string>/opt/perseus/repo/logs/clawdbot-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

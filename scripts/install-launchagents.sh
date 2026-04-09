@@ -8,19 +8,52 @@ TARGET_DIR="$HOME/Library/LaunchAgents"
 
 echo "Installing Perseus LaunchAgents..."
 
-for plist in com.perseus.master.plist com.perseus.titan.plist com.perseus.clawdbot.plist com.perseus.dashboard.plist com.perseus.frontend.plist; do
-    cp "$PLIST_DIR/$plist" "$TARGET_DIR/$plist"
-    echo "  Installed $plist"
+# Core daemons (always installed)
+CORE_PLISTS=(
+    com.perseus.master.plist
+    com.perseus.titan.plist
+    com.perseus.clawdbot.plist
+    com.perseus.hermes.plist
+    com.perseus.conway.plist
+    com.perseus.deerflow.plist
+    com.perseus.ruflo.plist
+    com.perseus.openjarvis.plist
+    com.perseus.dashboard.plist
+    com.perseus.frontend.plist
+    com.perseus.browser-use.plist
+    com.perseus.backup.plist
+    com.perseus.clawdbot-health.plist
+)
+
+# Local-tier plists (installed but kept unloaded until Phase 42.5 cutover)
+LOCAL_TIER_PLISTS=(
+    com.perseus.parakeet.plist
+    com.perseus.kokoro.plist
+    com.perseus.mem0.plist
+    com.perseus.n8n.plist
+)
+
+mkdir -p "$TARGET_DIR"
+
+for plist in "${CORE_PLISTS[@]}"; do
+    if [ -f "$PLIST_DIR/$plist" ]; then
+        cp "$PLIST_DIR/$plist" "$TARGET_DIR/$plist"
+        echo "  Installed $plist"
+    else
+        echo "  ⚠ Skipping $plist (not found in $PLIST_DIR)"
+    fi
+done
+
+for plist in "${LOCAL_TIER_PLISTS[@]}"; do
+    if [ -f "$PLIST_DIR/$plist" ]; then
+        cp "$PLIST_DIR/$plist" "$TARGET_DIR/$plist"
+        echo "  Installed $plist (local-tier — load manually after Phase 42.5 cutover)"
+    fi
 done
 
 echo ""
-echo "Syncing Hermes soul + local skills..."
-bash "$(dirname "$SCRIPT_DIR")/scripts/sync-hermes-agent.sh"
-
-echo ""
-echo ""
 echo "Building frontend (required before first LaunchAgent start)..."
-FRONTEND_DIR="$(dirname "$SCRIPT_DIR")/hermes/web/frontend"
+FRONTEND_DIR="/opt/perseus/repo/hermes/web/frontend"
 if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     cd "$FRONTEND_DIR"
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
@@ -28,27 +61,24 @@ if [ -d "$FRONTEND_DIR" ] && [ -f "$FRONTEND_DIR/package.json" ]; then
     echo "  ✓ Frontend built"
     cd "$SCRIPT_DIR"
 else
-    echo "  ⚠ Frontend not found — com.perseus.frontend will fail until it's built"
+    echo "  ⚠ Frontend not found at $FRONTEND_DIR — com.perseus.frontend will fail until it's built"
 fi
 
 echo ""
-echo "To start now:"
-echo "  launchctl load ~/Library/LaunchAgents/com.perseus.master.plist"
-echo "  launchctl load ~/Library/LaunchAgents/com.perseus.titan.plist"
-echo "  launchctl load ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
-echo "  launchctl load ~/Library/LaunchAgents/com.perseus.dashboard.plist"
-echo "  launchctl load ~/Library/LaunchAgents/com.perseus.frontend.plist"
-echo "  hermes gateway install"
-echo "  hermes gateway start"
+echo "To start core daemons now:"
+for plist in "${CORE_PLISTS[@]}"; do
+    echo "  launchctl load ~/Library/LaunchAgents/$plist"
+done
 echo ""
-echo "To stop:"
-echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.master.plist"
-echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.titan.plist"
-echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.clawdbot.plist"
-echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.dashboard.plist"
-echo "  launchctl unload ~/Library/LaunchAgents/com.perseus.frontend.plist"
-echo "  hermes gateway stop"
+echo "To start local-tier daemons (Phase 42.5 cutover only):"
+for plist in "${LOCAL_TIER_PLISTS[@]}"; do
+    echo "  launchctl load ~/Library/LaunchAgents/$plist"
+done
+echo ""
+echo "To stop all:"
+for plist in "${CORE_PLISTS[@]}" "${LOCAL_TIER_PLISTS[@]}"; do
+    echo "  launchctl unload ~/Library/LaunchAgents/$plist"
+done
 echo ""
 echo "Perseus workers + dashboard will auto-start on login and restart if they crash."
-echo "Official Hermes is managed by its own launchd service."
-echo "Dashboard: http://localhost:3000"
+echo "Dashboard: http://localhost:8500"

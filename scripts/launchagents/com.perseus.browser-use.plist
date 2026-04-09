@@ -8,10 +8,10 @@
     <array>
         <string>/bin/bash</string>
         <string>-lc</string>
-        <string>cd /Users/majovega/Desktop/Projects/objective-hertz &amp;&amp; /opt/homebrew/bin/uv run --project /Users/majovega/Desktop/Projects/objective-hertz/tools/browser-use python /Users/majovega/Desktop/Projects/objective-hertz/scripts/browser-use-sidecar-server.py</string>
+        <string>cd /opt/perseus/repo &amp;&amp; /opt/homebrew/bin/uv run --project /opt/perseus/repo/tools/browser-use python /opt/perseus/repo/scripts/browser-use-sidecar-server.py</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz</string>
+    <string>/opt/perseus/repo</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -19,9 +19,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/browser-use-launchd.log</string>
+    <string>/opt/perseus/repo/logs/browser-use-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/Projects/objective-hertz/logs/browser-use-launchd-err.log</string>
+    <string>/opt/perseus/repo/logs/browser-use-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

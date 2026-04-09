@@ -7,13 +7,30 @@ source "$SCRIPT_DIR/../.env" 2>/dev/null || true
 
 FAILURES=""
 
-# Check Docker containers
-for CONTAINER in perseus-postgres perseus-qdrant perseus-mem0 perseus-n8n; do
-    STATUS=$(docker inspect --format='{{.State.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
-    if [[ "$STATUS" != "running" ]]; then
-        FAILURES="${FAILURES}\n❌ $CONTAINER: $STATUS"
-    fi
-done
+# Check native Postgres
+if ! pg_isready -q -h localhost -p 5432 2>/dev/null; then
+    FAILURES="${FAILURES}\n❌ Postgres: not accepting connections on :5432"
+fi
+
+# Check native Qdrant
+if ! curl -sf http://localhost:6333/healthz &>/dev/null; then
+    FAILURES="${FAILURES}\n❌ Qdrant: not responding on :6333"
+fi
+
+# Check native Redis
+if ! redis-cli ping &>/dev/null; then
+    FAILURES="${FAILURES}\n❌ Redis: not responding"
+fi
+
+# Check Mem0
+if ! curl -sf http://localhost:8888/healthz &>/dev/null; then
+    FAILURES="${FAILURES}\n❌ Mem0: not responding on :8888"
+fi
+
+# Check N8N
+if ! curl -sf http://localhost:5678/healthz &>/dev/null; then
+    FAILURES="${FAILURES}\n❌ N8N: not responding on :5678"
+fi
 
 # Check Ollama
 if ! curl -sf http://localhost:11434/api/tags &>/dev/null; then

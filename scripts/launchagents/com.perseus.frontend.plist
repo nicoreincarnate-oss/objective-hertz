@@ -14,7 +14,7 @@
         <string>0.0.0.0</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/majovega/Desktop/objective-hertz/hermes/web/frontend</string>
+    <string>/opt/perseus/repo/hermes/web/frontend</string>
     <key>KeepAlive</key>
     <true/>
     <key>ThrottleInterval</key>
@@ -22,9 +22,9 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/frontend-launchd.log</string>
+    <string>/opt/perseus/repo/logs/frontend-launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/majovega/Desktop/objective-hertz/logs/frontend-launchd-err.log</string>
+    <string>/opt/perseus/repo/logs/frontend-launchd-err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
