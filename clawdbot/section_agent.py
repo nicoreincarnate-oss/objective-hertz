@@ -504,6 +504,8 @@ async def _call_llm(prompt: str, *, model: str = "smart") -> str:
         max_tokens=4096,
         temperature=0.4,
         pipeline_stage="section_agent_generate",
+        operation="clawdbot.section_agent_generate",
+        daemon_name="clawdbot",
     )
 
 

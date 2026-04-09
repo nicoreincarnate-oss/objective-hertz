@@ -233,6 +233,8 @@ async def _llm_score_dimensions(content: str, context: str) -> dict[str, float]:
             model="fast",
             max_tokens=200,
             temperature=0.0,
+            operation="shared.score_anti_slop",
+            daemon_name="openjarvis",
         )
         # Parse JSON from response
         # Try to extract JSON from the response even if there's surrounding text
@@ -359,7 +361,8 @@ async def rewrite_loop(
                 issues=_format_issues(current_scores),
                 content=current_content[:3000],
             )
-            rewrite = await llm.generate(prompt, model="fast", max_tokens=2048, temperature=0.7)
+            rewrite = await llm.generate(prompt, model="fast", max_tokens=2048, temperature=0.7,
+                                         operation="shared.rewrite_anti_slop", daemon_name="openjarvis")
             if rewrite and rewrite.strip():
                 new_scores = await scorer.score(rewrite.strip(), context)
                 versions.append((rewrite.strip(), new_scores))

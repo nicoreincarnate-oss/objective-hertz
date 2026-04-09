@@ -535,6 +535,7 @@ class WebChoreArenaTaskEnv:
                 model=os.environ.get("JUDGE_MODEL", "gpt-4o"),
                 temperature=0.0,
                 max_tokens=768,
+                operation="openjarvis._call_judge", daemon_name="openjarvis",
             )
         except Exception as exc:
             LOGGER.warning("LLM judge call failed: %s", exc)

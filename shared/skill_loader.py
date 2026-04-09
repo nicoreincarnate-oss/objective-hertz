@@ -165,6 +165,8 @@ async def execute_skill(
         prompt=task_prompt + ctx,
         system=skill_content,
         model=model,
+        operation="shared.execute_skill",
+        daemon_name="openjarvis",
     )
     return result
 

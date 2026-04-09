@@ -82,6 +82,8 @@ async def simulate_prospect_reactions(
                 f"}}",
                 model="smart",
                 temperature=0.5,
+                operation="shared.simulate_prospect",
+                daemon_name="openjarvis",
             )
 
             start = result.find("{")

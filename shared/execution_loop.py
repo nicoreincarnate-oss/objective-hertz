@@ -86,7 +86,8 @@ Return JSON:
   {{"name": "...", "prompt": "...", "check_description": "..."}}
 ]}}"""
 
-    result = await llm.generate(prompt, model=model, temperature=0.3, max_tokens=2000)
+    result = await llm.generate(prompt, model=model, temperature=0.3, max_tokens=2000,
+                                operation="shared.plan_execution", daemon_name="openjarvis")
 
     try:
         start = result.find("{")
@@ -199,6 +200,8 @@ async def _execute_step(
             max_tokens=step.max_tokens,
             temperature=step.temperature,
             pipeline_stage=f"loop:{plan.name}:{step.name}",
+            operation="shared.execute_step",
+            daemon_name="openjarvis",
         )
         step.result = result
 

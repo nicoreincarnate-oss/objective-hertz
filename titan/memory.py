@@ -1075,6 +1075,8 @@ async def _check_contradiction(new_insight: dict) -> dict | None:
         model="local-heavy",
         temperature=0.1,
         pipeline_stage="titan:memory:contradiction_check",
+        operation="titan._check_contradiction",
+        daemon_name="titan",
     )
 
     try:
@@ -1224,6 +1226,8 @@ async def _consolidate_namespace(user_id: str) -> dict:
                 model="local-heavy",
                 temperature=0.2,
                 pipeline_stage="titan:memory:graphrag_consolidation",
+                operation="titan._consolidate_namespace",
+                daemon_name="titan",
             )
 
             start = result.find("[")
@@ -1489,6 +1493,8 @@ async def _attribute_silence(client_id: int, email_seq_id: int | None = None):
             f"\"effect\": \"silence\", \"confidence\": 0.0-1.0}}",
             model="fast",
             temperature=0.2,
+            operation="titan._attribute_silence",
+            daemon_name="titan",
         )
         start = result.find("{")
         end = result.rfind("}") + 1
@@ -1573,6 +1579,8 @@ async def re_enrich_active_leads() -> dict:
                 model="local-heavy",
                 temperature=0.1,
                 pipeline_stage="titan:memory:re_enrich_diff",
+                operation="titan.re_enrich_active_leads",
+                daemon_name="titan",
             )
             start = diff_result.find("{")
             end = diff_result.rfind("}") + 1
@@ -1650,6 +1658,8 @@ async def update_prospect_state(client_id: int, event_type: str, data: dict) -> 
                     f"(e.g. 'interested', 'skeptical', 'annoyed', 'friendly', 'neutral', 'hostile'): "
                     f"{body}",
                     model="fast", temperature=0.1,
+                    operation="titan.update_prospect_state",
+                    daemon_name="titan",
                 )
                 tone_label = tone.strip()[:30].lower()
                 current.setdefault("tone_history", []).append(tone_label)

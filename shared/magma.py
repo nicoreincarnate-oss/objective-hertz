@@ -573,6 +573,8 @@ async def magma_consolidate(node_id: str) -> bool:
             model="local-heavy",
             temperature=0.1,
             pipeline_stage="memory:causal_inference",
+            operation="shared.magma_causal_inference",
+            daemon_name="openjarvis",
         )
         start = llm_result.find("{")
         end = llm_result.rfind("}") + 1
@@ -1049,6 +1051,8 @@ async def _decompose_query(query: str, client_id: int | None = None) -> dict:
                 model="local-heavy",
                 temperature=0.0,
                 pipeline_stage="memory:query_decompose",
+                operation="shared.magma_query_decompose",
+                daemon_name="openjarvis",
             )
             start = result.find("{")
             end = result.rfind("}") + 1

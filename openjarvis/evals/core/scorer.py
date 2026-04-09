@@ -47,6 +47,7 @@ class LLMJudgeScorer(Scorer):
             system=system,
             temperature=temperature,
             max_tokens=max_tokens,
+            operation="openjarvis._ask_judge", daemon_name="openjarvis",
         )
 
 

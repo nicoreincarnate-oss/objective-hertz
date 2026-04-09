@@ -267,6 +267,7 @@ class RLMAgent(ToolUsingAgent):
             model=self._sub_model,
             temperature=self._sub_temperature,
             max_tokens=self._sub_max_tokens,
+            operation="openjarvis._make_sub_query", daemon_name="openjarvis",
         )
 
         # Single-turn tool resolution
@@ -299,6 +300,7 @@ class RLMAgent(ToolUsingAgent):
                 model=self._sub_model,
                 temperature=self._sub_temperature,
                 max_tokens=self._sub_max_tokens,
+                operation="openjarvis._make_sub_query", daemon_name="openjarvis",
             )
             return followup.get("content", "")
 

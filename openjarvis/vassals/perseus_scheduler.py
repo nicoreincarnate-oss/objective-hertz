@@ -395,6 +395,7 @@ class PerseusScheduler:
                 f"What should we do differently?\n"
                 f"Return JSON: {{\"schedule\": [\"task1\", \"task2\"], \"reasoning\": \"why\"}}",
                 model="smart", max_tokens=400, temperature=0.3,
+                operation="openjarvis._llm_strategic_override", daemon_name="openjarvis",
             )
             match = re.search(r'\{[^}]+\}', response)
             if match:

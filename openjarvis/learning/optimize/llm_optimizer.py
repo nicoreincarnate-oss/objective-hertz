@@ -63,6 +63,7 @@ class LLMOptimizer:
             system="You are an expert AI systems optimizer.",
             temperature=0.7,
             max_tokens=2048,
+            operation="openjarvis.propose_initial", daemon_name="openjarvis",
         )
         return self._parse_config_response(response)
 
@@ -85,6 +86,7 @@ class LLMOptimizer:
             system="You are an expert AI systems optimizer.",
             temperature=0.7,
             max_tokens=2048,
+            operation="openjarvis.propose_next", daemon_name="openjarvis",
         )
         return self._parse_config_response(response)
 
@@ -111,6 +113,7 @@ class LLMOptimizer:
             system="You are an expert AI systems analyst.",
             temperature=0.3,
             max_tokens=2048,
+            operation="openjarvis.analyze_trial", daemon_name="openjarvis",
         )
         return self._parse_feedback_response(response)
 
@@ -421,6 +424,7 @@ class LLMOptimizer:
             system="You are an expert AI systems optimizer.",
             temperature=0.7,
             max_tokens=2048,
+            operation="openjarvis.propose_targeted", daemon_name="openjarvis",
         )
         proposed = self._parse_config_response(response)
 
@@ -453,6 +457,7 @@ class LLMOptimizer:
             system="You are an expert AI systems optimizer.",
             temperature=0.7,
             max_tokens=2048,
+            operation="openjarvis.propose_merge", daemon_name="openjarvis",
         )
         return self._parse_config_response(response)
 

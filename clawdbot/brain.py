@@ -78,6 +78,7 @@ Return JSON only:
         pipeline_stage="clawdbot_orchestration",
         use_dna=True,
         daemon_name="clawdbot",
+        operation="clawdbot.route_task",
     )
 
     try:

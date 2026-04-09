@@ -130,6 +130,7 @@ class SelfConsistencyChecker:
                     pipeline_stage=f"{pipeline_stage}_consistency_{i+1}",
                     max_tokens=max_tokens,
                     temperature=self.temperature,
+                    operation="shared.consistency_sample",
                 )
                 responses.append(extra)
             except Exception as exc:

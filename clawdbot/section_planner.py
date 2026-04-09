@@ -494,6 +494,8 @@ async def _fill_missing_content(content: dict[str, Any], section_type: str) -> d
             max_tokens=800,
             temperature=0.7,
             pipeline_stage="section_planner_content_fill",
+            operation="clawdbot.fill_missing_content",
+            daemon_name="clawdbot",
         )
 
         import json

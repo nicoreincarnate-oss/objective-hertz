@@ -802,6 +802,8 @@ Output ONLY the complete HTML. No explanation."""
         max_tokens=6000,
         temperature=0.5,
         pipeline_stage=f"site_build_{page_name}",
+        operation="clawdbot._build_single_page",
+        daemon_name="clawdbot",
     )
 
     html = _extract_html(result)
@@ -820,6 +822,8 @@ Output ONLY the complete HTML. No explanation."""
             max_tokens=6000,
             temperature=0.4,
             pipeline_stage=f"site_build_{page_name}_retry",
+            operation="clawdbot._build_single_page_retry",
+            daemon_name="clawdbot",
         )
         retry_html = _extract_html(retry_result)
         if retry_html:
@@ -1456,6 +1460,8 @@ Return JSON:
             max_tokens=1200,
             temperature=0.3,
             pipeline_stage="site_strategy",
+            operation="clawdbot._generate_reference_strategy",
+            daemon_name="clawdbot",
         )
         start = result.find("{")
         end = result.rfind("}") + 1
@@ -1751,6 +1757,8 @@ Output ONLY the HTML code, no explanation."""
         max_tokens=8000,
         temperature=0.7,
         pipeline_stage="site_build",
+        operation="clawdbot._v0_variant",
+        daemon_name="clawdbot",
     )
 
     # Extract HTML from response
@@ -1863,6 +1871,8 @@ Return JSON:
         max_tokens=1500,
         temperature=0.2,
         pipeline_stage="site_review",
+        operation="clawdbot._review_and_synthesize",
+        daemon_name="clawdbot",
     )
 
     try:
@@ -2020,6 +2030,8 @@ Output ONLY the HTML code."""
         max_tokens=8000,
         temperature=0.5,
         pipeline_stage="site_build_final",
+        operation="clawdbot._build_final",
+        daemon_name="clawdbot",
     )
 
     return _extract_html(fallback)

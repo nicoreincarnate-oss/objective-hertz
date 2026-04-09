@@ -232,7 +232,8 @@ class EvolveEngine:
                 prompt,
                 model=model,
                 max_tokens=max_tokens,
-                daemon_name="evolve",
+                daemon_name="openjarvis",
+                operation="shared.evolve_generate",
             )
         # Estimate cost: input + output tokens at Haiku rates ($0.001/1K)
         input_tokens = _estimate_token_count(prompt)

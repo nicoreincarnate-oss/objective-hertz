@@ -68,6 +68,7 @@ class JarvisDirectBackend(InferenceBackend):
         result = self._system.engine.generate(
             messages, model=model,
             temperature=temperature, max_tokens=max_tokens,
+            operation="openjarvis.generate_full", daemon_name="openjarvis",
         )
         elapsed = time.monotonic() - t0
 

@@ -162,6 +162,7 @@ class BaseAgent(ABC):
             model=self._model,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
+            operation="openjarvis._generate", daemon_name="openjarvis",
             **extra_kwargs,
         )
 

@@ -76,7 +76,10 @@ class LLMTool(BaseTool):
             messages.append(Message(role=Role.SYSTEM, content=system))
         messages.append(Message(role=Role.USER, content=prompt))
         try:
-            result = self._engine.generate(messages, model=self._model)
+            result = self._engine.generate(
+                messages, model=self._model,
+                operation="openjarvis.execute", daemon_name="openjarvis",
+            )
             content = result.get("content", "")
             return ToolResult(
                 tool_name="llm",

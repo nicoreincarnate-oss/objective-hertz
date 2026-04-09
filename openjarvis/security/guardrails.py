@@ -192,7 +192,8 @@ class GuardrailsEngine(InferenceEngine):
         # Call wrapped engine
         response = self._engine.generate(
             messages, model=model, temperature=temperature,
-            max_tokens=max_tokens, **kwargs,
+            max_tokens=max_tokens, operation="openjarvis.generate",
+            daemon_name="openjarvis", **kwargs,
         )
 
         # Scan output

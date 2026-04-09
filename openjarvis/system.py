@@ -101,6 +101,7 @@ class JarvisSystem:
         result = self.engine.generate(
             messages, model=self.model,
             temperature=temperature, max_tokens=max_tokens,
+            operation="openjarvis.ask", daemon_name="openjarvis",
         )
         return {
             "content": result.get("content", ""),

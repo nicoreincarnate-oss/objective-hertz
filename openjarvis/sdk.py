@@ -312,6 +312,7 @@ class Jarvis:
             model=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
+            operation="openjarvis.ask_full", daemon_name="openjarvis",
         )
 
         return {

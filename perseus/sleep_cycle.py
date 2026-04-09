@@ -331,7 +331,8 @@ Return JSON:
 
     result = await llm.generate(prompt, model="genius", temperature=0.3, max_tokens=3000,
                                  pipeline_stage="sleep_cycle_alpha",
-                                 use_dna=True, daemon_name="perseus")
+                                 use_dna=True, daemon_name="perseus",
+                                 operation="perseus.sleep_cycle_alpha")
 
     try:
         start = result.find("{")
@@ -456,7 +457,8 @@ Return JSON:
 
     result = await llm.generate(prompt, model="genius", temperature=0.4, max_tokens=2500,
                                  pipeline_stage="sleep_cycle_beta",
-                                 use_dna=True, daemon_name="perseus")
+                                 use_dna=True, daemon_name="perseus",
+                                 operation="perseus.sleep_cycle_beta")
 
     try:
         start = result.find("{")

@@ -373,6 +373,8 @@ async def _handle_code_review(payload: dict) -> dict:
         result = await llm.generate(
             f"Review this code for bugs, security issues, and performance problems:\n{payload.get('code', '')[:3000]}",
             model="smart",
+            operation="ruflo.code_review",
+            daemon_name="ruflo",
         )
         return {"status": "reviewed", "findings": result}
     except Exception as e:
@@ -389,6 +391,8 @@ async def _handle_security_scan(payload: dict) -> dict:
         result = await llm.generate(
             f"Security audit this code. Flag: injection, XSS, auth bypass, info leak, insecure defaults.\n{payload.get('code', '')[:3000]}",
             model="smart",
+            operation="ruflo.security_scan",
+            daemon_name="ruflo",
         )
         return {"status": "scanned", "findings": result}
     except Exception as e:
@@ -416,6 +420,8 @@ async def _handle_test_generate(payload: dict) -> dict:
         result = await llm.generate(
             f"Generate pytest tests for this code:\n{payload.get('code', '')[:3000]}",
             model="smart",
+            operation="ruflo.generate_tests",
+            daemon_name="ruflo",
         )
         return {"status": "generated", "tests": result}
     except Exception as e:

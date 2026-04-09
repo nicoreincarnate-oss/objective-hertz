@@ -58,6 +58,8 @@ async def generate_weight_directive(
             f'  "rationale": "why this layer controls this behavior"\n'
             f"}}",
             model="smart",
+            operation="shared.infer_weight_directive",
+            daemon_name="openjarvis",
             temperature=0.2,
         )
         start = result.find("{")

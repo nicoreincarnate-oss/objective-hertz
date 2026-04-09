@@ -83,6 +83,8 @@ Return ONLY valid JSON, no markdown fencing."""
         max_tokens=1500,
         temperature=0.4,
         pipeline_stage="single_prompt_experiment",
+        operation="titan.run_single_prompt_experiment",
+        daemon_name="titan",
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
 

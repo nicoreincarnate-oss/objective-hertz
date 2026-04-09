@@ -1440,6 +1440,8 @@ async def handle_enrich_lead(payload: dict):
             "Return ONLY the email address, or 'none' if not found.",
             model="fast",
             temperature=0,
+            operation="clawdbot.enrich_lead_email",
+            daemon_name="clawdbot",
         )
         email = extraction.strip().lower()
         if "@" in email and email != "none":

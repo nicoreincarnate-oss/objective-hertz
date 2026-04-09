@@ -88,6 +88,7 @@ class VoiceIntentRouter:
                 pipeline_stage="jarvis_voice_intent",
                 max_tokens=500,
                 temperature=0.2,
+                operation="hermes.route_voice_intent",
             )
         except Exception as exc:
             logger.error("Intent router LLM failed: %s", exc)

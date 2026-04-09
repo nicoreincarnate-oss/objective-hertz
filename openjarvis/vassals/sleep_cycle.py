@@ -173,7 +173,8 @@ Return JSON:
 ]}}"""
 
     result = await llm.generate(prompt, model="genius", temperature=0.3, max_tokens=3000,
-                                 pipeline_stage="sleep_cycle_alpha")
+                                 pipeline_stage="sleep_cycle_alpha",
+                                 operation="openjarvis._run_alpha", daemon_name="openjarvis")
 
     try:
         start = result.find("{")
@@ -218,7 +219,8 @@ Return JSON:
 ]}}"""
 
     result = await llm.generate(prompt, model="genius", temperature=0.4, max_tokens=2500,
-                                 pipeline_stage="sleep_cycle_beta")
+                                 pipeline_stage="sleep_cycle_beta",
+                                 operation="openjarvis._run_beta", daemon_name="openjarvis")
 
     try:
         start = result.find("{")

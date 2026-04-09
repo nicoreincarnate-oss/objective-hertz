@@ -357,6 +357,8 @@ Return ONLY a JSON array. No explanation."""
                 max_tokens=2000,
                 temperature=0.1,
                 pipeline_stage="scout:evaluate_findings",
+                operation="perseus.evaluate_scout_findings",
+                daemon_name="perseus",
             )
             start = result.find("[")
             end = result.rfind("]") + 1

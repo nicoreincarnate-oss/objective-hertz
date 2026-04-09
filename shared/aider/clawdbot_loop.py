@@ -320,6 +320,7 @@ async def _call_architect(llm_client: Any, lead_profile: dict, tier: TierName) -
         pipeline_stage="aider_architect",
         max_tokens=3000,
         temperature=0.4,
+        operation="clawdbot.aider_architect",
     )
     return _parse_page_plan(response, tier.value)
 
@@ -343,6 +344,7 @@ async def _call_editor(
         pipeline_stage="aider_editor",
         max_tokens=4000,
         temperature=0.4,
+        operation="clawdbot.aider_editor",
     )
     return _strip_html_fences(response)
 

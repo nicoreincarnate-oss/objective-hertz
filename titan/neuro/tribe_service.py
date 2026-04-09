@@ -110,6 +110,8 @@ async def _haiku_fallback_scores(text: str) -> np.ndarray:
             model="auto",
             max_tokens=100,
             temperature=0.1,
+            operation="titan.score_with_llm",
+            daemon_name="titan",
         )
         data = json.loads(response.strip())
         scores = np.array([[

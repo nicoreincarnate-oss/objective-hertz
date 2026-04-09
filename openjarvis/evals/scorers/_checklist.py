@@ -120,6 +120,7 @@ class ChecklistScorer:
                 system="You are a precise evaluator. Answer YES or NO for each item.",
                 temperature=0.0,
                 max_tokens=1024,
+                operation="openjarvis.score_checklist", daemon_name="openjarvis",
             )
         except Exception as exc:
             LOGGER.error("Checklist judge failed: %s", exc)

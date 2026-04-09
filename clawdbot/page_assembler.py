@@ -540,6 +540,8 @@ async def _generate_inner_page_content(
             max_tokens=2048,
             temperature=0.5,
             pipeline_stage="page_assembler_inner_page",
+            operation="clawdbot.assemble_inner_page",
+            daemon_name="clawdbot",
         )
         # Extract section HTML
         from clawdbot.section_agent import extract_section_html

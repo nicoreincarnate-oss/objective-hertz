@@ -97,6 +97,7 @@ class TraceJudge:
             system=_SYSTEM_PROMPT,
             temperature=0.0,
             max_tokens=1024,
+            operation="openjarvis.score_trace", daemon_name="openjarvis",
         )
         score = _parse_score(response)
         return score, response

@@ -90,6 +90,8 @@ async def classify_reply_intent(reply_text: str) -> str:
             f"Reply: {reply_text[:500]}",
             model="fast",
             temperature=0.0,
+            operation="titan.classify_reply_intent",
+            daemon_name="titan",
         )
         intent = result.strip().lower().replace(" ", "_")
         valid = {"price_objection", "feature_request", "timing_concern", "ready_to_buy", "walkaway"}
@@ -165,6 +167,8 @@ async def generate_counter_offer(
             f"{context}\nWrite a professional, warm counter-offer response (3-4 sentences).",
             model="smart",
             temperature=0.4,
+            operation="titan.generate_counter_offer",
+            daemon_name="titan",
         )
 
         return {

@@ -137,6 +137,7 @@ class AgentExecutor:
             model=model,
             max_tokens=config.get("max_tokens", 256),
             temperature=config.get("temperature", 0.0),
+            operation="openjarvis._invoke_one_shot", daemon_name="openjarvis",
         )
 
         content = result.get("content", "")

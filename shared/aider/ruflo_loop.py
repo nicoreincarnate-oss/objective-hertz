@@ -293,6 +293,7 @@ async def _call_architect(
         pipeline_stage="aider_architect",
         max_tokens=1500,
         temperature=0.3,
+        operation="ruflo.aider_architect",
     )
     return _parse_plan(response, tier.value)
 
@@ -319,6 +320,7 @@ async def _call_editor(
         pipeline_stage="aider_editor",
         max_tokens=4000,
         temperature=0.2,
+        operation="ruflo.aider_editor",
     )
     diff = _extract_diff(response)
     return FixPatch(

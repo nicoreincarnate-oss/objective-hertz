@@ -287,6 +287,7 @@ Return ONLY JSON."""
             prompt, model="smart", max_tokens=1500, temperature=0.1,
             pipeline_stage="self_audit",
             use_dna=True, daemon_name="perseus",
+            operation="perseus.run_self_audit",
         )
         start = result.find("{")
         end = result.rfind("}") + 1

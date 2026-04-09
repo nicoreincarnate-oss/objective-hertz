@@ -29,7 +29,8 @@ def instrumented_generate(
 
     t0 = time.time()
     result = engine.generate(
-        messages, model=model, temperature=temperature, max_tokens=max_tokens, **kwargs
+        messages, model=model, temperature=temperature, max_tokens=max_tokens,
+        operation="openjarvis.instrumented_generate", daemon_name="openjarvis", **kwargs
     )
     latency = time.time() - t0
 

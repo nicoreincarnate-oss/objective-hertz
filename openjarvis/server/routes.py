@@ -134,6 +134,7 @@ def _handle_direct(
             model=model,
             temperature=req.temperature,
             max_tokens=req.max_tokens,
+            operation="openjarvis._handle_direct", daemon_name="openjarvis",
             **kwargs,
         )
     content = result.get("content", "")

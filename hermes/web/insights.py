@@ -70,6 +70,7 @@ Rules:
         max_tokens=500,
         use_dna=True,
         daemon_name="hermes",
+        operation="hermes.generate_insights",
     )
 
     try:

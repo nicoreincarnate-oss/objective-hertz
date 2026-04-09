@@ -127,6 +127,8 @@ async def _llm_summarize(prompt: str) -> str | None:
                 max_tokens=SUMMARY_MAX_TOKENS,
                 temperature=0.3,
                 pipeline_stage="consolidator",
+                operation="shared.consolidate",
+                daemon_name="openjarvis",
             )
             if isinstance(result, str) and result.strip():
                 return result.strip()

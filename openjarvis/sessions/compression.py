@@ -110,6 +110,7 @@ class ModelSummarization(BaseCompressor):
                 model=self._model,
                 max_tokens=300,
                 temperature=0.0,
+                operation="openjarvis.compress", daemon_name="openjarvis",
             )
             summary_text = (
                 response.content

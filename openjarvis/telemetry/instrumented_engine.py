@@ -92,18 +92,21 @@ class InstrumentedEngine(InferenceEngine):
             with self._energy_monitor.sample() as energy_sample:
                 result = self._inner.generate(
                     messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    max_tokens=max_tokens,
+                    operation="openjarvis.generate", daemon_name="openjarvis", **kwargs,
                 )
         elif self._gpu_monitor is not None:
             with self._gpu_monitor.sample() as gpu_sample:
                 result = self._inner.generate(
                     messages, model=model, temperature=temperature,
-                    max_tokens=max_tokens, **kwargs,
+                    max_tokens=max_tokens,
+                    operation="openjarvis.generate", daemon_name="openjarvis", **kwargs,
                 )
         else:
             result = self._inner.generate(
                 messages, model=model, temperature=temperature,
-                max_tokens=max_tokens, **kwargs,
+                max_tokens=max_tokens,
+                operation="openjarvis.generate", daemon_name="openjarvis", **kwargs,
             )
 
         latency = time.time() - t0

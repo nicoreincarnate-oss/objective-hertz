@@ -478,6 +478,7 @@ def ask(
                 model=model_name,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                operation="openjarvis.ask", daemon_name="openjarvis",
             )
     except EngineConnectionError as exc:
         console.print(f"[red]Engine error:[/red] {exc}")
